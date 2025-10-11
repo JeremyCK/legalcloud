@@ -1,0 +1,1 @@
+// Copied from transfer-fee/table/tbl-recon-list.blade.php. Update references to E-Invoice as needed.

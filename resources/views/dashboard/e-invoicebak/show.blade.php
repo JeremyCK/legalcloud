@@ -1,0 +1,1 @@
+// Copied from transfer-fee/show.blade.php. Update references to E-Invoice as needed.

@@ -1,0 +1,384 @@
+<div class="col-12">
+    <div id="div-invoice-summary-details" class="row"></div>
+</div>
+
+<div class="col-12">
+    <div class="box-tools">
+        @if (App\Http\Controllers\AccessController::UserAccessPermissionController(App\Http\Controllers\PermissionController::AccessInvoicePermission()) == true)
+
+
+            <table class="table mb-0">
+                <tbody>
+                    <tr>
+                        <td class="fw-medium"><b>Invoice No (Main)</b></td>
+                        <td id="lbl_invoice_no">{{ $LoanCaseBillMain->invoice_no }}</td>
+                    </tr>
+                    <tr>
+                        <td class="fw-medium"><b>Invoice Date</b></td>
+                        <td><b class="invoice-date">{{ date('d-m-Y', strtotime($LoanCaseBillMain->invoice_date)) }}</b>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="fw-medium"><b>Bill To</b>
+                        </td>
+                        <td id="lbl_bill_to_party"></td>
+                    </tr>
+                    <tr>
+                        <td class="fw-medium"><b>Status</b></td>
+                        <td id="lbl_invoice_status">
+                            <b>
+                                @if ($LoanCaseBillMain->transferred_pfee_amt > 0)
+                                    <span style="color:red">Pfee transffered for this invoice, edit featured
+                                        disabled</span>
+                                @endif
+                            </b>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="btn-group">
+                <button type="button" class="btn btn-info btn-lg">Action</button>
+                <button type="button" class="btn btn-info btn- dropdown-toggle" data-toggle="dropdown">
+                    <span class="caret"></span>
+                    <span class="sr-only">Toggle Dropdown</span>
+                </button>
+                <div class="dropdown-menu" style="padding:0">
+
+                    @php
+                        $today = \Carbon\Carbon::parse($LoanCaseBillMain->invoice_date);
+                        $targetDate = \Carbon\Carbon::parse('2025-06-23');
+                    @endphp
+
+                    @if ($today < $targetDate)
+                        <div class="dropdown-divider" style="margin:0"></div>
+                        <a class="dropdown-item btn-success" href="javascript:void(0)" onclick="invoicePrintMode();"
+                            style="color:white"><i class="cil-print" style="margin-right: 10px;"></i> <span></span>Print
+                            Invoice
+                            <div class="dropdown-divider" style="margin:0"></div>
+                    @endif
+
+
+                    <a class="dropdown-item btn-warning" href="javascript:void(0)" data-backdrop="static"
+                        data-keyboard="false" data-keyboard="false" data-toggle="modal" data-target="#modalInvoiceDate"
+                        onclick="InvoiceDateModal();" style="color:white;margin:0"><i style="margin-right: 10px;"
+                            class="cil-calendar"></i>Update
+                        Invoice Date</a>
+
+                    {{-- @if (count($InvoiceBillingParty) == 0)
+                        <a class="dropdown-item bg-purple" href="javascript:void(0)" data-backdrop="static"
+                            data-keyboard="false" data-keyboard="false" data-toggle="modal"
+                                onclick="AddPartyInvoiceMode();"
+                            data-target="#modalAddBillto" onclick="" style="color:white;margin:0"><i
+                                style="margin-right: 10px;" class="cil-calendar"></i>Add Invoice recipient</a>
+                    @endif --}}
+
+                             @if (count($InvoiceBillingParty) > 0)
+                                <a id="btn_split_invoice" class="dropdown-item " href="javascript:void(0)"
+                                onclick="confirmSplitInvoice();"
+                                style="color:white;margin:0;background-color:purple"><i style="margin-right: 10px;"
+                                    class="cil-action-undo"></i>Split Invoice</a>
+                        @endif
+
+
+                    <a class="dropdown-item btn-info" href="javascript:void(0)" data-backdrop="static"
+                        data-keyboard="false" data-keyboard="false" data-toggle="modal"
+                        data-target="#modalCloseFileUpdate" onclick="" style="color:white;margin:0"><i
+                            style="margin-right: 10px;" class="cil-calendar"></i>Quick Update Master List</a>
+
+                    @if ($case->status != 0 && $LoanCaseBillMain->transferred_pfee_amt <= 0 && $LoanCaseBillMain->bln_sst != 1)
+                        <a id="btn_revert_invoice1" class="dropdown-item btn-danger" href="javascript:void(0)"
+                            onclick="revertToQuotation();" style="color:white;margin:0"><i style="margin-right: 10px;"
+                                class="cil-action-undo"></i>Revert Invoice</a>
+
+                        <a id="btn_revert_invoice2" class="dropdown-item " href="javascript:void(0)"
+                            onclick="revertToQuotationWithReserveINVNo();"
+                            style="color:white;margin:0;background-color:orange"><i style="margin-right: 10px;"
+                                class="cil-action-undo"></i>Revert Invoice with reserve running no</a>
+
+               
+                           
+                    @endif
+
+
+                </div>
+            </div>
+            <br />
+            <span class="text-danger"> For new invoice, need to add invoice recipient for E-invoice purpose</span>
+        @endif
+
+    </div>
+</div>
+
+<div style="margin-top:30px;">
+    <table class="table table-striped table-bordered datatable">
+        <thead>
+            <tr class="text-center">
+                <th>No</th>
+                <th>Item</th>
+                <th>Quotation Amount (RM)</th>
+                @if (in_array($current_user->menuroles, ['account', 'admin', 'management', 'sales', 'clerk', 'lawyer', 'maker']))
+                    <th class="">Invoice Base Amount (RM)</th>
+                    <th class="">SST (<span class="lbl_sst_rate">0</span>%)</th>
+                    <th class="">Invoice Amount + SST (RM)</th>
+                @endif
+            </tr>
+        </thead>
+        <tbody id="tbl-invoice-bill">
+
+            <?php
+            $total = 0;
+            $totalSST = 0;
+            $totalOri = 0;
+            $totalEdit = 0;
+            $subtotal = 0;
+            $totalNoSST = 0;
+            $sstTotal = 0;
+            $sumSST = 0;
+            
+            $sst_rate = $LoanCaseBillMain->sst_rate * 0.01;
+            ?>
+            @if (count($invoice))
+                @foreach ($invoice as $index => $cat)
+                    <tr style="background-color:grey;color:white">
+                        @if (
+                            $current_user->menuroles == 'account' ||
+                                $current_user->menuroles == 'admin' ||
+                                $current_user->menuroles == 'management' ||
+                                $current_user->menuroles == 'maker')
+                            <td class="quotation-colspan" colspan="6">{{ $cat['category']->category }}
+                                @if ($LoanCaseBillMain->bln_sst == 0 && $LoanCaseBillMain->transferred_pfee_amt <= 0)
+                                    <button class="btn btn-info float-right " data-backdrop="static"
+                                        data-keyboard="false"
+                                        onclick="addAccountItemModalInvoice('{{ $cat['category']->id }}')"
+                                        data-toggle="modal" data-target="#accountItemModalInvoice" type="button"><i
+                                            class="cil-plus"></i>Add </button>
+                                @endif
+                            </td>
+                        @elseif($current_user->menuroles == 'sales' || in_array($current_user->id, [51, 32, 13]))
+                            <td class="quotation-colspan" colspan="6">{{ $cat['category']->category }}<button
+                                    class="btn btn-info float-right " data-backdrop="static" data-keyboard="false"
+                                    onclick="addAccountItemModalInvoice('{{ $cat['category']->id }}')"
+                                    data-toggle="modal" data-target="#accountItemModalInvoice" type="button"><i
+                                        class="cil-plus"></i>Add </button></td>
+                        @else
+                            <td class="quotation-colspan" colspan="3">{{ $cat['category']->category }}</td>
+                        @endif
+
+                        <?php
+                        $subtotal = 0;
+                        $subtotalGST = 0;
+                        $subtotalnosset = 0;
+                        $subtotalOri = 0;
+                        $subtotalEdit = 0;
+            $sumSST = 0;
+                        ?>
+                    </tr>
+                    <?php $category_amount = 0; ?>
+                    @foreach ($cat['account_details'] as $index => $details)
+                        <?php
+                        if ($cat['category']->id == 1 || $cat['category']->id == 4) {
+                            $subtotalGST += round($details->ori_invoice_amt * (1 + $sst_rate), 2);
+                            $sumSST += round($details->ori_invoice_amt * $sst_rate, 2);
+                        } else {
+                            $subtotalGST += round($details->ori_invoice_amt, 2);
+                        }
+                        
+                        $subtotal += round($details->ori_invoice_amt, 2);
+                        
+                        $subtotalnosset += $details->quo_amount;
+                        $subtotalOri += $details->quo_amount;
+                        $subtotalEdit += $details->quo_amount;
+                        ?>
+
+                        <tr>
+                            <td class="text-center" style="width:50px">
+                                <input class="form-control" type="hidden" value="{{ $details->quo_amount }}"
+                                    id="quo_amount_{{ $details->id }}">
+                                <input class="form-control" type="hidden" value="0"
+                                    id="bln_modified_{{ $details->id }}">
+                                <input type="hidden" name="account_item_id" value="{{ $details->account_item_id }}"
+                                    id="account_item_id_{{ $details->id }}">
+                                <div class="checkbox">
+                                    @if ($cat['category']->id != 1)
+                                        <input type="checkbox" name="case_bill" value="{{ $details->id }}"
+                                            id="chk_{{ $details->id }}"
+                                            @if ($details->ori_invoice_amt == 0) disabled @endif>
+                                    @else
+                                    @endif
+
+                                    <label for="chk_{{ $details->id }}">{{ $index + 1 }}</label>
+                                </div>
+                            </td>
+                            <td class="hide" id="item_id_{{ $details->id }}">{{ $details->id }}</td>
+                            <td id="item_{{ $details->id }}">{{ $details->account_name }} @if($LoanCaseBillMain->isChinese == 1) {{ $details->account_name_cn }} @endif
+                                @if ($cat['category']->id == 1 || $cat['category']->id == 4)
+                                    @if ($details->item_remark)
+                                        <hr />
+                                        {!! $details->item_remark !!}
+                                    @else
+                                        @if ($details->item_desc)
+                                            <hr />
+                                            {!! $details->item_desc !!}
+                                        @endif
+                                    @endif
+                                @endif
+                            </td>
+                            <td class="text-right" id="amt_{{ $details->id }}">
+                                {{ number_format($details->quo_amount, 2, '.', ',') }}</td>
+
+                            @if (in_array($current_user->menuroles, ['account', 'admin', 'management', 'maker', 'sales']) ||
+                                    in_array($current_user->id, [51, 32, 13]))
+                                <td class="text-right" id="amt_quo_{{ $details->id }}">
+                                    {{-- {{ number_format($details->amount, 2, '.', ',') }} --}}
+                                    {{ number_format($details->ori_invoice_amt, 2, '.', ',') }}
+                            @endif
+
+                            @if (in_array($current_user->menuroles, ['account', 'admin', 'management', 'maker', 'sales']) ||
+                                    in_array($current_user->id, [51, 32, 13]))
+                                @if ($LoanCaseBillMain->bln_sst == 0 && $LoanCaseBillMain->transferred_pfee_amt <= 0)
+                                    <a href="javascript:void(0)" data-backdrop="static" data-keyboard="false"
+                                        onclick="editInvoiceModal('{{ $details->ori_invoice_amt }}','{{ $details->id }}','{{ $cat['category']->id }}',1,'{{ $details->account_name }}')"
+                                        data-toggle="modal" data-target="#myModalInvoice"
+                                        class="btn btn-xs btn-primary"><i class="cil-pencil"></i></a>
+                                @endif
+                            @endif
+
+                            </td>
+                            @if (in_array($current_user->menuroles, ['account', 'admin', 'management', 'maker', 'sales']) ||
+                                    in_array($current_user->id, [51, 32, 13]))
+                                <td class="text-right" id="amt_sst_{{ $details->id }}">
+                                    @if ($cat['category']->id == 1 || $cat['category']->id == 4)
+                                        {{ number_format($details->ori_invoice_amt * $sst_rate, 2, '.', ',') }}
+                                    @else
+                                        -
+                                    @endif
+
+                                    <?php
+                                    if ($cat['category']->id == 1 || $cat['category']->id == 4) {
+                                        $sstTotal += $details->ori_invoice_amt * $sst_rate;
+                                    }
+                                    ?>
+                                <td class="text-right" id="amt_sst_quo_{{ $details->id }}">
+                                    @if ($cat['category']->id == 1 || $cat['category']->id == 4)
+                                        {{ number_format($details->ori_invoice_amt * (1 + $sst_rate), 2, '.', ',') }}
+                                    @else
+                                        {{ number_format($details->ori_invoice_amt, 2, '.', ',') }}
+                                    @endif
+                                    @if ($LoanCaseBillMain->bln_sst == 0 && $LoanCaseBillMain->transferred_pfee_amt <= 0)
+                                        <a href="javascript:void(0)"
+                                            onclick="deleteInvoiceItem('{{ $details->id }}')"
+                                            class="btn btn-xs btn-danger"><i class="cil-x"></i></a>
+                                    @endif
+                                </td>
+                            @endif
+
+                        </tr>
+                    @endforeach
+
+                    <?php
+                    $total += $subtotal;
+                    $totalSST += $subtotalGST;
+                    $totalOri += $subtotalOri;
+                    $totalEdit += $subtotalEdit;
+                    $totalNoSST += $subtotalnosset;
+                    ?>
+
+                    <tr>
+                        <td>Sub Total</td>
+                        <td style="text-align:right" colspan="2">RM
+                            {{ number_format($subtotalnosset, 2, '.', ',') }}</td>
+
+                        @if (in_array($current_user->menuroles, ['account', 'admin', 'management', 'maker', 'sales']) ||
+                                in_array($current_user->id, [51, 32, 13]))
+                            <td style="text-align:right">RM {{ number_format($subtotal, 2, '.', ',') }}</td>
+                            <td class="" style="text-align:right"
+                                id="sub_total_ori_{{ $cat['category']->code }}">
+                                @if ($cat['category']->id == 1 || $cat['category']->id == 4)
+                                    RM {{ number_format((float) $sumSST, 2, '.', ',') }}
+                                @else
+                                    -
+                                @endif
+                            </td>
+
+                            <td class="" style="text-align:right"
+                                id="sub_total_edit_{{ $cat['category']->code }}">
+                                RM {{ number_format((float) $subtotalGST, 2, '.', ',') }}
+                            </td>
+                        @endif
+
+                    </tr>
+                @endforeach
+
+                <tr>
+                    <td>Total</td>
+                    <td style="text-align:right" class="quotation-total-colspan" colspan="2"> RM
+                        {{ number_format((float) $totalNoSST, 2, '.', ',') }}</td>
+                    @if (in_array($current_user->menuroles, ['account', 'admin', 'management', 'maker', 'sales']) ||
+                            in_array($current_user->id, [51, 32, 13]))
+                        <td style="text-align:right" class=""> RM
+                            {{ number_format((float) $total, 2, '.', ',') }}</td>
+                        <td style="text-align:right" class="" id="total_edit"> RM
+                            {{ number_format($sumSST, 2, '.', ',') }}
+                        </td>
+                        <td style="text-align:right" class="" id="total_edit"> RM
+                            {{ number_format($totalSST, 2, '.', ',') }}
+                        </td>
+                    @endif
+                </tr>
+            @else
+                <tr>
+                    <td class="text-center" colspan="5">No data</td>
+                </tr>
+            @endif
+
+        </tbody>
+    </table>
+</div>
+
+<script>
+function confirmSplitInvoice() {
+    Swal.fire({
+        title: 'Split Invoice',
+        text: 'Are you sure you want to split this invoice? This will create a new invoice with divided amounts.',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, Split Invoice',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#3085d6',
+        cancelButtonColor: '#d33',
+    }).then((result) => {
+        if (result.isConfirmed) {
+            $("#div_full_screen_loading").show();
+            
+            var form_data = new FormData();
+            form_data.append("case_id", {{ $case->id }});
+            
+            $.ajax({
+                type: 'POST',
+                url: '/splitInvoice/{{ $LoanCaseBillMain->id }}',
+                data: form_data,
+                processData: false,
+                contentType: false,
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                },
+                success: function(data) {
+                    $("#div_full_screen_loading").hide();
+                    if (data.status == 1) {
+                        Swal.fire('Success!', data.message, 'success').then(() => {
+                            location.reload();
+                        });
+                    } else {
+                        Swal.fire('Error!', data.message, 'error');
+                    }
+                },
+                error: function(xhr, status, error) {
+                    $("#div_full_screen_loading").hide();
+                    Swal.fire('Error!', 'An error occurred while splitting the invoice.', 'error');
+                }
+            });
+        }
+    });
+}
+</script>
