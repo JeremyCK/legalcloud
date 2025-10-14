@@ -207,6 +207,7 @@ class EInvoiceContollerV2 extends Controller
                     'a.account_cat_id',
                     'ac.category as category_name',
                     'ac.classification_code',
+                    'ac.order as category_order',
                     'm.value as property_title',
                     'm2.value as purchaser_finacier',
                     'm3.value as borrower',
@@ -219,11 +220,8 @@ class EInvoiceContollerV2 extends Controller
                 ->distinct() // Add distinct to eliminate duplicates
                 ->orderBy('im.invoice_no', 'asc')
                 ->orderBy('ibp.customer_code', 'asc')
-                ->orderByRaw('CASE 
-                    WHEN a.account_cat_id = 1 THEN 1 
-                    WHEN a.account_cat_id = 4 THEN 2 
-                    ELSE a.account_cat_id 
-                END ASC')
+                ->orderBy('ac.order', 'asc')
+                ->orderBy('a.name', 'asc')
                 ->get();
 
             // return $einvoiceDetails;
@@ -645,6 +643,7 @@ class EInvoiceContollerV2 extends Controller
                     'a.account_cat_id',
                     'ac.category as category_name',
                     'ac.classification_code',
+                    'ac.order as category_order',
                     'm.value as property_title',
                     'm2.value as purchaser_finacier',
                     'm3.value as borrower',
@@ -659,11 +658,8 @@ class EInvoiceContollerV2 extends Controller
                 ->groupBy('b.invoice_no', 'ibp.customer_code')
                 ->orderBy('b.invoice_no', 'asc')
                 ->orderBy('ibp.customer_code', 'asc')
-                ->orderByRaw('CASE 
-                    WHEN a.account_cat_id = 1 THEN 1 
-                    WHEN a.account_cat_id = 4 THEN 2 
-                    ELSE a.account_cat_id 
-                END ASC')
+                ->orderBy('ac.order', 'asc')
+                ->orderBy('a.name', 'asc')
                 ->get();
 
             // return $einvoiceDetails;
