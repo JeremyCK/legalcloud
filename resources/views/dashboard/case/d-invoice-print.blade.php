@@ -266,13 +266,23 @@
                                         // }
 
                                         if ($row['category']->taxable == '1') {
-                                            $row_sst = round($details->amount * $sst_rate, 2);
+                                            // Simple rule: always round down when third decimal is 5
+                                            $sst_calculation = $details->amount * $sst_rate;
+                                            $sst_string = number_format($sst_calculation, 3, '.', '');
+                                            
+                                            // Check if third decimal is 5 and round down
+                                            if (substr($sst_string, -1) == '5') {
+                                                $row_sst = floor($sst_calculation * 100) / 100; // Round down
+                                            } else {
+                                                $row_sst = round($sst_calculation, 2); // Normal rounding
+                                            }
+                                            
                                             $totalSST += $row_sst;
                                             $pf_total += $details->amount;
-                                            $total_sub_main +=
-                                                $details->amount + round($details->amount * $sst_rate, 2);
-                                            $total_amount_main +=
-                                                $details->amount + round($details->amount * $sst_rate, 2);
+                                            
+                                            // For totals, use the rounded individual SST
+                                            $total_sub_main += $details->amount + $row_sst;
+                                            $total_amount_main += $details->amount + $row_sst;
                                         } else {
                                             $stamP_duties_count += 1;
                                             $total_sub_main += $details->amount;
@@ -379,7 +389,7 @@
                                                 style="font-size:15px">Grand Total :</b></span> </td>
                                     <td style="text-align:right;padding:0px !important;padding-right:10px !important;"
                                         colspan="5"><b style="font-size:15px">
-                                            {{ number_format(floor($total_amount_main), 2, '.', ',') }}</b></td>
+                                            {{ number_format($total_amount_main, 2, '.', ',') }}</b></td>
 
                                 </tr>
                             @endif

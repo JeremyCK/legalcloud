@@ -221,7 +221,6 @@ class EInvoiceContollerV2 extends Controller
                 ->orderBy('im.invoice_no', 'asc')
                 ->orderBy('ibp.customer_code', 'asc')
                 ->orderBy('ac.order', 'asc')
-                ->orderBy('a.name', 'asc')
                 ->get();
 
             // return $einvoiceDetails;
