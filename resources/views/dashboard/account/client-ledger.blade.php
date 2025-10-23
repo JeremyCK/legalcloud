@@ -172,7 +172,7 @@
 
                                 <div class="col-sm-12">
                                     <a class="btn btn-lg btn-success  float-left" href="javascript:void(0)"
-                                        onclick="fnExcelReport();">
+                                        onclick="exportClientLedgerToExcel();">
                                         <i class="fa fa-file-excel-o"> </i>Download as Excel
                                     </a>
                                 </div>
@@ -300,77 +300,54 @@
             link.click();
         }
 
-        function fnExcelReport() {
-            var tab_text = "<table border='2px'><tr bgcolor='#87AFC6'>";
-            var textRange;
-            var j = 0;
-            tab = document.getElementById('tbl-ledger-data'); // id of table
+        function exportClientLedgerToExcel() {
+            var form_data = new FormData();
+            
+            form_data.append("status", $("#ddl-status").val());
+            form_data.append("year", $("#ddl_year").val());
+            form_data.append("mon", $("#ddl_month").val());
+            form_data.append("branch_id", $("#branch_id").val());
+            form_data.append("bank_id", $("#bank_id").val());
 
-            if ($("#ddl-bank-account").val() == 0) {
-                return;
-            }
+            $.ajaxSetup({
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                }
+            });
 
-            for (j = 0; j < tab.rows.length; j++) {
-                tab_text = tab_text + tab.rows[j].innerHTML + "</tr>";
-                //tab_text=tab_text+"</tr>";
-            }
+            $("#div_full_screen_loading").show();
 
-            tab_text = tab_text + "</table>";
-            tab_text = tab_text.replace(/<A[^>]*>|<\/A>/g, ""); //remove if u want links in your table
-            tab_text = tab_text.replace(/<img[^>]*>/gi, ""); // remove if u want images in your table
-            tab_text = tab_text.replace(/<input[^>]*>|<\/input>/gi, ""); // reomves input params
-
-            var ua = window.navigator.userAgent;
-            var msie = ua.indexOf("MSIE ");
-
-            filename = 'bank_ledger_' + $("#selected_bank").html('') + '_' + Date.now() + '.xls';
-
-            if (msie > 0 || !!navigator.userAgent.match(/Trident.*rv\:11\./)) // If Internet Explorer
-            {
-                txtArea1.document.open("txt/html", "replace");
-                txtArea1.document.write(tab_text);
-                txtArea1.document.close();
-                txtArea1.focus();
-                sa = txtArea1.document.execCommand("SaveAs", true, filename);
-            } else //other browser not tested on IE 11
-            {
-                sa = window.open('data:application/vnd.ms-excel,' + encodeURIComponent(tab_text));
-            }
-
-            return (sa);
-        }
-
-        function exportTableToExcel() {
-            var downloadLink;
-            var dataType = 'application/vnd.ms-excel';
-            var tableSelect = document.getElementById('tbl-ledger-data');
-            var tableHTML = tableSelect.outerHTML.replace(/ /g, '%20');
-
-            filename = 'invoice_report' + Date.now();
-
-            // Specify file name
-            filename = filename ? filename + '.xls' : 'excel_data.xls';
-
-            // Create download link element
-            downloadLink = document.createElement("a");
-
-            document.body.appendChild(downloadLink);
-
-            if (navigator.msSaveOrOpenBlob) {
-                var blob = new Blob(['\ufeff', tableHTML], {
-                    type: dataType
-                });
-                navigator.msSaveOrOpenBlob(blob, filename);
-            } else {
-                // Create a link to the file
-                downloadLink.href = 'data:' + dataType + ', ' + tableHTML;
-
-                // Setting the file name
-                downloadLink.download = filename;
-
-                //triggering the function
-                downloadLink.click();
-            }
+            $.ajax({
+                type: 'POST',
+                data: form_data,
+                processData: false,
+                contentType: false,
+                url: '/exportClientLedger',
+                xhrFields: {
+                    responseType: 'blob'
+                },
+                success: function(data, status, xhr) {
+                    $("#div_full_screen_loading").hide();
+                    
+                    // Get filename from response headers
+                    var filename = 'client_ledger_' + $("#ddl_year").val() + '_' + $("#ddl_month").val() + '_' + new Date().toISOString().split('T')[0] + '.xlsx';
+                    
+                    // Create blob and download
+                    var blob = new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                    var link = document.createElement('a');
+                    link.href = window.URL.createObjectURL(blob);
+                    link.download = filename;
+                    link.click();
+                    window.URL.revokeObjectURL(link.href);
+                    
+                    toastController('Excel file downloaded successfully');
+                },
+                error: function(xhr, status, error) {
+                    $("#div_full_screen_loading").hide();
+                    console.error('Export failed:', error);
+                    toastController('Export failed: ' + error, 'error');
+                }
+            });
         }
     </script>
     <!-- <script src="{{ asset('js/paperfish/jquery-2.2.4.min.js') }}"></script> -->

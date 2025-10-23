@@ -2065,7 +2065,42 @@ class TransferFeeV3Controller extends Controller
             $LedgerEntries->type = 'REIMB_OUT';
             $LedgerEntries->save();
 
-            // Note: Removed Reimbursement In entries to match SST behavior (only Out entries)
+            // Reimbursement In (OLD SYSTEM - LedgerEntries)
+            $LedgerEntries = new LedgerEntries();
+            $LedgerEntries->transaction_id = $TransferFeeMain->transaction_id;
+            $LedgerEntries->case_id = $LoanCaseBillMain->case_id;
+            $LedgerEntries->loan_case_main_bill_id = $LoanCaseBillMain->id;
+            $LedgerEntries->user_id = auth()->user()->id;
+            $LedgerEntries->key_id = $TransferFeeDetails->id;
+            $LedgerEntries->transaction_type = 'D';
+            $LedgerEntries->amount = $reimbursement_amount;
+            $LedgerEntries->bank_id = $TransferFeeMain->transfer_to;
+            $LedgerEntries->remark = $TransferFeeMain->purpose;
+            $LedgerEntries->status = 1;
+            $LedgerEntries->created_at = date('Y-m-d H:i:s');
+            $LedgerEntries->date = $TransferFeeMain->transfer_date;
+            $LedgerEntries->type = 'REIMBIN';
+            $LedgerEntries->save();
+
+            // Reimbursement In (NEW SYSTEM - LedgerEntriesV2)
+            $LedgerEntries = new LedgerEntriesV2();
+            $LedgerEntries->transaction_id = $TransferFeeMain->transaction_id;
+            $LedgerEntries->case_id = $LoanCaseBillMain->case_id;
+            $LedgerEntries->loan_case_main_bill_id = $LoanCaseBillMain->id;
+            $LedgerEntries->loan_case_invoice_main_id = $LoanCaseInvoiceMain->id;
+            $LedgerEntries->user_id = auth()->user()->id;
+            $LedgerEntries->key_id = $TransferFeeMain->id;
+            $LedgerEntries->key_id_2 = $TransferFeeDetails->id;
+            $LedgerEntries->transaction_type = 'D';
+            $LedgerEntries->amount = $reimbursement_amount;
+            $LedgerEntries->bank_id = $TransferFeeMain->transfer_to;
+            $LedgerEntries->remark = $TransferFeeMain->purpose;
+            $LedgerEntries->status = 1;
+            $LedgerEntries->is_recon = 0;
+            $LedgerEntries->created_at = date('Y-m-d H:i:s');
+            $LedgerEntries->date = $TransferFeeMain->transfer_date;
+            $LedgerEntries->type = 'REIMB_IN';
+            $LedgerEntries->save();
         }
 
         // Create reimbursement SST ledger entries if applicable
@@ -2104,10 +2139,45 @@ class TransferFeeV3Controller extends Controller
             $LedgerEntries->is_recon = 0;
             $LedgerEntries->created_at = date('Y-m-d H:i:s');
             $LedgerEntries->date = $TransferFeeMain->transfer_date;
-            $LedgerEntries->type = 'REIMB_SST_OUT';
+            $LedgerEntries->type = 'REIMBSST_OUT';
             $LedgerEntries->save();
 
-            // Note: Removed Reimbursement SST In entries to match SST behavior (only Out entries)
+            // Reimbursement SST In (OLD SYSTEM - LedgerEntries)
+            $LedgerEntries = new LedgerEntries();
+            $LedgerEntries->transaction_id = $TransferFeeMain->transaction_id;
+            $LedgerEntries->case_id = $LoanCaseBillMain->case_id;
+            $LedgerEntries->loan_case_main_bill_id = $LoanCaseBillMain->id;
+            $LedgerEntries->user_id = auth()->user()->id;
+            $LedgerEntries->key_id = $TransferFeeDetails->id;
+            $LedgerEntries->transaction_type = 'D';
+            $LedgerEntries->amount = $reimbursement_sst_amount;
+            $LedgerEntries->bank_id = $TransferFeeMain->transfer_to;
+            $LedgerEntries->remark = $TransferFeeMain->purpose;
+            $LedgerEntries->status = 1;
+            $LedgerEntries->created_at = date('Y-m-d H:i:s');
+            $LedgerEntries->date = $TransferFeeMain->transfer_date;
+            $LedgerEntries->type = 'REIMBSSTIN';
+            $LedgerEntries->save();
+
+            // Reimbursement SST In (NEW SYSTEM - LedgerEntriesV2)
+            $LedgerEntries = new LedgerEntriesV2();
+            $LedgerEntries->transaction_id = $TransferFeeMain->transaction_id;
+            $LedgerEntries->case_id = $LoanCaseBillMain->case_id;
+            $LedgerEntries->loan_case_main_bill_id = $LoanCaseBillMain->id;
+            $LedgerEntries->loan_case_invoice_main_id = $LoanCaseInvoiceMain->id;
+            $LedgerEntries->user_id = auth()->user()->id;
+            $LedgerEntries->key_id = $TransferFeeMain->id;
+            $LedgerEntries->key_id_2 = $TransferFeeDetails->id;
+            $LedgerEntries->transaction_type = 'D';
+            $LedgerEntries->amount = $reimbursement_sst_amount;
+            $LedgerEntries->bank_id = $TransferFeeMain->transfer_to;
+            $LedgerEntries->remark = $TransferFeeMain->purpose;
+            $LedgerEntries->status = 1;
+            $LedgerEntries->is_recon = 0;
+            $LedgerEntries->created_at = date('Y-m-d H:i:s');
+            $LedgerEntries->date = $TransferFeeMain->transfer_date;
+            $LedgerEntries->type = 'REIMBSST_IN';
+            $LedgerEntries->save();
         }
     }
 

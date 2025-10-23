@@ -1042,6 +1042,22 @@ class EInvoiceContoller extends Controller
         $loan_case_main_bill_id = $LoanCaseInvoiceMain->loan_case_main_bill_id;
         $case_id = LoanCaseBillMain::where('id', $loan_case_main_bill_id)->pluck('case_id');
 
+        // Check if this invoice is already in transfer fee records
+        $transferFeeDetails = \App\Models\TransferFeeDetails::where('loan_case_invoice_main_id', $id)->get();
+        
+        if ($transferFeeDetails->isNotEmpty()) {
+            // Get transfer fee main information for better error message
+            $transferFeeMainIds = $transferFeeDetails->pluck('transfer_fee_main_id')->unique();
+            $transferFeeMains = \App\Models\TransferFeeMain::whereIn('id', $transferFeeMainIds)->get();
+            
+            $transferIds = $transferFeeMains->pluck('transaction_id')->implode(', ');
+            
+            return response()->json([
+                'status' => 0, 
+                'message' => 'Cannot remove invoice. This invoice is already included in transfer fee record(s): ' . $transferIds . '. Please remove it from transfer fee first.'
+            ], 400);
+        }
+
         InvoiceBillingParty::where('invoice_main_id', $id)->update(['invoice_main_id' => 0]); 
         $LoanCaseInvoiceMain->delete();
 

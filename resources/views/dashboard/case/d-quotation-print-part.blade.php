@@ -18,7 +18,7 @@
     <div class="col-4">
 
         <h2 class="text-center" style="position:absolute;bottom:0;left:40%;font-weight:bold">
-            Quotation
+            Pro forma Invoice
         </h2>
 
     </div>
@@ -74,7 +74,7 @@
             </div>
 
             <div class="col-4">
-                <b>Quotation No:</b>
+                <b>Proforma Invoice No:</b>
             </div>
             <div class="col-6 ">
                 {{ $LoanCaseBillMain->bill_no }}

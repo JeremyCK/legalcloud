@@ -73,12 +73,12 @@
                                 style="margin-right: 10px;" class="cil-calendar"></i>Add Invoice recipient</a>
                     @endif --}}
 
-                             @if (count($InvoiceBillingParty) > 0)
+                             {{-- @if (count($InvoiceBillingParty) > 0) --}}
                                 <a id="btn_split_invoice" class="dropdown-item " href="javascript:void(0)"
                                 onclick="confirmSplitInvoice();"
                                 style="color:white;margin:0;background-color:purple"><i style="margin-right: 10px;"
                                     class="cil-action-undo"></i>Split Invoice</a>
-                        @endif
+                        {{-- @endif --}}
 
 
                     <a class="dropdown-item btn-info" href="javascript:void(0)" data-backdrop="static"

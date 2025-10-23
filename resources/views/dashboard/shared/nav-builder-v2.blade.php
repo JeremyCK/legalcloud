@@ -249,6 +249,9 @@
                             Account<div id="side_38"></div></a></li>
                 @endif
 
+                <li class="c-sidebar-nav-item"><a class="c-sidebar-nav-link"
+                        href="{{ route('data-repair.index') }}"><span class="c-sidebar-nav-icon"></span>Data Repair<div id="side_39"></div></a></li>
+
 
 
 

@@ -47,6 +47,13 @@ use App\Models\VoucherMain;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Yajra\DataTables\Facades\DataTables;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use App\Http\Controllers\AccessController;
+use App\Http\Controllers\PermissionController;
 
 class AccountController extends Controller
 {
@@ -3859,6 +3866,7 @@ class AccountController extends Controller
     {
         // $BankReconRecord = BankReconRecord::where('recon_date', '=', $request->input("recon_date"))->first();
 
+        $d = getdate();
         $BankReconRecord = BankReconRecord::whereMonth('recon_date', $d["month"])
             ->whereYear('recon_date', $d["year"])
             ->first();
@@ -5209,7 +5217,7 @@ class AccountController extends Controller
         $q = $request->input('q');
         $current_user = auth()->user();
 
-        $rows = \DB::table('loan_case_invoice_main as i')
+        $rows = DB::table('loan_case_invoice_main as i')
             ->leftJoin('loan_case_bill_main as b', 'i.loan_case_main_bill_id', '=', 'b.id')
             ->leftJoin('loan_case as l', 'l.id', '=', 'b.case_id')
             ->leftJoin('client as c', 'c.id', '=', 'l.customer_id')
@@ -5240,5 +5248,234 @@ class AccountController extends Controller
         });
 
         return response()->json($results);
+    }
+
+    /**
+     * Export Client Ledger to Excel
+     */
+    public function exportClientLedger(Request $request)
+    {
+        try {
+            $current_user = auth()->user();
+            
+            // Check permissions
+            if (AccessController::UserAccessPermissionController(PermissionController::ClientAccountBalancePermission()) == false) {
+                return response()->json([
+                    'status' => 0,
+                    'message' => 'Access denied'
+                ], 403);
+            }
+
+            $status = $request->input("status");
+            $year = $request->input("year");
+            $month = $request->input("mon");
+            $branch_id = $request->input("branch_id");
+            $bank_id = $request->input("bank_id");
+
+            // Get the same data as getClientLedger method
+            $rows = DB::table('loan_case as a');
+
+            if ($status != '') {
+                $rows = $rows->where('a.status', $status);
+            }
+
+            $last_day = Carbon::create($year, $month)->lastOfMonth()->format('Y-m-d');
+
+            if ($branch_id) {
+                $rows = $rows->where('a.branch_id', '=', $branch_id);
+            }
+
+            $rows = $rows->orderBy('a.created_at', 'asc')->get();
+
+            $total_credit = 0;
+            $total_debit = 0;
+
+            for ($i = 0; $i < count($rows); $i++) {
+                $credit = DB::table('ledger_entries_v2 as a')
+                    ->where('a.case_id', '=', $rows[$i]->id)
+                    ->whereNotIn('a.type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'SST_IN', 'TRANSFER_IN', 'CLOSEFILE_IN'])
+                    ->where('a.transaction_type', 'C')
+                    ->where('a.status', '<>', 99)
+                    ->where('a.date', '<=', $last_day)
+                    ->orderBy('a.date', 'ASC');
+
+                if ($bank_id) {
+                    $credit = $credit->where('a.bank_id', '=', $bank_id);
+                }
+
+                $credit = $credit->sum('amount');
+
+                $debit = DB::table('ledger_entries_v2 as a')
+                    ->where('a.case_id', '=', $rows[$i]->id)
+                    ->whereNotIn('a.type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'SST_IN', 'TRANSFER_IN', 'CLOSEFILE_IN'])
+                    ->where('a.transaction_type', 'D')
+                    ->where('a.status', '<>', 99)
+                    ->where('a.date', '<=', $last_day)
+                    ->orderBy('a.date', 'ASC');
+
+                if ($bank_id) {
+                    $debit = $debit->where('a.bank_id', '=', $bank_id);
+                }
+
+                $debit = $debit->sum('amount');
+
+                $rows[$i]->amount_ledger = $credit - $debit;
+            }
+
+            // Filter out zero amounts
+            $rows = $rows->filter(function($result) {
+                if ($result->amount_ledger != 0) {
+                    return true;
+                } else {
+                    return false;
+                }
+            });
+
+            // Prepare data for export
+            $exportData = [];
+            $rowNumber = 1;
+            $grandTotal = 0;
+
+            foreach ($rows as $row) {
+                $grandTotal += $row->amount_ledger;
+                
+                // Get status text
+                $statusText = '';
+                switch ($row->status) {
+                    case 0:
+                        $statusText = 'Closed';
+                        break;
+                    case 1:
+                        $statusText = 'In Progress';
+                        break;
+                    case 2:
+                        $statusText = 'Open';
+                        break;
+                    case 3:
+                        $statusText = 'KIV';
+                        break;
+                    case 4:
+                        $statusText = 'Pending Close';
+                        break;
+                    case 7:
+                        $statusText = 'Reviewing';
+                        break;
+                    case 99:
+                        $statusText = 'Aborted';
+                        break;
+                    default:
+                        $statusText = 'Unknown';
+                }
+
+                $exportData[] = [
+                    'No' => $rowNumber,
+                    'Client Account Group' => '004-1-' . $row->client_ledger_account_code . ': ' . $row->case_ref_no,
+                    'Ref No' => $row->case_ref_no,
+                    'Status' => $statusText,
+                    'Amount' => $row->amount_ledger
+                ];
+                
+                $rowNumber++;
+            }
+
+            // Add totals row
+            $exportData[] = [
+                'No' => 'TOTAL',
+                'Client Account Group' => '',
+                'Ref No' => '',
+                'Status' => '',
+                'Amount' => $grandTotal
+            ];
+
+            return $this->exportClientLedgerToExcel($exportData, $year, $month, $branch_id, $bank_id);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'Export failed: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Export data to Excel
+     */
+    private function exportClientLedgerToExcel($data, $year, $month, $branch_id, $bank_id)
+    {
+        $filename = 'client_ledger_' . $year . '_' . $month . '_' . date('Y-m-d') . '.xlsx';
+        
+        // Create new Spreadsheet object
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        
+        // Set title
+        $sheet->setCellValue('A1', 'Client Account Balance Report');
+        $sheet->mergeCells('A1:E1');
+        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
+        $sheet->getStyle('A1')->getAlignment()->setHorizontal('center');
+        
+        // Set subtitle
+        $sheet->setCellValue('A2', 'Year: ' . $year . ' | Month: ' . $month);
+        $sheet->mergeCells('A2:E2');
+        $sheet->getStyle('A2')->getFont()->setSize(12);
+        $sheet->getStyle('A2')->getAlignment()->setHorizontal('center');
+        
+        // Set headers
+        $headers = ['No', 'Client Account Group', 'Ref No', 'Status', 'Amount'];
+        $col = 'A';
+        $row = 4;
+        
+        foreach ($headers as $header) {
+            $sheet->setCellValue($col . $row, $header);
+            $col++;
+        }
+        
+        // Style headers
+        $headerRange = 'A4:E4';
+        $sheet->getStyle($headerRange)->getFont()->setBold(true);
+        $sheet->getStyle($headerRange)->getFill()
+            ->setFillType(Fill::FILL_SOLID)
+            ->getStartColor()->setRGB('D8DBE0');
+        $sheet->getStyle($headerRange)->getBorders()->getAllBorders()
+            ->setBorderStyle(Border::BORDER_THIN);
+        $sheet->getStyle($headerRange)->getAlignment()->setHorizontal('center');
+        
+        // Add data
+        $row = 5;
+        foreach ($data as $item) {
+            $col = 'A';
+            foreach ($item as $value) {
+                if ($col == 'E' && is_numeric($value)) { // Amount column
+                    $sheet->setCellValue($col . $row, $value);
+                    $sheet->getStyle($col . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+                } else {
+                    $sheet->setCellValue($col . $row, $value);
+                }
+                $col++;
+            }
+            $row++;
+        }
+        
+        // Style data rows
+        $dataRange = 'A5:E' . ($row - 1);
+        $sheet->getStyle($dataRange)->getBorders()->getAllBorders()
+            ->setBorderStyle(Border::BORDER_THIN);
+        
+        // Auto-size columns
+        foreach (range('A', 'E') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+        
+        // Set response headers
+        $response = response()->streamDownload(function() use ($spreadsheet) {
+            $writer = new Xlsx($spreadsheet);
+            $writer->save('php://output');
+        }, $filename);
+        
+        $response->headers->set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        $response->headers->set('Content-Disposition', 'attachment; filename="' . $filename . '"');
+        $response->headers->set('Cache-Control', 'max-age=0');
+        
+        return $response;
     }
 }

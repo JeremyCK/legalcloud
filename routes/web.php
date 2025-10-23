@@ -11,6 +11,7 @@
 |
 */
 
+
 use App\Http\Controllers\AccountCodeController;
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\AdjudicationController;
@@ -33,6 +34,7 @@ use App\Http\Controllers\EInvoiceContollerV2;
 use App\Http\Controllers\EInvoiceController;
 use App\Http\Controllers\TransferFeeV2Controller;
 use App\Http\Controllers\TransferFeeV3Controller;
+use App\Http\Controllers\DataRepairController;
 use App\Http\Controllers\FileController;
 use App\Http\Controllers\LandOfficeController;
 use App\Http\Controllers\LogsController;
@@ -313,7 +315,7 @@ Route::group(['middleware' => ['get.menu']], function () {
             Route::resource('audit-log',    'AuditLogController');
             Route::resource('activity-log',    'ActivityLogController');
             Route::resource('account-cat',    'AccountCategoryController');
-            Route::resource('account',    'AccountController');
+            Route::resource('account',    AccountController::class);
             Route::resource('account-item',    'AccountItemController');
             Route::resource('account-template',    'AccountTemplateController');
             Route::resource('checklist-template',    'ChecklistTemplateController');
@@ -362,8 +364,8 @@ Route::group(['middleware' => ['get.menu']], function () {
 
             
             Route::resource('clients',    'ClientsController');
-            Route::post('view_voucher/{paramter1}',        'AccountController@view');
-            Route::post('update_voucher',        'AccountController@update');
+            Route::post('view_voucher/{paramter1}',        [AccountController::class, 'view']);
+            Route::post('update_voucher',        [AccountController::class, 'update']);
 
             
             Route::post('update_mytodo_status/{paramter1}',        'MyTodoController@updateMyTodoStatus');
@@ -905,6 +907,7 @@ Route::get('transfer-fee-create', [AccountController::class, 'transferFeeCreate'
 
             Route::get('client-ledger', [AccountController::class, 'ClientLedger']);
             Route::post('getClientLedger', [AccountController::class, 'getClientLedger']);
+            Route::post('exportClientLedger', [AccountController::class, 'exportClientLedger']);
 
 
             
@@ -1244,3 +1247,11 @@ Route::post('/einvoice-billto/generate-client-link/{id}', [EInvoiceContoller::cl
 Route::post('/einvoice/send-to-sql', [EInvoiceContoller::class, 'sendInvoicesToSQL']);
 Route::post('/einvoice/send-to-lhdn', [EInvoiceContoller::class, 'sendInvoicesToLHDN']);
 Route::put('/einvoice/{id}', [EInvoiceContoller::class, 'updateEinvoice']);
+
+// Data Repair Routes (protected)
+Route::middleware(['auth'])->group(function () {
+    Route::get('/data-repair', [DataRepairController::class, 'index'])->name('data-repair.index');
+    Route::get('/data-repair/get-missing-entries', [DataRepairController::class, 'getMissingEntries'])->name('data-repair.get-missing-entries');
+    Route::post('/data-repair/fix-single-entry', [DataRepairController::class, 'fixSingleEntry'])->name('data-repair.fix-single-entry');
+    Route::post('/data-repair/fix-all-entries', [DataRepairController::class, 'fixAllEntries'])->name('data-repair.fix-all-entries');
+});

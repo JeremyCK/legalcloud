@@ -38,7 +38,7 @@
                     <div class="dropdown-divider" style="margin:0"></div>
                     <a class="dropdown-item btn-success" href="javascript:void(0)"
                         onclick="quotationPrintMode();" style="color:white"><i class="cil-print"
-                            style="margin-right: 10px;"></i> <span></span>Print Quotation
+                            style="margin-right: 10px;"></i> <span></span>Print Proforma Invoice
                     </a>
                     <div class="dropdown-divider" style="margin:0"></div>
                     @if(App\Http\Controllers\AccessController::UserAccessPermissionController(App\Http\Controllers\PermissionController::UpdateSSTRatePermission()) == true)

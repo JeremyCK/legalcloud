@@ -380,11 +380,23 @@
                                                                             </td>
                                                                             <td class="text-right"
                                                                                 style="font-size: 11px;">
-                                                                                {{ number_format(($detail->transfer_amount ?? 0) + ($detail->reimbursement_amount ?? 0), 2) }}
+                                                                                @php
+                                                                                    // Calculate actual transferred balance (pfee + reimbursement already transferred)
+                                                                                    $transferredPfee = $detail->transferred_pfee_amt ?? 0;
+                                                                                    $transferredReimbursement = $detail->transferred_reimbursement_amt ?? 0;
+                                                                                    $transferredBal = $transferredPfee + $transferredReimbursement;
+                                                                                @endphp
+                                                                                {{ number_format($transferredBal, 2) }}
                                                                             </td>
                                                                             <td class="text-right"
                                                                                 style="font-size: 11px;">
-                                                                                {{ number_format(($detail->sst_amount ?? 0) + ($detail->reimbursement_sst_amount ?? 0), 2) }}
+                                                                                @php
+                                                                                    // Calculate actual transferred SST (sst + reimbursement sst already transferred)
+                                                                                    $transferredSst = $detail->transferred_sst_amt ?? 0;
+                                                                                    $transferredReimbursementSst = $detail->transferred_reimbursement_sst_amt ?? 0;
+                                                                                    $transferredSstTotal = $transferredSst + $transferredReimbursementSst;
+                                                                                @endphp
+                                                                                {{ number_format($transferredSstTotal, 2) }}
                                                                             </td>
                                                                             <td style="font-size: 11px;">
                                                                                 @if($detail->payment_receipt_date)
@@ -435,10 +447,10 @@
                                                                             {{ number_format($TransferFeeDetails->sum(function ($detail) {return max(0, ($detail->reimbursement_sst ?? 0) - ($detail->transferred_reimbursement_sst_amt ?? 0));}),2) }}
                                                                         </th>
                                                                         <th class="text-right" id="footerTransferredBal">
-                                                                            {{ number_format($TransferFeeDetails->sum('transfer_amount') + $TransferFeeDetails->sum('reimbursement_amount'), 2) }}
+                                                                            {{ number_format($TransferFeeDetails->sum('transferred_pfee_amt') + $TransferFeeDetails->sum('transferred_reimbursement_amt'), 2) }}
                                                                         </th>
                                                                         <th class="text-right" id="footerTransferredSst">
-                                                                            {{ number_format($TransferFeeDetails->sum('sst_amount') + $TransferFeeDetails->sum('reimbursement_sst_amount'), 2) }}
+                                                                            {{ number_format($TransferFeeDetails->sum('transferred_sst_amt') + $TransferFeeDetails->sum('transferred_reimbursement_sst_amt'), 2) }}
                                                                         </th>
                                                                         <th></th>
                                                                     </tr>
