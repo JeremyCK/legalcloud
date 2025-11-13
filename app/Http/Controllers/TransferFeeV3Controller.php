@@ -995,12 +995,12 @@ class TransferFeeV3Controller extends Controller
             $sumCat4 = $details->where('account_cat_id', 4)->sum('amount');
             
             // Apply the correct formula
-            $detail->bill_total_amt_divided = round(
-                ($sumCat1 + ($sumCat1 * $sstRate)) + // Cat1 + SST
-                $sumCat2 + // Cat2 (no SST)
-                $sumCat3 + // Cat3 (no SST)
-                ($sumCat4 + ($sumCat4 * $sstRate)), 2 // Cat4 + SST
-            );
+            // Round each component separately to match client expectations
+            $cat1Total = round($sumCat1 + ($sumCat1 * $sstRate), 2); // Cat1 + SST (rounded)
+            $cat2Total = round($sumCat2, 2); // Cat2 (no SST, rounded)
+            $cat3Total = round($sumCat3, 2); // Cat3 (no SST, rounded)
+            $cat4Total = round($sumCat4 + ($sumCat4 * $sstRate), 2); // Cat4 + SST (rounded)
+            $detail->bill_total_amt_divided = round($cat1Total + $cat2Total + $cat3Total + $cat4Total, 2);
             
             // Fix decimal precision: use simple rounding but ensure exact total
             $totalAmount = $detail->bill_collected_amt ?? 0;
@@ -2139,7 +2139,7 @@ class TransferFeeV3Controller extends Controller
             $LedgerEntries->is_recon = 0;
             $LedgerEntries->created_at = date('Y-m-d H:i:s');
             $LedgerEntries->date = $TransferFeeMain->transfer_date;
-            $LedgerEntries->type = 'REIMBSST_OUT';
+            $LedgerEntries->type = 'REIMB_SST_OUT';
             $LedgerEntries->save();
 
             // Reimbursement SST In (OLD SYSTEM - LedgerEntries)
@@ -2176,7 +2176,7 @@ class TransferFeeV3Controller extends Controller
             $LedgerEntries->is_recon = 0;
             $LedgerEntries->created_at = date('Y-m-d H:i:s');
             $LedgerEntries->date = $TransferFeeMain->transfer_date;
-            $LedgerEntries->type = 'REIMBSST_IN';
+            $LedgerEntries->type = 'REIMB_SST_IN';
             $LedgerEntries->save();
         }
     }
@@ -2420,15 +2420,20 @@ class TransferFeeV3Controller extends Controller
                 $sumCat4 = $details->where('account_cat_id', 4)->sum('amount');
                 
                 // Apply the correct formula
-                $detail->bill_total_amt_divided = round(
-                    ($sumCat1 + ($sumCat1 * $sstRate)) + // Cat1 + SST
-                    $sumCat2 + // Cat2 (no SST)
-                    $sumCat3 + // Cat3 (no SST)
-                    ($sumCat4 + ($sumCat4 * $sstRate)), 2 // Cat4 + SST
-                );
+                // Round each component separately to match client expectations
+                $cat1Total = round($sumCat1 + ($sumCat1 * $sstRate), 2); // Cat1 + SST (rounded)
+                $cat2Total = round($sumCat2, 2); // Cat2 (no SST, rounded)
+                $cat3Total = round($sumCat3, 2); // Cat3 (no SST, rounded)
+                $cat4Total = round($sumCat4 + ($sumCat4 * $sstRate), 2); // Cat4 + SST (rounded)
+                $detail->bill_total_amt_divided = round($cat1Total + $cat2Total + $cat3Total + $cat4Total, 2);
                 
                 // Fix decimal precision: use simple rounding but ensure exact total
+                // If bill_collected_amt is 0 and there's only one invoice, use invoice amount as fallback
                 $totalAmount = $detail->bill_collected_amt ?? 0;
+                if ($totalAmount == 0 && $invoiceCount == 1 && ($detail->invoice_amount ?? 0) > 0) {
+                    // Use invoice amount when there's no collected amount recorded but invoice exists
+                    $totalAmount = $detail->invoice_amount ?? 0;
+                }
                 $calculatedAmount = round($totalAmount / $invoiceCount, 2);
                 $detail->bill_collected_amt_divided = $calculatedAmount;
             }

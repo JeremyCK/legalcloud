@@ -209,7 +209,7 @@ class CaseController extends Controller
         $chamberList = Users::where('menuroles', '=', 'chambering')->whereIn('branch_id',  $branchInfo['brancAccessList'])->where('status', '<>', 99)->orderBy('name', 'ASC')->get();
         $salesList = Users::where('menuroles', '=', 'sales')->orWhereIn('id', [13, 88])->where('status', '<>', 99)->orderBy('name', 'ASC')->get();
 
-        if (in_array($current_user->id, [1, 2, 14])) {
+        if (in_array($current_user->id, [1, 2,3, 14])) {
             // $salesList = Users::where('menuroles', '=', 'sales')->orWhereIn('id', [13, 88, 2,3, 38])->where('status', '<>', 99)->orderBy('name', 'ASC')->get();
             $salesList = Users::where('menuroles', '=', 'sales')->orWhereIn('is_sales', [1])->where('status', '<>', 99)->orderBy('name', 'ASC')->get();
         } else {
@@ -7436,7 +7436,7 @@ class CaseController extends Controller
             ->leftJoin('case_masterlist_field AS f', 'f.id', '=', 'm.masterlist_field_id')
             ->leftJoin('case_masterlist_field_category AS c', 'c.id', '=', 'f.case_field_id')
             ->select('m.*', 'c.name as master_cat_name')
-            ->where('m.case_id', '=', $id)
+            ->where('m.case_id', '=', $case->id)
             ->where('f.master_list_type', '=', 'parties_name')
             ->get();
 
@@ -7471,7 +7471,7 @@ class CaseController extends Controller
         //   $InvoiceBillingParty = DB::table('invoice_billing_party as bp')
         //     ->leftJoin('loan_case_invoice_main as im', 'im.id', '=', 'bp.invoice_main_id')
         //     ->select('bp.*', 'im.invoice_no', 'im.id as invoice_id')
-        //     ->where('bp.loan_case_main_bill_id', $id)
+        //     ->where('bp.loan_case_main_bill_id', $id) 
         //     ->get();
 
         $InvoiceBillingParty = DB::table('loan_case_invoice_main as im')
@@ -7482,6 +7482,12 @@ class CaseController extends Controller
             ->get();
 
         $InvBillto = view('dashboard.case.section.d-invoice-billto', compact('InvoiceBillingParty'))->render();
+
+        $purchaser_financier_ref_no = DB::table('loan_case_masterlist as m')
+            ->select('m.value')
+            ->where('m.case_id', '=', $case->id)
+            ->where('m.masterlist_field_id', '=', 160)
+            ->first();
 
         return response()->json([
             'view' => view('dashboard.case.table.tbl-case-bill-list', compact('quotation', 'current_user', 'LoanCaseBillMain', 'blnCommPaid'))->render(),
@@ -7494,8 +7500,8 @@ class CaseController extends Controller
             'tab' => view('dashboard.case.tabs.bill.tab-bill-tablist', compact('LoanCaseBillMain', 'current_user', 'current_bill_tab'))->render(),
             'invoiceView' => view('dashboard.case.tabs.bill.tab-invoice', compact('LoanCaseBillMain', 'current_user', 'invoice', 'case', 'InvoiceBillingParty'))->render(),
             'invoicePrint' => view('dashboard.case.d-invoice-print', compact('LoanCaseBillMain', 'current_user', 'case', 'Branch', 'invoice_v2', 'pieces_inv',))->render(),
-            'billPrint' => view('dashboard.case.d-quotation-print', compact('LoanCaseBillMain', 'current_user', 'quotation', 'quotation_v3', 'pieces', 'case', 'Branch'))->render(),
-            // 'billSummary' => view('dashboard.case.section.d-bill-summary-details', compact('LoanCaseBillMain', 'current_user', 'quotation', 'case', 'Branch'))->render(),
+            'billPrint' => view('dashboard.case.d-quotation-print', compact('purchaser_financier_ref_no','LoanCaseBillMain', 'current_user', 'quotation', 'quotation_v3', 'pieces', 'case', 'Branch'))->render(),
+            /// 'billSummary' => view('dashboard.case.section.d-bill-summary-details', compact('LoanCaseBillMain', 'current_user', 'quotation', 'case', 'Branch'))->render(),
             'billSummary' => view('dashboard.case.section.d-bill-summary-details', compact('LoanCaseBillMain'))->render(),
             'InvoiceSummary' => view('dashboard.case.section.d-invoice-summary-details', compact('LoanCaseBillMain', 'current_user', 'quotation', 'case', 'Branch'))->render(),
             'billView' => view('dashboard.case.tabs.bill.tab-created-bill', compact('LoanCaseBillMain', 'current_user', 'account_template_with_cat', 'case'))->render(),
@@ -11034,7 +11040,7 @@ class CaseController extends Controller
         $LoanCaseBillMain->reimbursement_amount = $total_reimbursement_amount;
         $LoanCaseBillMain->reimbursement_sst = $total_reimbursement_sst;
         $LoanCaseBillMain->total_amt_inv = $total_amount;
-        $LoanCaseBillMain->total_amt = $total_amount;  // Update main total amount field
+        //$LoanCaseBillMain->total_amt = $total_amount;  // Update main total amount field
         $LoanCaseBillMain->save();
     }
 
@@ -13057,7 +13063,7 @@ class CaseController extends Controller
                 }
             }
 
-            // update all value
+            // update all value 
             $sumTotalAmount = 0;
             $sumTotalAmountCase = 0;
             $case_id = 0;

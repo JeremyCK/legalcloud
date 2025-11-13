@@ -52,9 +52,9 @@ use App\Models\VoucherDetails;
 use App\Models\VoucherMain;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Yajra\DataTables\Facades\DataTables;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Log;
 
 class EInvoiceContoller extends Controller
 {
@@ -825,9 +825,49 @@ class EInvoiceContoller extends Controller
         $invoice_no = $invoiceMain->invoice_no;
         $InvoiceBillingParty = InvoiceBillingParty::where('id', $invoiceMain->bill_party_id)->first();
 
+        // Get required variables for invoicePrint view (referenced from CaseController loadCaseBill)
+        $current_user = auth()->user();
+        
+        // Get LoanCaseBillMain
+        $LoanCaseBillMain = LoanCaseBillMain::where('id', '=', $invoiceMain->loan_case_main_bill_id)->first();
+        
+        // Get case information
+        $case = LoanCase::where('id', '=', $LoanCaseBillMain->case_id)->first();
+        
+        // Get Branch information
+        $Branch = Branch::where('id', '=', $case->branch_id)->first();
+        
+        // Get account categories
+        $category = AccountCategory::where('status', '=', 1)->orderBy('order', 'asc')->get();
+        
+        // Build invoice_v2 array (similar to CaseController logic)
+        $invoice_v2 = array();
+        
+        for ($i = 0; $i < count($category); $i++) {
+            array_push($invoice_v2, array('row' => 'title', 'category' => $category[$i], 'account_details' => []));
+            
+            $QuotationTemplateDetails = DB::table('loan_case_invoice_details AS qd')
+                ->leftJoin('account_item AS a', 'a.id', '=', 'qd.account_item_id')
+                ->select('qd.*', 'a.name as account_name', 'a.name_cn as account_name_cn', 'a.formula as account_formula', 'a.min as account_min', 'a.id as account_item_id', 'a.pfee1_item', 'a.remark as item_desc', 'qd.remark as item_remark')
+                ->where('qd.invoice_main_id', '=', $id)
+                ->where('qd.status', '=', 1)
+                ->where('a.account_cat_id', '=', $category[$i]->id)
+                ->get();
+            
+            for ($j = 0; $j < count($QuotationTemplateDetails); $j++) {
+                array_push($invoice_v2, array('row' => 'item', 'category' => $category[$i], 'account_details' => $QuotationTemplateDetails[$j]));
+            }
+            
+            array_push($invoice_v2, array('row' => 'subtotal', 'category' => $category[$i], 'account_details' => []));
+        }
+        
+        // Create pieces_inv array (chunked for pagination)
+        $pieces_inv = array_chunk($invoice_v2, 30);
+
         return response()->json([
             'status' => 1,
             'data' => $InvoiceBillingParty,
+            'invoicePrint' => view('dashboard.case.d-invoice-print', compact('LoanCaseBillMain', 'current_user', 'case', 'Branch', 'invoice_v2', 'pieces_inv',))->render(),
             'inv_no' => $invoice_no,
             'view' => view('dashboard.case.section.d-party-infov2', compact('InvoiceBillingParty'))->render(),
         ]);
@@ -868,7 +908,7 @@ class EInvoiceContoller extends Controller
             $billingParty->mobile = $request->input('mobile');
             $billingParty->fax1 = $request->input('fax1');
             $billingParty->fax2 = $request->input('fax2');
-            $billingParty->email = $request->input('email_einvoice');
+            $billingParty->email = $request->input('email');
 
             // Check mandatory fields
             $mandatoryFields = self::getEinvoiceCustomerMandatoryField();
@@ -1121,6 +1161,33 @@ class EInvoiceContoller extends Controller
         $TransferFeeMain->save();
     }
 
+    /**
+     * Distribute amount with proper rounding to avoid total discrepancies
+     * 
+     * @param float $totalAmount The total amount to distribute
+     * @param int $partyCount Number of parties to split between
+     * @param int $currentIndex Current invoice index (0-based)
+     * @return float The distributed amount for the current index
+     */
+    private function distributeAmount($totalAmount, $partyCount, $currentIndex = 0)
+    {
+        $baseAmount = $totalAmount / $partyCount;
+        $distributedAmounts = [];
+        $totalDistributed = 0;
+        
+        // Distribute amounts with proper rounding
+        for ($i = 0; $i < $partyCount - 1; $i++) {
+            $amount = round($baseAmount, 2);
+            $distributedAmounts[] = $amount;
+            $totalDistributed += $amount;
+        }
+        
+        // Last amount ensures total matches original
+        $distributedAmounts[] = round($totalAmount - $totalDistributed, 2);
+        
+        return $distributedAmounts[$currentIndex];
+    }
+
      public function splitInvoice(Request $request, $bill_main_id)
     {
         $current_user = auth()->user();
@@ -1200,7 +1267,7 @@ class EInvoiceContoller extends Controller
             foreach ($detailsByItem as $accountItemId => $details) {
                 // Get the original total amount for this account item
                 $originalTotalAmount = $details->first()->ori_invoice_amt;
-                $newAmount = $originalTotalAmount / $party_count;
+                $newAmount = $this->distributeAmount($originalTotalAmount, $party_count, 0);
                 
                 // Update all details for this account item with the new divided amount
                 foreach ($details as $detail) {
@@ -1367,7 +1434,7 @@ class EInvoiceContoller extends Controller
             foreach ($detailsByItem as $accountItemId => $details) {
                 // Get the original total amount for this account item
                 $originalTotalAmount = $details->first()->ori_invoice_amt;
-                $newAmount = $originalTotalAmount / $party_count;
+                $newAmount = $this->distributeAmount($originalTotalAmount, $party_count, 0);
                 
                 // Update all details for this account item with the new divided amount
                 foreach ($details as $detail) {
@@ -1468,7 +1535,7 @@ class EInvoiceContoller extends Controller
                     $LoanCaseInvoiceDetailsNew->account_item_id = $loanCaseInvoiceDetails[$i]->account_item_id;
                     $LoanCaseInvoiceDetailsNew->quotation_item_id = $loanCaseInvoiceDetails[$i]->id;
                     $LoanCaseInvoiceDetailsNew->invoice_main_id = $invoice_main_id_new;
-                    $LoanCaseInvoiceDetailsNew->amount = $loanCaseInvoiceDetails[$i]->ori_invoice_amt / $party_count;
+                    $LoanCaseInvoiceDetailsNew->amount = $this->distributeAmount($loanCaseInvoiceDetails[$i]->ori_invoice_amt, $party_count, 1);
                     $LoanCaseInvoiceDetailsNew->ori_invoice_amt = $loanCaseInvoiceDetails[$i]->ori_invoice_amt;
                     $LoanCaseInvoiceDetailsNew->quo_amount = $loanCaseInvoiceDetails[$i]->quo_amount;
                     $LoanCaseInvoiceDetailsNew->remark = $loanCaseInvoiceDetails[$i]->remark;
@@ -1480,7 +1547,7 @@ class EInvoiceContoller extends Controller
 
                 }
 
-                $loanCaseInvoiceDetails[$i]->amount = $loanCaseInvoiceDetails[$i]->ori_invoice_amt / $party_count;
+                $loanCaseInvoiceDetails[$i]->amount = $this->distributeAmount($loanCaseInvoiceDetails[$i]->ori_invoice_amt, $party_count, 0);
                 $loanCaseInvoiceDetails[$i]->save();
             }
 
@@ -1488,7 +1555,7 @@ class EInvoiceContoller extends Controller
             $total_sst = LoanCaseBillDetails::where("loan_case_main_bill_id", $bill_main_id)->sum("sst");
             // $total_amt = LoanCaseBillDetails::where("loan_case_main_bill_id", $bill_main_id)->sum("ori_invoice_amt");
 
-            $total_amt = ($total_amt + $total_sst)/$party_count;
+            $total_amt = $this->distributeAmount($total_amt + $total_sst, $party_count, 0);
 
             LoanCaseInvoiceMain::where("loan_case_main_bill_id", $bill_main_id)->update(["amount" => $total_amt]);
 
