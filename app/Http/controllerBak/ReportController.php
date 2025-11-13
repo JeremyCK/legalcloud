@@ -495,6 +495,7 @@ class ReportController extends Controller
 
     public function getInvoiceReport(Request $request)
     {
+        return 2;
         if ($request->ajax()) {
 
             $current_user = auth()->user();

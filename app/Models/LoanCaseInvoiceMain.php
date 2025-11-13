@@ -30,6 +30,7 @@ class LoanCaseInvoiceMain extends Model
         'pfee2_inv', // NEW - professional fee 2 amount
         'sst_inv', // NEW - SST amount
         'bln_invoice', // NEW - invoice flag
+        'bln_sst', // SST paid status flag
         'reimbursement_amount', // NEW - reimbursement amount
         'reimbursement_sst', // NEW - reimbursement SST amount
         'transferred_reimbursement_amt', // NEW - transferred reimbursement amount

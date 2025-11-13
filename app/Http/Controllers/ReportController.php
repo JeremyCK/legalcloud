@@ -30,6 +30,7 @@ use App\Models\LoanCase;
 use App\Models\LoanCaseAccount;
 use App\Models\LoanCaseBillMain;
 use App\Models\LoanCaseBillReferrals;
+use App\Models\LoanCaseInvoiceMain;
 use App\Models\OfficeBankAccount;
 use App\Models\Portfolio;
 use App\Models\QuotationTemplateDetails;
@@ -277,10 +278,11 @@ class ReportController extends Controller
             $accessInfo = AccessController::manageAccess();
 
             $rows = DB::table('loan_case_bill_main as b')
+                ->leftJoin('loan_case_invoice_main as i', 'i.loan_case_main_bill_id', '=', 'b.id')
                 ->leftJoin('loan_case as l', 'l.id', '=', 'b.case_id')
                 ->leftJoin('transfer_fee_details as t', 't.loan_case_main_bill_id', '=', 'b.id')
                 ->leftJoin('client as c', 'c.id', '=', 'l.customer_id')
-                ->select('b.*', 'l.case_ref_no', 'c.name as client_name', 't.transfer_amount', 't.sst_amount', 't.is_recon')
+                ->select('b.*', 'i.*', 'i.id as invoice_id', 'l.case_ref_no', 'c.name as client_name', 't.transfer_amount', 't.sst_amount', 't.is_recon')
                 ->where('b.status', '<>',  99)
                 // ->where('b.bln_sst', '=', '0')
                 ->where('b.invoice_no', '<>', '')
@@ -343,10 +345,14 @@ class ReportController extends Controller
                         $disabled = 'disabled';
                     }
 
+                    // Use invoice_id if available, otherwise fall back to bill id
+                    $checkbox_value = isset($data->invoice_id) ? $data->invoice_id : $data->id;
+                    $checkbox_id = isset($data->invoice_id) ? 'chk_inv_' . $data->invoice_id : 'chk_' . $data->id;
+                    
                     $actionBtn = '
                     <div class="checkbox">
-                        <input type="checkbox" name="invoice" value="' . $data->id . '" id="chk_' . $data->id . '" ' . $disabled . '>
-                        <label for="chk_' . $data->id . '">' . $data->invoice_no . '</label>
+                        <input type="checkbox" name="invoice" value="' . $checkbox_value . '" id="' . $checkbox_id . '" ' . $disabled . '>
+                        <label for="' . $checkbox_id . '">' . $data->invoice_no . '</label>
                     </div>
                     ';
 
@@ -1537,23 +1543,39 @@ class ReportController extends Controller
 
 
             for ($i = 0; $i < count($invoice_id); $i++) {
+                // invoice_id is the ID from loan_case_invoice_main
+                $invoice_main_id = $invoice_id[$i]['invoice_id'];
 
-                $LoanCaseBillMain = LoanCaseBillMain::where('id', '=', $invoice_id[$i]['invoice_id'])->first();
+                // Find the invoice record first
+                $LoanCaseInvoiceMain = LoanCaseInvoiceMain::where('id', '=', $invoice_main_id)->first();
 
-                if ($LoanCaseBillMain) {
-                    $LoanCaseBillMain->bln_sst = 1;
-                    $LoanCaseBillMain->updated_at  = date('Y-m-d H:i:s');;
-                    $LoanCaseBillMain->save();
+                if ($LoanCaseInvoiceMain) {
+                    // Update bln_sst in loan_case_invoice_main
+                    $LoanCaseInvoiceMain->bln_sst = 1;
+                    $LoanCaseInvoiceMain->updated_at = date('Y-m-d H:i:s');
+                    $LoanCaseInvoiceMain->save();
+
+                    // Also update bln_sst in loan_case_bill_main using loan_case_main_bill_id
+                    if ($LoanCaseInvoiceMain->loan_case_main_bill_id) {
+                        $LoanCaseBillMain = LoanCaseBillMain::where('id', '=', $LoanCaseInvoiceMain->loan_case_main_bill_id)->first();
+                        if ($LoanCaseBillMain) {
+                            $LoanCaseBillMain->bln_sst = 1;
+                            $LoanCaseBillMain->updated_at = date('Y-m-d H:i:s');
+                            $LoanCaseBillMain->save();
+                        }
+                    }
 
                     $current_user = auth()->user();
                     $AccountLog = new AccountLog();
                     $AccountLog->user_id = $current_user->id;
-                    $AccountLog->case_id = $LoanCaseBillMain->case_id;
-                    $AccountLog->bill_id = $invoice_id[$i]['invoice_id'];
+                    if (isset($LoanCaseBillMain)) {
+                        $AccountLog->case_id = $LoanCaseBillMain->case_id;
+                        $AccountLog->bill_id = $LoanCaseInvoiceMain->loan_case_main_bill_id;
+                    }
                     $AccountLog->ori_amt = 0;
                     $AccountLog->new_amt = 0;
                     $AccountLog->action = 'Paid';
-                    $AccountLog->desc = $current_user->name . ' set invoice(' . $LoanCaseBillMain->invoice_no . ') to Paid ';
+                    $AccountLog->desc = $current_user->name . ' set invoice(' . $LoanCaseInvoiceMain->invoice_no . ') to Paid ';
                     $AccountLog->status = 1;
                     $AccountLog->created_at = date('Y-m-d H:i:s');
                     $AccountLog->save();
