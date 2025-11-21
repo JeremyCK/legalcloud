@@ -219,6 +219,8 @@ class CaseController extends Controller
                 $salesList = Users::where('menuroles', '=', 'sales')->whereIn('branch_id',  $branchInfo['brancAccessList'])->orWhereIn('id', [118, 143])->where('status', '<>', 99)->orderBy('name', 'ASC')->get();
             } else if (in_array($current_user->id, [143])) {
                 $salesList = Users::where('menuroles', '=', 'sales')->whereIn('branch_id',  $branchInfo['brancAccessList'])->orWhereIn('id', [118, 143])->where('status', '<>', 99)->orderBy('name', 'ASC')->get();
+            } else if (in_array($current_user->id, [177])) {
+                $salesList = Users::where('menuroles', '=', 'sales')->whereIn('branch_id',  $branchInfo['brancAccessList'])->orWhereIn('id', [122])->where('status', '<>', 99)->orderBy('name', 'ASC')->get();
             } else {
                 $salesList = Users::where('menuroles', '=', 'sales')->whereIn('branch_id',  $branchInfo['brancAccessList'])->where('status', '<>', 99)->orderBy('name', 'ASC')->get();
             }
