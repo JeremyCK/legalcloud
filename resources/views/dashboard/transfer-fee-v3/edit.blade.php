@@ -381,9 +381,10 @@
                                                                             <td class="text-right"
                                                                                 style="font-size: 11px;">
                                                                                 @php
-                                                                                    // Calculate actual transferred balance (pfee + reimbursement already transferred)
-                                                                                    $transferredPfee = $detail->transferred_pfee_amt ?? 0;
-                                                                                    $transferredReimbursement = $detail->transferred_reimbursement_amt ?? 0;
+                                                                                    // Show amounts transferred in THIS transfer fee record only
+                                                                                    // (not cumulative amounts from invoice table)
+                                                                                    $transferredPfee = $detail->transfer_amount ?? 0;
+                                                                                    $transferredReimbursement = $detail->reimbursement_amount ?? 0;
                                                                                     $transferredBal = $transferredPfee + $transferredReimbursement;
                                                                                 @endphp
                                                                                 {{ number_format($transferredBal, 2) }}
@@ -391,9 +392,10 @@
                                                                             <td class="text-right"
                                                                                 style="font-size: 11px;">
                                                                                 @php
-                                                                                    // Calculate actual transferred SST (sst + reimbursement sst already transferred)
-                                                                                    $transferredSst = $detail->transferred_sst_amt ?? 0;
-                                                                                    $transferredReimbursementSst = $detail->transferred_reimbursement_sst_amt ?? 0;
+                                                                                    // Show amounts transferred in THIS transfer fee record only
+                                                                                    // (not cumulative amounts from invoice table)
+                                                                                    $transferredSst = $detail->sst_amount ?? 0;
+                                                                                    $transferredReimbursementSst = $detail->reimbursement_sst_amount ?? 0;
                                                                                     $transferredSstTotal = $transferredSst + $transferredReimbursementSst;
                                                                                 @endphp
                                                                                 {{ number_format($transferredSstTotal, 2) }}
@@ -447,10 +449,10 @@
                                                                             {{ number_format($TransferFeeDetails->sum(function ($detail) {return max(0, ($detail->reimbursement_sst ?? 0) - ($detail->transferred_reimbursement_sst_amt ?? 0));}),2) }}
                                                                         </th>
                                                                         <th class="text-right" id="footerTransferredBal">
-                                                                            {{ number_format($TransferFeeDetails->sum('transferred_pfee_amt') + $TransferFeeDetails->sum('transferred_reimbursement_amt'), 2) }}
+                                                                            {{ number_format($TransferFeeDetails->sum('transfer_amount') + $TransferFeeDetails->sum('reimbursement_amount'), 2) }}
                                                                         </th>
                                                                         <th class="text-right" id="footerTransferredSst">
-                                                                            {{ number_format($TransferFeeDetails->sum('transferred_sst_amt') + $TransferFeeDetails->sum('transferred_reimbursement_sst_amt'), 2) }}
+                                                                            {{ number_format($TransferFeeDetails->sum('sst_amount') + $TransferFeeDetails->sum('reimbursement_sst_amount'), 2) }}
                                                                         </th>
                                                                         <th></th>
                                                                     </tr>
@@ -1960,10 +1962,16 @@
                     totals.reimbToTransfer += editableReimb;
                     totals.reimbSstToTransfer += editableReimbSst;
                 }
-                    totals.transferredBal += transferredPfee + transferredReimb;
-                    totals.transferredSst += transferredSst + transferredReimbSst;
-                totals.transferredReimb += transferredReimb;
-                totals.transferredReimbSst += transferredReimbSst;
+                // Use amounts from THIS transfer fee record, not cumulative from invoice
+                const currentTransferPfee = parseFloat(invoice.current_transfer_pfee || 0);
+                const currentTransferSst = parseFloat(invoice.current_transfer_sst || 0);
+                const currentTransferReimb = parseFloat(invoice.current_transfer_reimbursement || 0);
+                const currentTransferReimbSst = parseFloat(invoice.current_transfer_reimbursement_sst || 0);
+                
+                totals.transferredBal += currentTransferPfee + currentTransferReimb;
+                totals.transferredSst += currentTransferSst + currentTransferReimbSst;
+                totals.transferredReimb += currentTransferReimb;
+                totals.transferredReimbSst += currentTransferReimbSst;
             });
 
             // Update footer totals

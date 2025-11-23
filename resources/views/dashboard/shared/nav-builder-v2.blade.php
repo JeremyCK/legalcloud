@@ -86,6 +86,8 @@
             AccessController::UserAccessPermissionController(PermissionController::TransferFeePermission()) == true ||
             AccessController::UserAccessPermissionController(PermissionController::SSTPermission()) == true ||
             AccessController::UserAccessPermissionController(PermissionController::ClientAccountBalancePermission()) ==
+                true ||
+            AccessController::UserAccessPermissionController(PermissionController::OfficeAccountBalancePermission()) ==
                 true)
 
         <li class="c-sidebar-nav-dropdown"><a class="c-sidebar-nav-dropdown-toggle" href="#"><i
@@ -120,6 +122,12 @@
                 @if (AccessController::UserAccessPermissionController(PermissionController::ClientAccountBalancePermission()) == true)
                     <li class="c-sidebar-nav-item"><a class="c-sidebar-nav-link" href="{{ url('client-ledger') }}">
                             <span class="c-sidebar-nav-icon"></span>Client Account Balance<div id="side_86"></div>
+                        </a></li>
+                @endif
+
+                @if (AccessController::UserAccessPermissionController(PermissionController::OfficeAccountBalancePermission()) == true)
+                    <li class="c-sidebar-nav-item"><a class="c-sidebar-nav-link" href="{{ url('office-account-ledger') }}">
+                            <span class="c-sidebar-nav-icon"></span>Office Account Balance<div id="side_87"></div>
                         </a></li>
                 @endif
                  @if (AccessController::UserAccessPermissionController(PermissionController::EInvoicePermission()) == true)

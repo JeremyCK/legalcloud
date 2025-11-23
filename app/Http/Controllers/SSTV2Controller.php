@@ -314,13 +314,14 @@ class SSTV2Controller extends Controller
                     'ibp.customer_name as billing_party_name'
                 )
                 ->where('im.status', '<>', 99)
-                ->where('im.transferred_to_office_bank', '=', 0)
+                // Removed transferred_to_office_bank check - for SST V2, we check SST-specific flags instead
+                // An invoice can have other amounts transferred but still have SST available
                 ->whereNotNull('im.loan_case_main_bill_id')
                 ->where('im.loan_case_main_bill_id', '>', 0)
                 ->where('b.bln_invoice', '=', 1)
-                ->where('b.bln_sst', '=', 0)
-                ->where('im.sst_inv', '>', 0)
-                ->where('im.bln_sst', '=', 0);
+                ->where('b.bln_sst', '=', 0)  // SST not yet transferred on bill
+                ->where('im.sst_inv', '>', 0)  // Invoice has SST amount
+                ->where('im.bln_sst', '=', 0);  // SST not yet transferred on invoice
 
             // Apply centralized branch filtering
             BranchAccessService::applyBranchFilter($query, $current_user, 'b.invoice_branch_id');

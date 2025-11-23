@@ -5478,4 +5478,278 @@ class AccountController extends Controller
         
         return $response;
     }
+
+    public function officeAccountLedger()
+    {
+        $current_user = auth()->user();
+        $rows = [];
+
+        $branchInfo = BranchController::manageBranchAccess();
+
+        if (AccessController::UserAccessPermissionController(PermissionController::OfficeAccountBalancePermission()) == false) {
+            return redirect()->route('dashboard.index');
+        }
+
+        $OfficeBankAccount = $this->getOfficeBankAccount();
+
+        return view('dashboard.account.office-account-ledger', [
+            'OfficeBankAccount' => $OfficeBankAccount,
+            'rows' => $rows,
+            'Branchs' => $branchInfo['branch']
+        ]);
+    }
+
+    public function getOfficeAccountLedger(Request $request)
+    {
+        $status = $request->input("status");
+
+        $rows = DB::table('office_bank_account as a')
+            ->leftJoin('account_code as b', 'a.account_code', '=', 'b.id')
+            ->select('a.*', 'b.name as account_code_name', 'b.code as account_code_code');
+
+        if ($request->input("status") != '') {
+            $rows = $rows->where('a.status', $request->input("status"));
+        } else {
+            $rows = $rows->where('a.status', '=', 1);
+        }
+
+        $last_day = Carbon::create($request->input("year"), $request->input("mon"))->lastOfMonth()->format('Y-m-d');
+
+        if ($request->input("branch_id")) {
+            $rows = $rows->where('a.branch_id', '=', $request->input("branch_id"));
+        }
+
+        $rows = $rows->orderBy('a.created_at', 'asc')->get();
+
+        for ($i = 0; $i < count($rows); $i++) {
+            $credit = DB::table('ledger_entries_v2 as a')
+                ->where('a.bank_id', '=', $rows[$i]->id)
+                ->whereNotIn('a.type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'SST_IN', 'TRANSFER_IN', 'CLOSEFILE_IN'])
+                ->where('a.transaction_type', 'C')
+                ->where('a.status', '<>', 99)
+                ->where('a.date', '<=', $last_day)
+                ->orderBy('a.date', 'ASC')
+                ->sum('amount');
+
+            $debit = DB::table('ledger_entries_v2 as a')
+                ->where('a.bank_id', '=', $rows[$i]->id)
+                ->whereNotIn('a.type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'SST_IN', 'TRANSFER_IN', 'CLOSEFILE_IN'])
+                ->where('a.transaction_type', 'D')
+                ->where('a.status', '<>', 99)
+                ->where('a.date', '<=', $last_day)
+                ->orderBy('a.date', 'ASC')
+                ->sum('amount');
+
+            $rows[$i]->amount_ledger = $credit - $debit;
+        }
+
+        // Filter out zero balances (optional - can be removed if you want to show all)
+        $rows = $rows->filter(function($result) {
+            if ($result->amount_ledger != 0) {
+                return true;
+            } else {
+                return false;
+            }
+        });
+
+        return response()->json([
+            'view' => view('dashboard.account.table.tab-office-account-ledger', compact('rows'))->render(),
+        ]);
+    }
+
+    public function exportOfficeAccountLedger(Request $request)
+    {
+        try {
+            $current_user = auth()->user();
+            
+            // Check permissions
+            if (AccessController::UserAccessPermissionController(PermissionController::OfficeAccountBalancePermission()) == false) {
+                return response()->json([
+                    'status' => 0,
+                    'message' => 'Access denied'
+                ], 403);
+            }
+
+            $status = $request->input("status");
+            $year = $request->input("year");
+            $month = $request->input("mon");
+            $branch_id = $request->input("branch_id");
+
+            // Get the same data as getOfficeAccountLedger method
+            $rows = DB::table('office_bank_account as a')
+                ->leftJoin('account_code as b', 'a.account_code', '=', 'b.id')
+                ->select('a.*', 'b.name as account_code_name', 'b.code as account_code_code');
+
+            if ($status != '') {
+                $rows = $rows->where('a.status', $status);
+            } else {
+                $rows = $rows->where('a.status', '=', 1);
+            }
+
+            $last_day = Carbon::create($year, $month)->lastOfMonth()->format('Y-m-d');
+
+            if ($branch_id) {
+                $rows = $rows->where('a.branch_id', '=', $branch_id);
+            }
+
+            $rows = $rows->orderBy('a.created_at', 'asc')->get();
+
+            for ($i = 0; $i < count($rows); $i++) {
+                $credit = DB::table('ledger_entries_v2 as a')
+                    ->where('a.bank_id', '=', $rows[$i]->id)
+                    ->whereNotIn('a.type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'SST_IN', 'TRANSFER_IN', 'CLOSEFILE_IN'])
+                    ->where('a.transaction_type', 'C')
+                    ->where('a.status', '<>', 99)
+                    ->where('a.date', '<=', $last_day)
+                    ->orderBy('a.date', 'ASC')
+                    ->sum('amount');
+
+                $debit = DB::table('ledger_entries_v2 as a')
+                    ->where('a.bank_id', '=', $rows[$i]->id)
+                    ->whereNotIn('a.type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'SST_IN', 'TRANSFER_IN', 'CLOSEFILE_IN'])
+                    ->where('a.transaction_type', 'D')
+                    ->where('a.status', '<>', 99)
+                    ->where('a.date', '<=', $last_day)
+                    ->orderBy('a.date', 'ASC')
+                    ->sum('amount');
+
+                $rows[$i]->amount_ledger = $credit - $debit;
+            }
+
+            // Filter out zero balances
+            $rows = $rows->filter(function($result) {
+                if ($result->amount_ledger != 0) {
+                    return true;
+                } else {
+                    return false;
+                }
+            });
+
+            // Prepare data for export
+            $exportData = [];
+            $rowNumber = 1;
+            $grandTotal = 0;
+
+            foreach ($rows as $row) {
+                $grandTotal += $row->amount_ledger;
+                
+                // Get status text
+                $statusText = ($row->status == 1) ? 'Active' : 'Inactive';
+
+                // Format account group
+                $accountGroup = ($row->account_code_name) ? $row->account_code_name . ': ' . $row->name : $row->name;
+
+                $exportData[] = [
+                    'No' => $rowNumber,
+                    'Office Account Group' => $accountGroup,
+                    'Account Name' => $row->name,
+                    'Account No' => $row->account_no,
+                    'Status' => $statusText,
+                    'Balance' => $row->amount_ledger
+                ];
+                
+                $rowNumber++;
+            }
+
+            // Add totals row
+            $exportData[] = [
+                'No' => 'TOTAL',
+                'Office Account Group' => '',
+                'Account Name' => '',
+                'Account No' => '',
+                'Status' => '',
+                'Balance' => $grandTotal
+            ];
+
+            return $this->exportOfficeAccountLedgerToExcel($exportData, $year, $month, $branch_id);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'Export failed: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Export Office Account Ledger data to Excel
+     */
+    private function exportOfficeAccountLedgerToExcel($data, $year, $month, $branch_id)
+    {
+        $filename = 'office_account_ledger_' . $year . '_' . $month . '_' . date('Y-m-d') . '.xlsx';
+        
+        // Create new Spreadsheet object
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        
+        // Set title
+        $sheet->setCellValue('A1', 'Office Account Balance Report');
+        $sheet->mergeCells('A1:F1');
+        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
+        $sheet->getStyle('A1')->getAlignment()->setHorizontal('center');
+        
+        // Set subtitle
+        $sheet->setCellValue('A2', 'Year: ' . $year . ' | Month: ' . $month);
+        $sheet->mergeCells('A2:F2');
+        $sheet->getStyle('A2')->getFont()->setSize(12);
+        $sheet->getStyle('A2')->getAlignment()->setHorizontal('center');
+        
+        // Set headers
+        $headers = ['No', 'Office Account Group', 'Account Name', 'Account No', 'Status', 'Balance'];
+        $col = 'A';
+        $row = 4;
+        
+        foreach ($headers as $header) {
+            $sheet->setCellValue($col . $row, $header);
+            $col++;
+        }
+        
+        // Style headers
+        $headerRange = 'A4:F4';
+        $sheet->getStyle($headerRange)->getFont()->setBold(true);
+        $sheet->getStyle($headerRange)->getFill()
+            ->setFillType(Fill::FILL_SOLID)
+            ->getStartColor()->setRGB('D8DBE0');
+        $sheet->getStyle($headerRange)->getBorders()->getAllBorders()
+            ->setBorderStyle(Border::BORDER_THIN);
+        $sheet->getStyle($headerRange)->getAlignment()->setHorizontal('center');
+        
+        // Add data
+        $row = 5;
+        foreach ($data as $item) {
+            $col = 'A';
+            foreach ($item as $value) {
+                if ($col == 'F' && is_numeric($value)) { // Balance column
+                    $sheet->setCellValue($col . $row, $value);
+                    $sheet->getStyle($col . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+                } else {
+                    $sheet->setCellValue($col . $row, $value);
+                }
+                $col++;
+            }
+            $row++;
+        }
+        
+        // Style data rows
+        $dataRange = 'A5:F' . ($row - 1);
+        $sheet->getStyle($dataRange)->getBorders()->getAllBorders()
+            ->setBorderStyle(Border::BORDER_THIN);
+        
+        // Auto-size columns
+        foreach (range('A', 'F') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+        
+        // Set response headers
+        $response = response()->streamDownload(function() use ($spreadsheet) {
+            $writer = new Xlsx($spreadsheet);
+            $writer->save('php://output');
+        }, $filename);
+        
+        $response->headers->set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        $response->headers->set('Content-Disposition', 'attachment; filename="' . $filename . '"');
+        $response->headers->set('Cache-Control', 'max-age=0');
+        
+        return $response;
+    }
 }

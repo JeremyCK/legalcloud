@@ -318,6 +318,11 @@ class PermissionController extends Controller
         return 'ClientAccountBalancePermission';
     }
 
+    public static function OfficeAccountBalancePermission()
+    {
+        return 'OfficeAccountBalancePermission';
+    }
+
     public static function DocumentTemplatePermission()
     {
         return 'DocumentTemplatePermission';

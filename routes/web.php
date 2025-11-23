@@ -905,10 +905,13 @@ Route::get('transfer-fee-create', [AccountController::class, 'transferFeeCreate'
             Route::get('getBankLedgerList', [BankController::class, 'getBankLedgerList'])->name('bankLedgerList.list');
             Route::post('getBankLedger', [BankController::class, 'getBankLedger']);
 
-            Route::get('client-ledger', [AccountController::class, 'ClientLedger']);
+            Route::get('client-ledger', [AccountController::class, 'clientLedger']);
             Route::post('getClientLedger', [AccountController::class, 'getClientLedger']);
             Route::post('exportClientLedger', [AccountController::class, 'exportClientLedger']);
 
+            Route::get('office-account-ledger', [AccountController::class, 'officeAccountLedger']);
+            Route::post('getOfficeAccountLedger', [AccountController::class, 'getOfficeAccountLedger']);
+            Route::post('exportOfficeAccountLedger', [AccountController::class, 'exportOfficeAccountLedger']);
 
             
             Route::resource('files',    'FileController');

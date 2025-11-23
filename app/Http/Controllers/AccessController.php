@@ -179,10 +179,11 @@ class AccessController extends Controller
             $branch_id_list = json_decode($UserAccessControl->branch_id_list);
             $exclude_user_list = json_decode($UserAccessControl->exclude_user_list);
 
-            if ($UserAccessControl->exclusive_branch_list != '') {
+            // Check exclusive_branch_list only if it's not empty (not '[]' or empty array)
+            if ($UserAccessControl->exclusive_branch_list != '' && $UserAccessControl->exclusive_branch_list != '[]') {
                 if (in_array($current_user->branch_id, $exclusive_branch_list)) {
 
-                    if (in_array($current_user->id, $exclude_user_list)) {
+                    if (is_array($exclude_user_list) && in_array($current_user->id, $exclude_user_list)) {
                         return false;
                     }
                     else {
@@ -191,9 +192,9 @@ class AccessController extends Controller
                 } else {
                     // return false;
 
-                    if (in_array($current_user->id, $user_id_list)) {
+                    if (is_array($user_id_list) && in_array($current_user->id, $user_id_list)) {
                         return true;
-                    }else if (in_array($current_user->branch_id, $branch_id_list)) {
+                    }else if (is_array($branch_id_list) && in_array($current_user->branch_id, $branch_id_list)) {
                         return true;
                     }  else {
                         return false;
@@ -201,19 +202,20 @@ class AccessController extends Controller
                 }
             }
 
-            if ($UserAccessControl->exclude_branch_list != '') {
+            // Check exclude_branch_list only if it's not empty (not '[]' or empty array)
+            if ($UserAccessControl->exclude_branch_list != '' && $UserAccessControl->exclude_branch_list != '[]') {
                 // Exclude branch
                 // $exclude_branch_list = explode(',', $UserAccessControl->exclude_branch_list);
                 $exclude_branch_list = json_decode($UserAccessControl->exclude_branch_list);
 
                 if (in_array($current_user->branch_id, $exclude_branch_list)) {
-                    if (in_array($current_user->id, $user_id_list)) {
+                    if (is_array($user_id_list) && in_array($current_user->id, $user_id_list)) {
                         return true;
                     } else {
                         return false;
                     }
                 } else {
-                    if (in_array($current_user->id, $exclude_user_list)) {
+                    if (is_array($exclude_user_list) && in_array($current_user->id, $exclude_user_list)) {
                         return false;
                     } else {
                         return true;
