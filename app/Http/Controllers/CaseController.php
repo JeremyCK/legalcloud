@@ -2954,6 +2954,63 @@ class CaseController extends Controller
             }
         }
 
+        // Fetch OA Ledger (Office Account Ledger) - only transactions with OA (Office Account) bank accounts, not CA (Client Account)
+        $oa_ledgers = null;
+        if (AccessController::UserAccessPermissionController(PermissionController::OfficeAccountBalancePermission()) == true) {
+            // Get only OA (Office Account) bank account IDs, exclude CA (Client Account)
+            $officeBankAccountIds = DB::table('office_bank_account')
+                ->where('status', '=', 1)
+                ->where('account_type', '=', 'OA') // Only Office Account, not Client Account
+                ->pluck('id')
+                ->toArray();
+
+            if (!empty($officeBankAccountIds)) {
+                $oa_ledgers = DB::table('ledger_entries_v2 as a')
+                    ->leftJoin('office_bank_account as c', function($join) {
+                        $join->on('c.id', '=', 'a.bank_id')
+                             ->where('c.account_type', '=', 'OA'); // Ensure join only matches OA accounts
+                    })
+                    ->leftJoin('loan_case_bill_main as d', 'd.id', '=', 'a.loan_case_main_bill_id')
+                    ->leftJoin('loan_case as e', 'e.id', '=', 'a.case_id')
+                    ->leftJoin('voucher_main as f', 'f.id', '=', 'a.key_id')
+                    ->select('a.*', 'c.name as bank_name', 'c.account_no as bank_account_no', 'e.case_ref_no', 'e.id as case_id', 'f.voucher_no as voucher_no', 'f.payee as payee_voucher',)
+                    ->where('e.id', '=', $id)
+                    ->whereIn('a.bank_id', $officeBankAccountIds) // Only OA bank accounts
+                    ->whereNotNull('c.id') // Ensure the join matched (bank_id exists in office_bank_account with account_type = 'OA')
+                    ->whereNotIn('a.type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'SST_IN', 'TRANSFER_IN', 'CLOSEFILE_IN', 'ABORTFILE_IN', 'REIMB_IN', 'REIMB_SST_IN']) 
+                    ->where('a.status', '<>', 99)
+                    ->orderBy('a.date', 'ASC')
+                    ->orderBy('a.last_row_entry', 'asc')
+                    ->get();
+
+                // Process BILL_DISB entries similar to regular ledger
+                for ($i = 0; $i < count($oa_ledgers); $i++) {
+                    if (in_array($oa_ledgers[$i]->type, ['BILL_DISB'])) {
+                        $accoutItem = DB::table('voucher_main as a')
+                            ->leftJoin('voucher_details as vd', 'a.id', '=', 'vd.voucher_main_id')
+                            ->leftJoin('loan_case_bill_details as lb', 'lb.id', '=', 'vd.account_details_id')
+                            ->leftJoin('account_item as ai', 'ai.id', '=', 'lb.account_item_id')
+                            ->select('a.*', 'ai.name as ItemName')
+                            ->where('a.id', '=', $oa_ledgers[$i]->key_id)
+                            ->where('a.status', '<>', 99)
+                            ->get();
+
+                        $itemName = '';
+
+                        for ($j = 0; $j < count($accoutItem); $j++) {
+                            $itemName = $itemName . '- ' . $accoutItem[$j]->ItemName . '<br/>';
+                        }
+
+                        if ($oa_ledgers[$i]->remark != '') {
+                            $oa_ledgers[$i]->remark = $oa_ledgers[$i]->remark . '<br/>' . $itemName;
+                        } else {
+                            $oa_ledgers[$i]->remark = $itemName;
+                        }
+                    }
+                }
+            }
+        }
+
         if (AccessController::UserAccessPermissionController(PermissionController::MarketingNotePermission()) == true) {
             // get Markting Notes
             $LoanCaseNotes = DB::table('loan_case_notes AS n')
@@ -3022,8 +3079,9 @@ class CaseController extends Controller
             'LoanAttachment' => $LoanAttachment,
             'LoanAttachmentMarketing' => $LoanAttachmentMarketing,
             'attachment_type' => $attachment_type,
-            'parties_list' => $parties_list,
             'ledgers' => $ledgers,
+            'oa_ledgers' => $oa_ledgers,
+            'parties_list' => $parties_list,
             'BonusRequestListSent' => $BonusRequestListSent,
             'SMPBonusRequestListSent' => $SMPBonusRequestListSent,
             'ClientOtherLoanCase' => $client['ClientOtherLoanCase'],
@@ -7832,6 +7890,7 @@ class CaseController extends Controller
             $loanCaseInvoiceMain->sst_inv = $LoanCaseBillMain->sst;
             $loanCaseInvoiceMain->reimbursement_amount = $LoanCaseBillMain->reimbursement_amount ?? 0;
             $loanCaseInvoiceMain->reimbursement_sst = $LoanCaseBillMain->reimbursement_sst ?? 0;
+            $loanCaseInvoiceMain->bln_invoice = $LoanCaseBillMain->bln_invoice ?? 1; // Sync bln_invoice from bill
             $loanCaseInvoiceMain->created_by = $current_user->id;
             $loanCaseInvoiceMain->status = 1;
             $loanCaseInvoiceMain->created_at = date('Y-m-d H:i:s');
@@ -12501,6 +12560,9 @@ class CaseController extends Controller
         $LoanCaseBillMain->invoice_to = $LoanCaseBillMain->bill_to;
         $LoanCaseBillMain->save();
 
+        // Sync bln_invoice to invoice records
+        LoanCaseInvoiceMain::where('loan_case_main_bill_id', $id)->update(['bln_invoice' => 1]);
+
         $current_user = auth()->user();
         $AccountLog = new AccountLog();
         $AccountLog->user_id = $current_user->id;
@@ -12539,7 +12601,10 @@ class CaseController extends Controller
 
             LoanCaseInvoiceMain::where('loan_case_main_bill_id',  $id)->delete();
         } else {
-            LoanCaseInvoiceMain::where('loan_case_main_bill_id', $id)->update(['bill_party_id' => 0]);
+            LoanCaseInvoiceMain::where('loan_case_main_bill_id', $id)->update([
+                'bill_party_id' => 0,
+                'bln_invoice' => 0  // Sync bln_invoice when reverting
+            ]);
         }
 
         $LoanCaseBillMain->save();
@@ -12605,6 +12670,9 @@ class CaseController extends Controller
 
         $LoanCaseBillMain->bln_sst = 1;
         $LoanCaseBillMain->save();
+
+        // Sync bln_sst to invoice records
+        LoanCaseInvoiceMain::where('loan_case_main_bill_id', $id)->update(['bln_sst' => 1]);
 
         return response()->json(['status' => 1, 'message' => 'Converted to SST']);
     }

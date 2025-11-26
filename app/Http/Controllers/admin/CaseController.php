@@ -12394,6 +12394,9 @@ class CaseController extends Controller
         $LoanCaseBillMain->invoice_to = $LoanCaseBillMain->bill_to;
         $LoanCaseBillMain->save();
 
+        // Sync bln_invoice to invoice records
+        LoanCaseInvoiceMain::where('loan_case_main_bill_id', $id)->update(['bln_invoice' => 1]);
+
         $current_user = auth()->user();
         $AccountLog = new AccountLog();
         $AccountLog->user_id = $current_user->id;
@@ -12432,6 +12435,11 @@ class CaseController extends Controller
 
             LoanCaseInvoiceMain::where('loan_case_main_bill_id',  $id)->delete();
         } else {
+            LoanCaseInvoiceMain::where('loan_case_main_bill_id', $id)->update([
+                'bill_party_id' => 0,
+                'bln_invoice' => 0  // Sync bln_invoice when reverting
+            ]);
+        }
             LoanCaseInvoiceMain::where('loan_case_main_bill_id', $id)->update(['bill_party_id' => 0]);
         }
 
@@ -12498,6 +12506,9 @@ class CaseController extends Controller
 
         $LoanCaseBillMain->bln_sst = 1;
         $LoanCaseBillMain->save();
+
+        // Sync bln_sst to invoice records
+        LoanCaseInvoiceMain::where('loan_case_main_bill_id', $id)->update(['bln_sst' => 1]);
 
         return response()->json(['status' => 1, 'message' => 'Converted to SST']);
     }

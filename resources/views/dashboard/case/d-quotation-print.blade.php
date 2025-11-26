@@ -376,7 +376,7 @@
                                                 style="font-size:15px">Grand Total :</b></span> </td>
                                     <td style="text-align:right;padding:0px !important;padding-right:10px !important;"
                                         colspan="5"><b style="font-size:15px">
-                                            {{ number_format(floor($total_amount_main), 2, '.', ',') }}</b></td>
+                                            {{ number_format(round($total_amount_main, 2), 2, '.', ',') }}</b></td>
 
                                 </tr>
                             @endif

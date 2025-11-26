@@ -144,6 +144,8 @@ class SSTV2Controller extends Controller
                 'im.amount as total_amount',
                 'im.pfee1_inv as pfee1',
                 'im.pfee2_inv as pfee2',
+                'im.reimbursement_sst',
+                'im.transferred_reimbursement_sst_amt',
                 'b.collected_amt as collected_amount',
                 'b.payment_receipt_date as payment_date',
                 'l.case_ref_no',
@@ -278,6 +280,12 @@ class SSTV2Controller extends Controller
             $searchClient = $request->input('search_client');
             $searchBillingParty = $request->input('search_billing_party');
             $filterBranch = $request->input('filter_branch');
+            // Convert to integer if not empty, to ensure proper comparison with branch IDs
+            if ($filterBranch !== null && $filterBranch !== '') {
+                $filterBranch = (int) $filterBranch;
+            } else {
+                $filterBranch = null;
+            }
             $filterStartDate = $request->input('filter_start_date');
             $filterEndDate = $request->input('filter_end_date');
             
@@ -299,6 +307,10 @@ class SSTV2Controller extends Controller
                     'im.loan_case_main_bill_id',
                     'im.transferred_sst_amt',
                     'im.sst_inv',
+                    'im.reimbursement_sst',
+                    'im.transferred_reimbursement_sst_amt',
+                    'im.pfee1_inv as pfee1',
+                    'im.pfee2_inv as pfee2',
                     'im.amount as total_amt_inv',
                     'b.collected_amt as collected_amt_inv',
                     'b.payment_receipt_date',
@@ -318,13 +330,52 @@ class SSTV2Controller extends Controller
                 // An invoice can have other amounts transferred but still have SST available
                 ->whereNotNull('im.loan_case_main_bill_id')
                 ->where('im.loan_case_main_bill_id', '>', 0)
-                ->where('b.bln_invoice', '=', 1)
+                ->where('b.bln_invoice', '=', 1)  // Bill is an invoice
+                ->where('im.bln_invoice', '=', 1)  // Invoice flag is set (should match bill level)
                 ->where('b.bln_sst', '=', 0)  // SST not yet transferred on bill
-                ->where('im.sst_inv', '>', 0)  // Invoice has SST amount
                 ->where('im.bln_sst', '=', 0);  // SST not yet transferred on invoice
 
-            // Apply centralized branch filtering
-            BranchAccessService::applyBranchFilter($query, $current_user, 'b.invoice_branch_id');
+            // Get accessible branches for user (already handles admin/account roles)
+            $accessibleBranches = \App\Services\BranchAccessService::getAccessibleBranchIds($current_user);
+            
+            // Apply branch filtering
+            // If user selects a specific branch from dropdown, check if they have access and apply that filter
+            // Otherwise, apply the user's accessible branches filter
+            if ($filterBranch && $filterBranch != 0) {
+                // User selected a specific branch - check if they have access
+                if (in_array($filterBranch, $accessibleBranches)) {
+                    // User has access to selected branch - filter by that branch with fallback to case branch_id
+                    $query->where(function($q) use ($filterBranch) {
+                        $q->where('b.invoice_branch_id', $filterBranch)
+                          ->orWhere(function($subQ) use ($filterBranch) {
+                              $subQ->whereNull('b.invoice_branch_id')
+                                   ->where('l.branch_id', $filterBranch);
+                          });
+                    });
+                } else {
+                    // User doesn't have access to selected branch - return empty result
+                    $query->whereRaw('1 = 0'); // Force no results
+                }
+            } else {
+                // No specific branch selected - apply user's accessible branches filter with fallback to case branch_id
+                if (count($accessibleBranches) === 1) {
+                    $query->where(function($q) use ($accessibleBranches) {
+                        $q->where('b.invoice_branch_id', '=', $accessibleBranches[0])
+                          ->orWhere(function($subQ) use ($accessibleBranches) {
+                              $subQ->whereNull('b.invoice_branch_id')
+                                   ->where('l.branch_id', '=', $accessibleBranches[0]);
+                          });
+                    });
+                } else {
+                    $query->where(function($q) use ($accessibleBranches) {
+                        $q->whereIn('b.invoice_branch_id', $accessibleBranches)
+                          ->orWhere(function($subQ) use ($accessibleBranches) {
+                              $subQ->whereNull('b.invoice_branch_id')
+                                   ->whereIn('l.branch_id', $accessibleBranches);
+                          });
+                    });
+                }
+            }
 
             // Apply search filters
             if ($searchInvoiceNo) {
@@ -361,10 +412,6 @@ class SSTV2Controller extends Controller
                 $query = $query->whereBetween('b.payment_receipt_date', [$filterStartDate, $filterEndDate]);
             }
 
-            if ($filterBranch && $filterBranch != 0) {
-                $query = $query->where('b.invoice_branch_id', $filterBranch);
-            }
-
             // Handle transfer list filtering
             if ($request->input('type') == 'transferred') {
                 $transferred_list = [];
@@ -377,7 +424,11 @@ class SSTV2Controller extends Controller
                 if ($request->input('transaction_id')) {
                     $query = $query->whereIn('im.id', $transferred_list);
                 }
+                // For 'transferred' type, don't filter by remaining SST as we want to show already transferred invoices
             } else {
+                // For normal selection and 'add' type, bln_sst = 0 is sufficient to indicate SST hasn't been transferred
+                // No need to check remaining SST amounts as bln_sst flag already handles this
+                
                 if ($request->input('type') == 'add') {
                     if ($request->input('transfer_list')) {
                         $transfer_list = json_decode($request->input('transfer_list'), true);
@@ -560,22 +611,37 @@ class SSTV2Controller extends Controller
 
         if (count($add_bill) > 0) {
             for ($i = 0; $i < count($add_bill); $i++) {
+                $LoanCaseInvoiceMain = LoanCaseInvoiceMain::where('id', '=', $add_bill[$i]['id'])->first();
+                
                 $SSTDetails = new SSTDetails();
-                $total_amount += $add_bill[$i]['value'];
+                $sst_amount = $add_bill[$i]['value'];
+                
+                // Get full reimbursement SST (not remaining)
+                $reimbursement_sst = $LoanCaseInvoiceMain->reimbursement_sst ?? 0;
+                
+                // Total for this invoice = SST + full reimbursement SST
+                $invoice_total = $sst_amount + $reimbursement_sst;
+                $total_amount += $invoice_total;
 
                 $SSTDetails->sst_main_id = $SSTMain->id;
                 $SSTDetails->loan_case_invoice_main_id = $add_bill[$i]['id']; // Changed to use invoice_main_id
                 $SSTDetails->created_by = $current_user->id;
-                $SSTDetails->amount = $add_bill[$i]['value'];
+                $SSTDetails->amount = $sst_amount;
                 $SSTDetails->status = 1;
                 $SSTDetails->created_at = date('Y-m-d H:i:s');
                 $SSTDetails->save();
 
                 // Update the invoice to mark SST as transferred
                 LoanCaseInvoiceMain::where('id', '=', $add_bill[$i]['id'])->update([
-                    'transferred_sst_amt' => $add_bill[$i]['value'],
+                    'transferred_sst_amt' => $sst_amount,
                     'bln_sst' => 1
                 ]);
+                
+                // Sync bln_sst to bill record
+                if ($LoanCaseInvoiceMain && $LoanCaseInvoiceMain->loan_case_main_bill_id) {
+                    LoanCaseBillMain::where('id', $LoanCaseInvoiceMain->loan_case_main_bill_id)
+                        ->update(['bln_sst' => 1]);
+                }
             }
 
             $SSTMain->amount = $total_amount;
@@ -616,37 +682,116 @@ class SSTV2Controller extends Controller
         if (count($SSTDetails) > 0) {
             for ($i = 0; $i < count($SSTDetails); $i++) {
                 $LoanCaseInvoiceMain = LoanCaseInvoiceMain::where('id', '=', $SSTDetails[$i]['loan_case_invoice_main_id'])->first();
-                $transfer_amount = $LoanCaseInvoiceMain->sst_inv;
-                $total_amount += $transfer_amount;
-                $SSTDetails[$i]['amount'] = $transfer_amount;
-                $SSTDetails[$i]->save();
+                if ($LoanCaseInvoiceMain) {
+                    // Get SST amount
+                    $transfer_amount = $LoanCaseInvoiceMain->sst_inv ?? 0;
+                    
+                    // Get full reimbursement SST (not remaining)
+                    $reimbursement_sst = $LoanCaseInvoiceMain->reimbursement_sst ?? 0;
+                    
+                    // Total for this invoice = SST + full reimbursement SST (matches edit page display)
+                    $invoice_total = $transfer_amount + $reimbursement_sst;
+                    $total_amount += $invoice_total;
+                    
+                    $SSTDetails[$i]['amount'] = $transfer_amount;
+                    $SSTDetails[$i]->save();
+                }
             }
         }
 
         if (count($add_bill) > 0) {
             for ($i = 0; $i < count($add_bill); $i++) {
-                $SSTDetails = new SSTDetails();
-                $total_amount += $add_bill[$i]['value'];
+                $LoanCaseInvoiceMain = LoanCaseInvoiceMain::where('id', '=', $add_bill[$i]['id'])->first();
+                if ($LoanCaseInvoiceMain) {
+                    // Get SST amount from add_bill (this is the SST being transferred)
+                    $sst_amount = $add_bill[$i]['value'];
+                    
+                    // Get full reimbursement SST (not remaining)
+                    $reimbursement_sst = $LoanCaseInvoiceMain->reimbursement_sst ?? 0;
+                    
+                    // Total for this new invoice = SST + full reimbursement SST
+                    $invoice_total = $sst_amount + $reimbursement_sst;
+                    $total_amount += $invoice_total;
+                    
+                    $SSTDetails = new SSTDetails();
+                    $SSTDetails->sst_main_id = $SSTMain->id;
+                    $SSTDetails->loan_case_invoice_main_id = $add_bill[$i]['id'];
+                    $SSTDetails->created_by = $current_user->id;
+                    $SSTDetails->amount = $sst_amount;
+                    $SSTDetails->status = 1;
+                    $SSTDetails->created_at = date('Y-m-d H:i:s');
+                    $SSTDetails->save();
 
-                $SSTDetails->sst_main_id = $SSTMain->id;
-                $SSTDetails->loan_case_invoice_main_id = $add_bill[$i]['id'];
-                $SSTDetails->created_by = $current_user->id;
-                $SSTDetails->amount = $add_bill[$i]['value'];
-                $SSTDetails->status = 1;
-                $SSTDetails->created_at = date('Y-m-d H:i:s');
-                $SSTDetails->save();
-
-                LoanCaseInvoiceMain::where('id', '=', $add_bill[$i]['id'])->update([
-                    'transferred_sst_amt' => $add_bill[$i]['value'],
-                    'bln_sst' => 1
-                ]);
+                    // Update transferred amounts
+                    $new_transferred_sst = ($LoanCaseInvoiceMain->transferred_sst_amt ?? 0) + $sst_amount;
+                    // Note: transferred_reimbursement_sst_amt is not updated here as reimbursement SST is separate
+                    
+                    LoanCaseInvoiceMain::where('id', '=', $add_bill[$i]['id'])->update([
+                        'transferred_sst_amt' => $new_transferred_sst,
+                        'bln_sst' => 1
+                    ]);
+                    
+                    // Sync bln_sst to bill record
+                    if ($LoanCaseInvoiceMain && $LoanCaseInvoiceMain->loan_case_main_bill_id) {
+                        LoanCaseBillMain::where('id', $LoanCaseInvoiceMain->loan_case_main_bill_id)
+                            ->update(['bln_sst' => 1]);
+                    }
+                }
             }
 
+            $SSTMain->amount = $total_amount;
+            $SSTMain->save();
+        } else {
+            // Even if no new invoices, update the total amount for existing invoices
             $SSTMain->amount = $total_amount;
             $SSTMain->save();
         }
 
         return redirect()->route('sst-v2.edit', $id)->with('success', 'SST record updated successfully!');
+    }
+
+    /**
+     * Recalculate SST record amount (fix existing records)
+     */
+    public function recalculateSSTAmount($id)
+    {
+        $sstMain = SSTMain::where('id', '=', $id)->first();
+        
+        if (!$sstMain) {
+            return response()->json(['status' => 0, 'message' => 'SST record not found']);
+        }
+
+        $total_amount = 0;
+        $SSTDetails = SSTDetails::where('sst_main_id', '=', $id)->get();
+
+        if (count($SSTDetails) > 0) {
+            foreach ($SSTDetails as $detail) {
+                $LoanCaseInvoiceMain = LoanCaseInvoiceMain::where('id', '=', $detail->loan_case_invoice_main_id)->first();
+                if ($LoanCaseInvoiceMain) {
+                    // Get SST amount
+                    $transfer_amount = $detail->amount ?? 0;
+                    
+                    // Get full reimbursement SST (not remaining)
+                    $reimbursement_sst = $LoanCaseInvoiceMain->reimbursement_sst ?? 0;
+                    
+                    // Total for this invoice = SST + full reimbursement SST
+                    $invoice_total = $transfer_amount + $reimbursement_sst;
+                    $total_amount += $invoice_total;
+                }
+            }
+        }
+
+        $old_amount = $sstMain->amount ?? 0;
+        $sstMain->amount = $total_amount;
+        $sstMain->save();
+
+        return response()->json([
+            'status' => 1,
+            'message' => 'SST amount recalculated successfully',
+            'old_amount' => $old_amount,
+            'new_amount' => $total_amount,
+            'difference' => abs($old_amount - $total_amount)
+        ]);
     }
 
     /**
@@ -713,21 +858,59 @@ class SSTV2Controller extends Controller
             $sstMainId = $sstDetail->sst_main_id;
             $deletedAmount = $sstDetail->amount;
 
+            // Get invoice to check reimbursement SST
+            $invoice = LoanCaseInvoiceMain::where('id', $invoiceMainId)->first();
+            $deletedReimbSst = 0;
+            if ($invoice) {
+                // Calculate how much reimbursement SST was transferred for this invoice
+                $reimbursementSst = $invoice->reimbursement_sst ?? 0;
+                $transferredReimbSst = $invoice->transferred_reimbursement_sst_amt ?? 0;
+                // The remaining reimbursement SST that was included in this SST record
+                $deletedReimbSst = max(0, $reimbursementSst - $transferredReimbSst);
+            }
+
             // Delete from sst_details table
             $deleted = SSTDetails::where('id', $sstDetailId)->delete();
 
             if ($deleted) {
-                // Update loan_case_invoice_main record
+                // Update loan_case_invoice_main record - reset both SST and reimbursement SST
                 LoanCaseInvoiceMain::where('id', $invoiceMainId)->update([
                     'bln_sst' => 0,
-                    'transferred_sst_amt' => 0
+                    'transferred_sst_amt' => 0,
+                    'transferred_reimbursement_sst_amt' => 0  // Reset reimbursement SST
                 ]);
 
-                // Update SST main record total amount
+                // Sync bln_sst to bill record - check if other invoices for this bill still have bln_sst = 1
+                if ($invoice && $invoice->loan_case_main_bill_id) {
+                    $otherInvoicesWithSst = LoanCaseInvoiceMain::where('loan_case_main_bill_id', $invoice->loan_case_main_bill_id)
+                        ->where('id', '!=', $invoiceMainId)
+                        ->where('bln_sst', 1)
+                        ->exists();
+                    
+                    if (!$otherInvoicesWithSst) {
+                        LoanCaseBillMain::where('id', $invoice->loan_case_main_bill_id)
+                            ->update(['bln_sst' => 0]);
+                    }
+                }
+
+                // Recalculate SST main record total amount from remaining invoices
                 $sstMain = SSTMain::where('id', $sstMainId)->first();
                 if ($sstMain) {
-                    $newTotal = $sstMain->amount - $deletedAmount;
-                    $sstMain->amount = max(0, $newTotal); // Ensure amount doesn't go negative
+                    $remainingDetails = SSTDetails::where('sst_main_id', $sstMainId)->get();
+                    $newTotal = 0;
+
+                    foreach ($remainingDetails as $detail) {
+                        $remainingInvoice = LoanCaseInvoiceMain::find($detail->loan_case_invoice_main_id);
+                        if ($remainingInvoice) {
+                            $sstAmount = $detail->amount ?? 0;
+                            $reimbursementSst = $remainingInvoice->reimbursement_sst ?? 0;
+                            $transferredReimbSst = $remainingInvoice->transferred_reimbursement_sst_amt ?? 0;
+                            $remainingReimbSst = max(0, $reimbursementSst - $transferredReimbSst);
+                            $newTotal += $sstAmount + $remainingReimbSst;
+                        }
+                    }
+
+                    $sstMain->amount = $newTotal;
                     $sstMain->save();
                 }
 

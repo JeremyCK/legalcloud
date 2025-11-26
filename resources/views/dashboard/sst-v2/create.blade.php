@@ -99,14 +99,16 @@
                                                     <th>Ref No</th>
                                                     <th>Client Name</th>
                                                     <th>Invoice No</th>
-                                                                        <th>Invoice Date</th>
+                                                    <th>Invoice Date</th>
                                                     <th>Total amt</th>
                                                     <th>Pfee1</th>
                                                     <th>Pfee2</th>
                                                     <th>Collected amt</th>
-                                                                        <th>SST</th>
+                                                    <th>SST</th>
+                                                    <th>Reimb SST</th>
+                                                    <th>Total SST</th>
                                                     <th>Payment Date</th>
-                                                                        <th>Action</th>
+                                                    <th>Action</th>
                                                 </tr>
                                             </thead>
                                                                 <tbody id="selectedInvoicesTableBody">
@@ -867,24 +869,37 @@
                 const invoiceId = $(this).val();
                 const billId = $(this).data('bill-id');
                 const sstAmount = parseFloat($(this).data('sst')) || 0;
+                const reimbSstAmount = parseFloat($(this).data('reimb-sst')) || 0;
+                const totalSstAmount = parseFloat($(this).data('total-sst')) || 0;
+                const totalAmt = parseFloat($(this).data('total-amt')) || 0;
+                const collectedAmt = parseFloat($(this).data('collected-amt')) || 0;
+                const pfee1 = parseFloat($(this).data('pfee1')) || 0;
+                const pfee2 = parseFloat($(this).data('pfee2')) || 0;
                 
                 // Check if this invoice is already selected
                 const existingIndex = selectedInvoices.findIndex(invoice => invoice.id == invoiceId);
                 
                 if (existingIndex === -1) {
                     // Get invoice details from the table row
+                    // Column indices: 0=No, 1=Action, 2=Ref No, 3=Client Name, 4=Invoice No, 5=Invoice Date, 6=Total amt, 7=Collected amt, 8=SST, 9=Reimb SST, 10=Total SST, 11=Payment Date
                     const row = $(this).closest('tr');
-                    const invoiceNo = row.find('td:eq(3)').text() || 'N/A';
-                    const invoiceDate = row.find('td:eq(4)').text() || 'N/A';
                     const caseRef = row.find('td:eq(2) a').text() || row.find('td:eq(2)').text() || 'N/A';
-                    const clientName = row.find('td:eq(2) a').text() || row.find('td:eq(2)').text() || 'N/A';
-                    const paymentDate = row.find('td:eq(8)').text() || 'N/A';
+                    const clientName = row.find('td:eq(3)').text() || 'N/A';
+                    const invoiceNo = row.find('td:eq(4)').text() || 'N/A';
+                    const invoiceDate = row.find('td:eq(5)').text() || 'N/A';
+                    const paymentDate = row.find('td:eq(11)').text() || 'N/A';
                     const caseId = row.find('td:eq(2) a').attr('href') ? row.find('td:eq(2) a').attr('href').split('/').pop() : null;
                     
                     newSelections.push({
                         id: invoiceId,
                         bill_id: billId,
                         sst_amount: sstAmount,
+                        reimb_sst_amount: reimbSstAmount,
+                        total_sst_amount: totalSstAmount,
+                        total_amt: totalAmt,
+                        collected_amt: collectedAmt,
+                        pfee1: pfee1,
+                        pfee2: pfee2,
                         invoice_no: invoiceNo,
                         invoice_date: invoiceDate,
                         case_ref: caseRef,
@@ -909,12 +924,17 @@
                 $('#selectedCount').text(selectedInvoices.length);
                 
                 let totalSstAmount = 0;
+                let totalReimbSstAmount = 0;
+                let grandTotalSstAmount = 0;
                 selectedInvoices.forEach(invoice => {
                     totalSstAmount += parseFloat(invoice.sst_amount) || 0;
+                    totalReimbSstAmount += parseFloat(invoice.reimb_sst_amount) || 0;
+                    grandTotalSstAmount += parseFloat(invoice.total_sst_amount) || 0;
                 });
                 
-                $('#selectedTotalAmount').text(totalSstAmount.toFixed(2));
-                $('#pay_amount').val(totalSstAmount.toFixed(2));
+                // Display total SST (SST + Reimbursement SST)
+                $('#selectedTotalAmount').text(grandTotalSstAmount.toFixed(2));
+                $('#pay_amount').val(grandTotalSstAmount.toFixed(2));
                 
                 // Update the selected invoices table
                 updateSelectedInvoicesTable();
@@ -925,30 +945,73 @@
         }
 
         function updateSelectedInvoicesTable() {
-            let tableHtml = '<table class="table table-bordered table-striped" style="margin-bottom: 0;">';
+            if (selectedInvoices.length === 0) {
+                $('#selectedInvoicesTable').hide();
+                $('#noSelectedInvoices').show();
+                return;
+            }
+            
+            // Calculate totals
+            let totalAmt = 0;
+            let totalPfee1 = 0;
+            let totalPfee2 = 0;
+            let totalCollectedAmt = 0;
+            let totalSst = 0;
+            let totalReimbSst = 0;
+            let grandTotalSst = 0;
+            
+            selectedInvoices.forEach((invoice) => {
+                totalAmt += parseFloat(invoice.total_amt || 0);
+                totalPfee1 += parseFloat(invoice.pfee1 || 0);
+                totalPfee2 += parseFloat(invoice.pfee2 || 0);
+                totalCollectedAmt += parseFloat(invoice.collected_amt || 0);
+                totalSst += parseFloat(invoice.sst_amount || 0);
+                totalReimbSst += parseFloat(invoice.reimb_sst_amount || 0);
+                grandTotalSst += parseFloat(invoice.sst_amount || 0) + parseFloat(invoice.reimb_sst_amount || 0);
+            });
+            
+            let tableHtml = '<div class="table-responsive"><table class="table table-bordered table-striped" style="margin-bottom: 0;">';
             tableHtml += '<thead class="thead-dark"><tr>';
-            tableHtml += '<th>No</th><th>Ref No</th><th>Client Name</th><th>Invoice No</th><th>Invoice Date</th><th>Total amt</th><th>Pfee1</th><th>Pfee2</th><th>Collected amt</th><th>SST</th><th>Payment Date</th><th>Action</th>';
+            tableHtml += '<th>No</th><th>Ref No</th><th>Client Name</th><th>Invoice No</th><th>Invoice Date</th><th>Total amt</th><th>Pfee1</th><th>Pfee2</th><th>Collected amt</th><th>SST</th><th>Reimb SST</th><th>Total SST</th><th>Payment Date</th><th>Action</th>';
             tableHtml += '</tr></thead><tbody>';
             
             selectedInvoices.forEach((invoice, index) => {
+                const totalSstRow = parseFloat(invoice.sst_amount || 0) + parseFloat(invoice.reimb_sst_amount || 0);
                 tableHtml += '<tr>';
                 tableHtml += `<td>${index + 1}</td>`;
                 tableHtml += `<td>${invoice.case_ref}</td>`;
                 tableHtml += `<td>${invoice.client_name}</td>`;
                 tableHtml += `<td>${invoice.invoice_no}</td>`;
                 tableHtml += `<td>${invoice.invoice_date}</td>`;
-                tableHtml += `<td class="text-right">0.00</td>`;
+                tableHtml += `<td class="text-right">${parseFloat(invoice.total_amt || 0).toFixed(2)}</td>`;
                 tableHtml += `<td class="text-right">${parseFloat(invoice.pfee1 || 0).toFixed(2)}</td>`;
                 tableHtml += `<td class="text-right">${parseFloat(invoice.pfee2 || 0).toFixed(2)}</td>`;
-                tableHtml += `<td class="text-right">0.00</td>`;
-                tableHtml += `<td class="text-right">${parseFloat(invoice.sst_amount).toFixed(2)}</td>`;
+                tableHtml += `<td class="text-right">${parseFloat(invoice.collected_amt || 0).toFixed(2)}</td>`;
+                tableHtml += `<td class="text-right">${parseFloat(invoice.sst_amount || 0).toFixed(2)}</td>`;
+                tableHtml += `<td class="text-right">${parseFloat(invoice.reimb_sst_amount || 0).toFixed(2)}</td>`;
+                tableHtml += `<td class="text-right" style="font-weight: bold;">${totalSstRow.toFixed(2)}</td>`;
                 tableHtml += `<td>${invoice.payment_date}</td>`;
                 tableHtml += `<td><button class="btn btn-sm btn-danger" onclick="removeSelectedInvoice(${index})"><i class="fa fa-times"></i></button></td>`;
                 tableHtml += '</tr>';
             });
             
-            tableHtml += '</tbody></table>';
+            // Add footer row with totals
+            tableHtml += '</tbody><tfoot class="table-info" style="font-weight: bold; background-color: #d1ecf1;">';
+            tableHtml += '<tr>';
+            tableHtml += '<td colspan="5" class="text-right"><strong>Total:</strong></td>';
+            tableHtml += `<td class="text-right">${totalAmt.toFixed(2)}</td>`;
+            tableHtml += `<td class="text-right">${totalPfee1.toFixed(2)}</td>`;
+            tableHtml += `<td class="text-right">${totalPfee2.toFixed(2)}</td>`;
+            tableHtml += `<td class="text-right">${totalCollectedAmt.toFixed(2)}</td>`;
+            tableHtml += `<td class="text-right">${totalSst.toFixed(2)}</td>`;
+            tableHtml += `<td class="text-right">${totalReimbSst.toFixed(2)}</td>`;
+            tableHtml += `<td class="text-right" style="font-weight: bold; font-size: 1.1em;">${grandTotalSst.toFixed(2)}</td>`;
+            tableHtml += '<td colspan="2"></td>';
+            tableHtml += '</tr>';
+            tableHtml += '</tfoot></table></div>';
+            
             $('#selectedInvoicesTable').html(tableHtml).show();
+            $('#noSelectedInvoices').hide();
         }
 
         function removeSelectedInvoice(index) {
@@ -992,6 +1055,8 @@
             form_data.append("payment_date", $("#payment_date").val());
             form_data.append("remark", $("#remark").val());
             form_data.append("branch", $("#branch_sst").val());
+            // Add CSRF token
+            form_data.append("_token", $('meta[name="csrf-token"]').attr('content') || $('input[name="_token"]').val());
 
             $.ajax({
                 type: 'POST',
@@ -999,6 +1064,9 @@
                 data: form_data,
                 processData: false,
                 contentType: false,
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content') || $('input[name="_token"]').val()
+                },
                 success: function(result) {
                     console.log(result);
                     if (result.status == 1) {

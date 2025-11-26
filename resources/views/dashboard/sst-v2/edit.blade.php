@@ -72,7 +72,12 @@
                                             <label>Transfer Total Amount</label>
                                             <input type="text" class="form-control" name="transfer_total_amount"
                                                 id="transferTotalAmount"
-                                                value="{{ number_format($SSTMain->amount ?? 0, 2) }}"
+                                                value="@php
+                                                    $totalSst = $SSTDetails->sum('amount') ?? 0;
+                                                    $totalReimbSst = $SSTDetails->sum('reimbursement_sst') ?? 0;
+                                                    $grandTotalSst = $totalSst + $totalReimbSst;
+                                                    echo number_format($grandTotalSst, 2);
+                                                @endphp"
                                                 readonly
                                                 style="background-color: #f8f9fa; font-weight: bold; color: #495057;">
                                         </div>
@@ -107,10 +112,12 @@
                                                     invoices selected</strong>
                                                 <br>
                                                 <strong>Total Amount: <span
-                                                        id="selectedTotalAmount">{{ number_format(
-                                                            $SSTDetails->sum('amount'),
-                                                            2,
-                                                        ) }}</span></strong>
+                                                        id="selectedTotalAmount">@php
+                                                            $totalSst = $SSTDetails->sum('amount') ?? 0;
+                                                            $totalReimbSst = $SSTDetails->sum('reimbursement_sst') ?? 0;
+                                                            $grandTotalSst = $totalSst + $totalReimbSst;
+                                                            echo number_format($grandTotalSst, 2);
+                                                        @endphp</span></strong>
                                 </div>
 
                                             <!-- Selected Invoices Table -->
@@ -202,6 +209,8 @@
                                                                             <span class="sort-icon"
                                                                                 id="sort-selected-sst"></span>
                                                                         </th>
+                                                                        <th width="80">Reimb SST</th>
+                                                                        <th width="80">Total SST</th>
                                                                         <th width="90" class="sortable-header"
                                                                             data-sort="payment_date"
                                                                             style="cursor: pointer;">
@@ -242,12 +251,18 @@
                                                                                 <td class="text-right" style="font-size: 11px;">{{ number_format($detail->pfee2 ?? 0, 2) }}</td>
                                                                                 <td class="text-right" style="font-size: 11px;">{{ number_format($detail->collected_amount ?? 0, 2) }}</td>
                                                                                 <td class="text-right" style="font-size: 11px;">{{ number_format($detail->amount, 2) }}</td>
+                                                                                @php
+                                                                                    $reimbSst = $detail->reimbursement_sst ?? 0;
+                                                                                    $totalSstRow = ($detail->amount ?? 0) + $reimbSst;
+                                                                                @endphp
+                                                                                <td class="text-right" style="font-size: 11px;">{{ number_format($reimbSst, 2) }}</td>
+                                                                                <td class="text-right" style="font-size: 11px; font-weight: bold;">{{ number_format($totalSstRow, 2) }}</td>
                                                                                 <td style="font-size: 11px;">{{ $detail->payment_date ?? 'N/A' }}</td>
                                                                             </tr>
                                                                         @endforeach
                                                                     @else
                                                                         <tr>
-                                                                            <td colspan="9" class="text-center text-muted">No invoices found</td>
+                                                                            <td colspan="13" class="text-center text-muted">No invoices found</td>
                                                                         </tr>
                                                                     @endif
                                             </tbody>
@@ -273,6 +288,12 @@
                                                                         <th class="text-right" id="selectedTotalSST">
                                                                             {{ number_format($SSTDetails->sum('amount'), 2) }}
                                                                         </th>
+                                                                        @php
+                                                                            $totalReimbSst = $SSTDetails->sum('reimbursement_sst') ?? 0;
+                                                                            $grandTotalSst = $SSTDetails->sum('amount') + $totalReimbSst;
+                                                                        @endphp
+                                                                        <th class="text-right">{{ number_format($totalReimbSst, 2) }}</th>
+                                                                        <th class="text-right" style="font-weight: bold; font-size: 1.1em;">{{ number_format($grandTotalSst, 2) }}</th>
                                                                         <th></th>
                                                                     </tr>
                                             </tfoot>
@@ -321,30 +342,28 @@
                                                                 <th width="80">Pfee2</th>
                                                                 <th width="80">Collected amt</th>
                                                                 <th width="60">SST</th>
+                                                                <th width="80">Reimb SST</th>
+                                                                <th width="80">Total SST</th>
                                                                 <th width="90">Payment Date</th>
                                     </tr>
                                 </thead>
                                                         <tbody id="newTransferTableBody">
                                                             <tr>
-                                                                <td colspan="9" class="text-center text-muted">No new invoices selected</td>
+                                                                <td colspan="14" class="text-center text-muted">No new invoices selected</td>
                                                             </tr>
                                 </tbody>
-                                                        <tfoot class="table-dark" style="position: sticky; bottom: 0; z-index: 1;">
+                                                        <tfoot class="table-info" style="position: sticky; bottom: 0; z-index: 1; font-weight: bold; background-color: #d1ecf1;">
                                                             <tr>
-                                                                <th colspan="4" class="text-right">
+                                                                <th colspan="6" class="text-right">
                                                                     <strong>TOTAL:</strong>
                                                                 </th>
-                                                                <th></th>
-                                                                <th></th>
-                                                                <th class="text-right" id="newTransferTotalAmt">
-                                                                    0.00
-                                                                </th>
-                                                                <th class="text-right" id="newTransferTotalCollected">
-                                                                    0.00
-                                                                </th>
-                                                                <th class="text-right font-weight-bold" id="newTransferTotalSST">
-                                                                    0.00
-                                                                </th>
+                                                                <th class="text-right" id="newTransferTotalAmt">0.00</th>
+                                                                <th class="text-right" id="newTransferTotalPfee1">0.00</th>
+                                                                <th class="text-right" id="newTransferTotalPfee2">0.00</th>
+                                                                <th class="text-right" id="newTransferTotalCollected">0.00</th>
+                                                                <th class="text-right" id="newTransferTotalSST">0.00</th>
+                                                                <th class="text-right" id="newTransferTotalReimbSST">0.00</th>
+                                                                <th class="text-right font-weight-bold" style="font-size: 1.1em;" id="newTransferGrandTotalSST">0.00</th>
                                                                 <th></th>
                                                             </tr>
                                                         </tfoot>
@@ -828,26 +847,43 @@
         function addSelectedInvoicesToNewTransferList() {
             // Get selected invoices from modal checkboxes
             const selectedInvoices = [];
-            $('#invoiceListContainer input[type="checkbox"]:checked').each(function() {
-                const row = $(this).closest('tr');
+            $('.invoice-checkbox:checked').each(function() {
                 const invoiceId = $(this).val();
-                const invoiceNo = row.find('td:nth-child(4)').text().trim();
-                const caseRef = row.find('td:nth-child(3)').text().trim();
-                const invoiceDate = row.find('td:nth-child(5)').text().trim();
-                const totalAmt = row.find('td:nth-child(6)').text().trim();
-                const collectedAmt = row.find('td:nth-child(7)').text().trim();
-                const sstAmt = row.find('td:nth-child(8)').text().trim();
-                const paymentDate = row.find('td:nth-child(9)').text().trim();
+                const billId = $(this).data('bill-id');
+                const sstAmount = parseFloat($(this).data('sst')) || 0;
+                const reimbSstAmount = parseFloat($(this).data('reimb-sst')) || 0;
+                const totalSstAmount = parseFloat($(this).data('total-sst')) || 0;
+                const totalAmt = parseFloat($(this).data('total-amt')) || 0;
+                const collectedAmt = parseFloat($(this).data('collected-amt')) || 0;
+                const pfee1 = parseFloat($(this).data('pfee1')) || 0;
+                const pfee2 = parseFloat($(this).data('pfee2')) || 0;
+                
+                // Get invoice details from the table row
+                // Column indices: 0=No, 1=Action, 2=Ref No, 3=Client Name, 4=Invoice No, 5=Invoice Date, 6=Total amt, 7=Collected amt, 8=SST, 9=Reimb SST, 10=Total SST, 11=Payment Date
+                const row = $(this).closest('tr');
+                const caseRef = row.find('td:eq(2) a').text() || row.find('td:eq(2)').text() || 'N/A';
+                const clientName = row.find('td:eq(3)').text() || 'N/A';
+                const invoiceNo = row.find('td:eq(4)').text() || 'N/A';
+                const invoiceDate = row.find('td:eq(5)').text() || 'N/A';
+                const paymentDate = row.find('td:eq(11)').text() || 'N/A';
+                const caseId = row.find('td:eq(2) a').attr('href') ? row.find('td:eq(2) a').attr('href').split('/').pop() : null;
                 
                 selectedInvoices.push({
                     id: invoiceId,
+                    bill_id: billId,
                     invoice_no: invoiceNo,
                     case_ref: caseRef,
+                    client_name: clientName,
                     invoice_date: invoiceDate,
-                    total_amt: totalAmt,
-                    collected_amt: collectedAmt,
-                    sst_amt: sstAmt,
-                    payment_date: paymentDate
+                    payment_date: paymentDate,
+                    case_id: caseId,
+                    total_amt: totalAmt.toFixed(2),
+                    collected_amt: collectedAmt.toFixed(2),
+                    sst_amt: sstAmount.toFixed(2),
+                    reimb_sst_amt: reimbSstAmount.toFixed(2),
+                    total_sst_amt: totalSstAmount.toFixed(2),
+                    pfee1: pfee1.toFixed(2),
+                    pfee2: pfee2.toFixed(2)
                 });
             });
             
@@ -863,17 +899,31 @@
             const tbody = $('#newTransferTableBody');
             let html = '';
             let totalSST = 0;
+            let totalReimbSST = 0;
+            let grandTotalSST = 0;
             let totalAmt = 0;
+            let totalPfee1 = 0;
+            let totalPfee2 = 0;
             let totalCollected = 0;
             
             invoices.forEach((invoice, index) => {
-                const sstAmount = parseFloat(invoice.sst_amt.replace(/,/g, '')) || 0;
-                const totalAmount = parseFloat(invoice.total_amt.replace(/,/g, '')) || 0;
-                const collectedAmount = parseFloat(invoice.collected_amt.replace(/,/g, '')) || 0;
+                const sstAmount = parseFloat(invoice.sst_amt) || 0;
+                const reimbSstAmount = parseFloat(invoice.reimb_sst_amt) || 0;
+                const totalSstAmount = parseFloat(invoice.total_sst_amt) || 0;
+                const totalAmount = parseFloat(invoice.total_amt) || 0;
+                const collectedAmount = parseFloat(invoice.collected_amt) || 0;
+                const pfee1 = parseFloat(invoice.pfee1) || 0;
+                const pfee2 = parseFloat(invoice.pfee2) || 0;
                 
                 totalSST += sstAmount;
+                totalReimbSST += reimbSstAmount;
                 totalAmt += totalAmount;
+                totalPfee1 += pfee1;
+                totalPfee2 += pfee2;
                 totalCollected += collectedAmount;
+                
+                // Calculate row total SST as SST + Reimb SST
+                const rowTotalSst = sstAmount + reimbSstAmount;
                 
                 html += `
                     <tr class="new-invoice-row" data-invoice-id="${invoice.id}">
@@ -893,20 +943,70 @@
                         <td style="font-size: 11px;">${invoice.client_name || 'N/A'}</td>
                         <td style="font-size: 11px;">${invoice.invoice_no}</td>
                         <td style="font-size: 11px;">${invoice.invoice_date}</td>
-                        <td class="text-right" style="font-size: 11px;">${invoice.total_amt}</td>
-                        <td class="text-right" style="font-size: 11px;">${invoice.pfee1 || '0.00'}</td>
-                        <td class="text-right" style="font-size: 11px;">${invoice.pfee2 || '0.00'}</td>
-                        <td class="text-right" style="font-size: 11px;">${invoice.collected_amt}</td>
-                        <td class="text-right sst-amount" style="font-size: 11px;">${invoice.sst_amt}</td>
+                        <td class="text-right" style="font-size: 11px;">${totalAmount.toFixed(2)}</td>
+                        <td class="text-right" style="font-size: 11px;">${pfee1.toFixed(2)}</td>
+                        <td class="text-right" style="font-size: 11px;">${pfee2.toFixed(2)}</td>
+                        <td class="text-right" style="font-size: 11px;">${collectedAmount.toFixed(2)}</td>
+                        <td class="text-right sst-amount" style="font-size: 11px;">${sstAmount.toFixed(2)}</td>
+                        <td class="text-right" style="font-size: 11px;">${reimbSstAmount.toFixed(2)}</td>
+                        <td class="text-right" style="font-size: 11px; font-weight: bold;">${rowTotalSst.toFixed(2)}</td>
                         <td style="font-size: 11px;">${invoice.payment_date}</td>
                     </tr>
                 `;
             });
             
+            // Calculate grand total as sum of SST + Reimb SST
+            grandTotalSST = totalSST + totalReimbSST;
+            
             tbody.html(html);
+            updateNewTransferTotals(totalSST, totalReimbSST, grandTotalSST, totalAmt, totalPfee1, totalPfee2, totalCollected);
+        }
+        
+        function updateNewTransferTotals(totalSST, totalReimbSST, grandTotalSST, totalAmt, totalPfee1, totalPfee2, totalCollected) {
             $('#newTransferTotalSST').text(totalSST.toFixed(2));
+            $('#newTransferTotalReimbSST').text(totalReimbSST.toFixed(2));
+            $('#newTransferGrandTotalSST').text(grandTotalSST.toFixed(2));
             $('#newTransferTotalAmt').text(totalAmt.toFixed(2));
+            $('#newTransferTotalPfee1').text(totalPfee1.toFixed(2));
+            $('#newTransferTotalPfee2').text(totalPfee2.toFixed(2));
             $('#newTransferTotalCollected').text(totalCollected.toFixed(2));
+            
+            // Update the overall transfer total amount
+            updateTransferTotalAmount();
+        }
+        
+        // Function to update Transfer Total Amount by combining Current Invoices and New Transfer List
+        function updateTransferTotalAmount() {
+            let currentInvoicesTotal = 0;
+            let newTransferListTotal = 0;
+            
+            // Calculate total from Current Invoices
+            $('.selected-invoice-row').each(function() {
+                const sstCell = $(this).find('td:nth-child(11)');
+                const reimbSstCell = $(this).find('td:nth-child(12)');
+                
+                if (sstCell.length && reimbSstCell.length) {
+                    const sstValue = parseFloat(sstCell.text().replace(/,/g, '')) || 0;
+                    const reimbSstValue = parseFloat(reimbSstCell.text().replace(/,/g, '')) || 0;
+                    currentInvoicesTotal += sstValue + reimbSstValue;
+                }
+            });
+            
+            // Calculate total from New Transfer List
+            $('#newTransferTableBody tr.new-invoice-row').each(function() {
+                const sstCell = $(this).find('td:nth-child(11)');
+                const reimbSstCell = $(this).find('td:nth-child(12)');
+                
+                if (sstCell.length && reimbSstCell.length) {
+                    const sstValue = parseFloat(sstCell.text().replace(/,/g, '')) || 0;
+                    const reimbSstValue = parseFloat(reimbSstCell.text().replace(/,/g, '')) || 0;
+                    newTransferListTotal += sstValue + reimbSstValue;
+                }
+            });
+            
+            // Update the Transfer Total Amount field
+            const combinedTotal = currentInvoicesTotal + newTransferListTotal;
+            $('#transferTotalAmount').val(combinedTotal.toFixed(2));
         }
         
         function removeNewInvoice(invoiceId) {
@@ -916,41 +1016,60 @@
         
         function updateNewTransferTotal() {
             let totalSST = 0;
+            let totalReimbSST = 0;
+            let grandTotalSST = 0;
             let totalAmt = 0;
+            let totalPfee1 = 0;
+            let totalPfee2 = 0;
             let totalCollected = 0;
             
             $('#newTransferTableBody tr').each(function() {
-                const totalCell = $(this).find('td:nth-child(6)');
-                const collectedCell = $(this).find('td:nth-child(7)');
-                const sstCell = $(this).find('td:nth-child(8)');
+                // Column indices: 0=No, 1=Action, 2=Ref No, 3=Client Name, 4=Invoice No, 5=Invoice Date, 6=Total amt, 7=Pfee1, 8=Pfee2, 9=Collected amt, 10=SST, 11=Reimb SST, 12=Total SST, 13=Payment Date
+                const totalCell = $(this).find('td:nth-child(7)');
+                const pfee1Cell = $(this).find('td:nth-child(8)');
+                const pfee2Cell = $(this).find('td:nth-child(9)');
+                const collectedCell = $(this).find('td:nth-child(10)');
+                const sstCell = $(this).find('td:nth-child(11)');
+                const reimbSstCell = $(this).find('td:nth-child(12)');
+                const totalSstCell = $(this).find('td:nth-child(13)');
                 
                 if (totalCell.length) {
                     const totalValue = parseFloat(totalCell.text().replace(/,/g, '')) || 0;
+                    const pfee1Value = parseFloat(pfee1Cell.text().replace(/,/g, '')) || 0;
+                    const pfee2Value = parseFloat(pfee2Cell.text().replace(/,/g, '')) || 0;
                     const collectedValue = parseFloat(collectedCell.text().replace(/,/g, '')) || 0;
                     const sstValue = parseFloat(sstCell.text().replace(/,/g, '')) || 0;
+                    const reimbSstValue = parseFloat(reimbSstCell.text().replace(/,/g, '')) || 0;
+                    const totalSstValue = parseFloat(totalSstCell.text().replace(/,/g, '')) || 0;
                     
                     totalAmt += totalValue;
+                    totalPfee1 += pfee1Value;
+                    totalPfee2 += pfee2Value;
                     totalCollected += collectedValue;
                     totalSST += sstValue;
+                    totalReimbSST += reimbSstValue;
                 }
             });
             
-            $('#newTransferTotalSST').text(totalSST.toFixed(2));
-            $('#newTransferTotalAmt').text(totalAmt.toFixed(2));
-            $('#newTransferTotalCollected').text(totalCollected.toFixed(2));
+            // Calculate grand total as sum of SST + Reimb SST
+            grandTotalSST = totalSST + totalReimbSST;
+            
+            updateNewTransferTotals(totalSST, totalReimbSST, grandTotalSST, totalAmt, totalPfee1, totalPfee2, totalCollected);
+            
+            // Update the overall transfer total amount
+            updateTransferTotalAmount();
             
             // If no invoices left, show empty message
             if ($('#newTransferTableBody tr').length === 0) {
-                $('#newTransferTableBody').html('<tr><td colspan="9" class="text-center text-muted">No new invoices selected</td></tr>');
+                $('#newTransferTableBody').html('<tr><td colspan="14" class="text-center text-muted">No new invoices selected</td></tr>');
             }
         }
 
         function deleteAllNewInvoices() {
             if (confirm('Are you sure you want to delete all new invoices?')) {
-                $('#newTransferTableBody').html('<tr><td colspan="9" class="text-center text-muted">No new invoices selected</td></tr>');
-                $('#newTransferTotalSST').text('0.00');
-                $('#newTransferTotalAmt').text('0.00');
-                $('#newTransferTotalCollected').text('0.00');
+                $('#newTransferTableBody').html('<tr><td colspan="14" class="text-center text-muted">No new invoices selected</td></tr>');
+                updateNewTransferTotals(0, 0, 0, 0, 0, 0, 0);
+                // updateTransferTotalAmount() is already called by updateNewTransferTotals()
             }
         }
 
@@ -995,10 +1114,10 @@
                                 // Update totals
                                 updateCurrentInvoiceTotals();
                                 
-                                // Update SST main total amount
-                                if (response.new_total !== undefined) {
-                                    $('#transferTotalAmount').val(parseFloat(response.new_total).toFixed(2));
-                                }
+                                // Update SST main total amount (includes both current and new invoices)
+                                // The updateCurrentInvoiceTotals() already calls updateTransferTotalAmount()
+                                // but if server provides a new_total, we still need to recalculate to include new transfer list
+                                updateTransferTotalAmount();
                                 
                                 // Refresh modal invoice list to show the deleted invoice as available again
                                 if ($('#invoiceModal').hasClass('show')) {
@@ -1036,28 +1155,53 @@
         // Update current invoice totals
         function updateCurrentInvoiceTotals() {
             let totalSST = 0;
+            let totalReimbSST = 0;
+            let grandTotalSST = 0;
             let totalAmt = 0;
+            let totalPfee1 = 0;
+            let totalPfee2 = 0;
             let totalCollected = 0;
             
             $('.selected-invoice-row').each(function() {
-                const totalCell = $(this).find('td:nth-child(6)');
-                const collectedCell = $(this).find('td:nth-child(7)');
-                const sstCell = $(this).find('td:nth-child(8)');
+                // Column indices: 0=No, 1=Action, 2=Ref No, 3=Client Name, 4=Invoice No, 5=Invoice Date, 6=Total amt, 7=Pfee1, 8=Pfee2, 9=Collected amt, 10=SST, 11=Reimb SST, 12=Total SST, 13=Payment Date
+                const totalCell = $(this).find('td:nth-child(7)');
+                const pfee1Cell = $(this).find('td:nth-child(8)');
+                const pfee2Cell = $(this).find('td:nth-child(9)');
+                const collectedCell = $(this).find('td:nth-child(10)');
+                const sstCell = $(this).find('td:nth-child(11)');
+                const reimbSstCell = $(this).find('td:nth-child(12)');
+                const totalSstCell = $(this).find('td:nth-child(13)');
                 
                 if (totalCell.length) {
                     const totalValue = parseFloat(totalCell.text().replace(/,/g, '')) || 0;
+                    const pfee1Value = parseFloat(pfee1Cell.text().replace(/,/g, '')) || 0;
+                    const pfee2Value = parseFloat(pfee2Cell.text().replace(/,/g, '')) || 0;
                     const collectedValue = parseFloat(collectedCell.text().replace(/,/g, '')) || 0;
                     const sstValue = parseFloat(sstCell.text().replace(/,/g, '')) || 0;
+                    const reimbSstValue = parseFloat(reimbSstCell.text().replace(/,/g, '')) || 0;
+                    const totalSstValue = parseFloat(totalSstCell.text().replace(/,/g, '')) || 0;
                     
                     totalAmt += totalValue;
+                    totalPfee1 += pfee1Value;
+                    totalPfee2 += pfee2Value;
                     totalCollected += collectedValue;
                     totalSST += sstValue;
+                    totalReimbSST += reimbSstValue;
+                    grandTotalSST += totalSstValue;
                 }
             });
             
             $('#selectedTotalSST').text(totalSST.toFixed(2));
             $('#footerTotalAmt').text(totalAmt.toFixed(2));
+            $('#footerPfee1').text(totalPfee1.toFixed(2));
+            $('#footerPfee2').text(totalPfee2.toFixed(2));
             $('#footerCollectedAmt').text(totalCollected.toFixed(2));
+            
+            // Update summary box
+            $('#selectedTotalAmount').text(grandTotalSST.toFixed(2));
+            
+            // Update the overall transfer total amount (includes both current and new invoices)
+            updateTransferTotalAmount();
             
             // Update row numbers
             $('.selected-invoice-row').each(function(index) {

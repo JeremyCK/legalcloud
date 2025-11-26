@@ -2556,6 +2556,9 @@ class AccountController extends Controller
                 $SSTDetails->save();
 
                 LoanCaseBillMain::where('id', '=', $add_bill[$i]['id'])->update(['bln_sst' => 1]);
+                
+                // Sync bln_sst to invoice records
+                LoanCaseInvoiceMain::where('loan_case_main_bill_id', $add_bill[$i]['id'])->update(['bln_sst' => 1]);
             }
 
             $SSTMain->amount = $total_amount;
@@ -2650,6 +2653,9 @@ class AccountController extends Controller
                 $SSTDetails->save();
 
                 LoanCaseBillMain::where('id', '=', $add_bill[$i]['id'])->update(['bln_sst' => 1]);
+                
+                // Sync bln_sst to invoice records
+                LoanCaseInvoiceMain::where('loan_case_main_bill_id', $add_bill[$i]['id'])->update(['bln_sst' => 1]);
             }
         }
 
@@ -2688,6 +2694,9 @@ class AccountController extends Controller
                     $SSTDetails->delete();
 
                     LoanCaseBillMain::where('id', '=', $SSTDetails->loan_case_main_bill_id)->update(['bln_sst' => 0]);
+                    
+                    // Sync bln_sst to invoice records
+                    LoanCaseInvoiceMain::where('loan_case_main_bill_id', $SSTDetails->loan_case_main_bill_id)->update(['bln_sst' => 0]);
                 }
             }
 

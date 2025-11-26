@@ -482,6 +482,11 @@
                                 aria-controls="trust" aria-selected="true">Ledger</a></li>
                     @endif
 
+                    @if (App\Http\Controllers\AccessController::UserAccessPermissionController(App\Http\Controllers\PermissionController::OfficeAccountBalancePermission()) == true)
+                        <li class="nav-item"><a class="nav-link " data-toggle="tab" href="#oa-ledger" role="tab"
+                                aria-controls="oa-ledger" aria-selected="true">OA Ledger</a></li>
+                    @endif
+
                     @if (App\Http\Controllers\AccessController::UserAccessPermissionController(App\Http\Controllers\PermissionController::MarketingBillPermission()) == true)
                         <li class="nav-item"><a class="nav-link " data-toggle="tab" href="#marketing-bill" role="tab"
                                 aria-controls="trust" aria-selected="true">Account</a></li>
@@ -538,6 +543,12 @@
                     @if (App\Http\Controllers\AccessController::UserAccessPermissionController(App\Http\Controllers\PermissionController::LedgerPermission()) == true)
                         <div class="tab-pane " id="ledger" role="tabpanel">
                             @include('dashboard.case.tabs.tab-ledger')
+                        </div>
+                    @endif
+
+                    @if (App\Http\Controllers\AccessController::UserAccessPermissionController(App\Http\Controllers\PermissionController::OfficeAccountBalancePermission()) == true)
+                        <div class="tab-pane " id="oa-ledger" role="tabpanel">
+                            @include('dashboard.case.tabs.tab-oa-ledger')
                         </div>
                     @endif
 

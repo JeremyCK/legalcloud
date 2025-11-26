@@ -11,6 +11,8 @@
                 <th width="80">Total amt</th>
                 <th width="80">Collected amt</th>
                 <th width="60">SST</th>
+                <th width="80">Reimb SST</th>
+                <th width="80">Total SST</th>
                 <th width="90">Payment Date</th>
             </tr>
         </thead>
@@ -23,15 +25,37 @@
                         <td>
                             <div class="checkbox bulk-edit-mode">
                                 @php
+                                    // If bln_sst = 0, invoice hasn't been transferred, so show full SST amounts
+                                    // If bln_sst = 1, invoice has been transferred, so show remaining SST
                                     $totalSst = $row->sst_inv ?? 0;
-                                    $remainingSst = max(0, $totalSst - ($row->transferred_sst_amt ?? 0));
+                                    $totalReimbSst = $row->reimbursement_sst ?? 0;
+                                    
+                                    if (($row->bln_sst ?? 0) == 0) {
+                                        // Not transferred yet - show full amounts
+                                        $remainingSst = $totalSst;
+                                        $remainingReimbSst = $totalReimbSst;
+                                    } else {
+                                        // Already transferred - show remaining amounts
+                                        $remainingSst = max(0, $totalSst - ($row->transferred_sst_amt ?? 0));
+                                        $remainingReimbSst = max(0, $totalReimbSst - ($row->transferred_reimbursement_sst_amt ?? 0));
+                                    }
+                                    
+                                    $totalSstAmount = $remainingSst + $remainingReimbSst;
                                 @endphp
                                 <input type="checkbox" class="invoice-checkbox" name="invoice"
                                     value="{{ $row->id }}" id="chk_{{ $row->id }}"
                                     data-bill-id="{{ $row->loan_case_main_bill_id }}"
                                     data-sst="{{ $remainingSst }}"
                                     data-original-sst="{{ $totalSst }}"
-                                    data-transferred-sst="{{ $row->transferred_sst_amt ?? 0 }}">
+                                    data-transferred-sst="{{ $row->transferred_sst_amt ?? 0 }}"
+                                    data-reimb-sst="{{ $remainingReimbSst }}"
+                                    data-original-reimb-sst="{{ $totalReimbSst }}"
+                                    data-transferred-reimb-sst="{{ $row->transferred_reimbursement_sst_amt ?? 0 }}"
+                                    data-total-sst="{{ $totalSstAmount }}"
+                                    data-total-amt="{{ $row->total_amt_inv ?? 0 }}"
+                                    data-collected-amt="{{ $row->collected_amt_inv ?? 0 }}"
+                                    data-pfee1="{{ $row->pfee1 ?? 0 }}"
+                                    data-pfee2="{{ $row->pfee2 ?? 0 }}">
                                 <label for="chk_{{ $row->id }}"></label>
                             </div>
                         </td>
@@ -46,13 +70,15 @@
                         <td class="text-right" style="font-size: 11px;">{{ number_format($row->total_amt_inv ?? 0, 2) }}</td>
                         <td class="text-right" style="font-size: 11px;">{{ number_format($row->collected_amt_inv ?? 0, 2) }}</td>
                         <td class="text-right" style="font-size: 11px;">{{ number_format($remainingSst, 2) }}</td>
+                        <td class="text-right" style="font-size: 11px;">{{ number_format($remainingReimbSst, 2) }}</td>
+                        <td class="text-right" style="font-size: 11px; font-weight: bold;">{{ number_format($totalSstAmount, 2) }}</td>
                         <td style="font-size: 11px;">{{ $row->payment_receipt_date ?? 'N/A' }}</td>
                     </tr>
                     @endif
                 @endforeach
             @else
                 <tr>
-                    <td colspan="9" class="text-center text-muted py-4">
+                    <td colspan="12" class="text-center text-muted py-4">
                         <i class="fa fa-info-circle"></i> No invoices found matching your criteria
                     </td>
                 </tr>
