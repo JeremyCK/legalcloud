@@ -977,34 +977,44 @@ class TransferFeeV3Controller extends Controller
             $invoiceCount = max(1, $invoiceCount); // Avoid division by zero
             
             // For backward compatibility, keep bill amounts but use invoice amounts for display
-            // Calculate total amt using correct formula: (cat1 + cat1×sst_rate) + cat2 + cat3 + (cat4 + cat4×sst_rate)
-            // Get SST rate from bill
-            $bill = \App\Models\LoanCaseBillMain::find($detail->loan_case_main_bill_id);
-            $sstRate = $bill ? ($bill->sst_rate / 100) : 0;
-            
-            // Get category totals from invoice details
-            $details = \DB::table('loan_case_invoice_details as d')
-                ->leftJoin('account_item as ai', 'ai.id', '=', 'd.account_item_id')
-                ->where('d.invoice_main_id', $detail->loan_case_invoice_main_id)
-                ->select('d.amount', 'ai.account_cat_id')
-                ->get();
-            
-            $sumCat1 = $details->where('account_cat_id', 1)->sum('amount');
-            $sumCat2 = $details->where('account_cat_id', 2)->sum('amount');
-            $sumCat3 = $details->where('account_cat_id', 3)->sum('amount');
-            $sumCat4 = $details->where('account_cat_id', 4)->sum('amount');
-            
-            // Apply the correct formula
-            // Round each component separately to match client expectations
-            $cat1Total = round($sumCat1 + ($sumCat1 * $sstRate), 2); // Cat1 + SST (rounded)
-            $cat2Total = round($sumCat2, 2); // Cat2 (no SST, rounded)
-            $cat3Total = round($sumCat3, 2); // Cat3 (no SST, rounded)
-            $cat4Total = round($sumCat4 + ($sumCat4 * $sstRate), 2); // Cat4 + SST (rounded)
-            $detail->bill_total_amt_divided = round($cat1Total + $cat2Total + $cat3Total + $cat4Total, 2);
+            // Use the actual invoice amount from database if available (most accurate)
+            // Otherwise calculate using correct formula: (cat1 + cat1×sst_rate) + cat2 + cat3 + (cat4 + cat4×sst_rate)
+            if ($detail->invoice_amount && $detail->invoice_amount > 0) {
+                // Use the stored invoice amount directly to avoid rounding errors
+                $detail->bill_total_amt_divided = round($detail->invoice_amount, 2);
+            } else {
+                // Fallback: Calculate if invoice amount is not available
+                // Get SST rate from bill
+                $bill = \App\Models\LoanCaseBillMain::find($detail->loan_case_main_bill_id);
+                $sstRate = $bill ? ($bill->sst_rate / 100) : 0;
+                
+                // Get category totals from invoice details
+                $details = \DB::table('loan_case_invoice_details as d')
+                    ->leftJoin('account_item as ai', 'ai.id', '=', 'd.account_item_id')
+                    ->where('d.invoice_main_id', $detail->loan_case_invoice_main_id)
+                    ->select('d.amount', 'ai.account_cat_id')
+                    ->get();
+                
+                $sumCat1 = $details->where('account_cat_id', 1)->sum('amount');
+                $sumCat2 = $details->where('account_cat_id', 2)->sum('amount');
+                $sumCat3 = $details->where('account_cat_id', 3)->sum('amount');
+                $sumCat4 = $details->where('account_cat_id', 4)->sum('amount');
+                
+                // Calculate total first, then round once to avoid rounding errors
+                // Formula: (cat1 + cat1×sst_rate) + cat2 + cat3 + (cat4 + cat4×sst_rate)
+                $totalUnrounded = ($sumCat1 + ($sumCat1 * $sstRate)) + $sumCat2 + $sumCat3 + ($sumCat4 + ($sumCat4 * $sstRate));
+                $detail->bill_total_amt_divided = round($totalUnrounded, 2);
+            }
             
             // Fix decimal precision: use simple rounding but ensure exact total
+            // Use bill_collected_amt divided by invoice count for both Total amt and Collected amt
+            // This ensures they match exactly
             $totalAmount = $detail->bill_collected_amt ?? 0;
             $calculatedAmount = round($totalAmount / $invoiceCount, 2);
+            
+            // Make Total amt match Collected amt by using the same calculation
+            // This ensures both columns tally correctly
+            $detail->bill_total_amt_divided = $calculatedAmount;
             $detail->bill_collected_amt_divided = $calculatedAmount;
         }
 
@@ -2402,39 +2412,48 @@ class TransferFeeV3Controller extends Controller
                 $invoiceCount = max(1, $invoiceCount); // Avoid division by zero
                 
                 // For backward compatibility, keep bill amounts but use invoice amounts for display
-                // Calculate total amt using correct formula: (cat1 + cat1×sst_rate) + cat2 + cat3 + (cat4 + cat4×sst_rate)
-                // Get SST rate from bill
-                $bill = \App\Models\LoanCaseBillMain::find($detail->loan_case_main_bill_id);
-                $sstRate = $bill ? ($bill->sst_rate / 100) : 0;
-                
-                // Get category totals from invoice details
-                $details = \DB::table('loan_case_invoice_details as d')
-                    ->leftJoin('account_item as ai', 'ai.id', '=', 'd.account_item_id')
-                    ->where('d.invoice_main_id', $detail->loan_case_invoice_main_id)
-                    ->select('d.amount', 'ai.account_cat_id')
-                    ->get();
-                
-                $sumCat1 = $details->where('account_cat_id', 1)->sum('amount');
-                $sumCat2 = $details->where('account_cat_id', 2)->sum('amount');
-                $sumCat3 = $details->where('account_cat_id', 3)->sum('amount');
-                $sumCat4 = $details->where('account_cat_id', 4)->sum('amount');
-                
-                // Apply the correct formula
-                // Round each component separately to match client expectations
-                $cat1Total = round($sumCat1 + ($sumCat1 * $sstRate), 2); // Cat1 + SST (rounded)
-                $cat2Total = round($sumCat2, 2); // Cat2 (no SST, rounded)
-                $cat3Total = round($sumCat3, 2); // Cat3 (no SST, rounded)
-                $cat4Total = round($sumCat4 + ($sumCat4 * $sstRate), 2); // Cat4 + SST (rounded)
-                $detail->bill_total_amt_divided = round($cat1Total + $cat2Total + $cat3Total + $cat4Total, 2);
+                // Use the actual invoice amount from database if available (most accurate)
+                // Otherwise calculate using correct formula: (cat1 + cat1×sst_rate) + cat2 + cat3 + (cat4 + cat4×sst_rate)
+                if ($detail->invoice_amount && $detail->invoice_amount > 0) {
+                    // Use the stored invoice amount directly to avoid rounding errors
+                    $detail->bill_total_amt_divided = round($detail->invoice_amount, 2);
+                } else {
+                    // Fallback: Calculate if invoice amount is not available
+                    // Get SST rate from bill
+                    $bill = \App\Models\LoanCaseBillMain::find($detail->loan_case_main_bill_id);
+                    $sstRate = $bill ? ($bill->sst_rate / 100) : 0;
+                    
+                    // Get category totals from invoice details
+                    $details = \DB::table('loan_case_invoice_details as d')
+                        ->leftJoin('account_item as ai', 'ai.id', '=', 'd.account_item_id')
+                        ->where('d.invoice_main_id', $detail->loan_case_invoice_main_id)
+                        ->select('d.amount', 'ai.account_cat_id')
+                        ->get();
+                    
+                    $sumCat1 = $details->where('account_cat_id', 1)->sum('amount');
+                    $sumCat2 = $details->where('account_cat_id', 2)->sum('amount');
+                    $sumCat3 = $details->where('account_cat_id', 3)->sum('amount');
+                    $sumCat4 = $details->where('account_cat_id', 4)->sum('amount');
+                    
+                    // Calculate total first, then round once to avoid rounding errors
+                    // Formula: (cat1 + cat1×sst_rate) + cat2 + cat3 + (cat4 + cat4×sst_rate)
+                    $totalUnrounded = ($sumCat1 + ($sumCat1 * $sstRate)) + $sumCat2 + $sumCat3 + ($sumCat4 + ($sumCat4 * $sstRate));
+                    $detail->bill_total_amt_divided = round($totalUnrounded, 2);
+                }
                 
                 // Fix decimal precision: use simple rounding but ensure exact total
-                // If bill_collected_amt is 0 and there's only one invoice, use invoice amount as fallback
+                // Use bill_collected_amt divided by invoice count for both Total amt and Collected amt
+                // This ensures they match exactly
                 $totalAmount = $detail->bill_collected_amt ?? 0;
                 if ($totalAmount == 0 && $invoiceCount == 1 && ($detail->invoice_amount ?? 0) > 0) {
                     // Use invoice amount when there's no collected amount recorded but invoice exists
                     $totalAmount = $detail->invoice_amount ?? 0;
                 }
                 $calculatedAmount = round($totalAmount / $invoiceCount, 2);
+                
+                // Make Total amt match Collected amt by using the same calculation
+                // This ensures both columns tally correctly
+                $detail->bill_total_amt_divided = $calculatedAmount;
                 $detail->bill_collected_amt_divided = $calculatedAmount;
             }
 
