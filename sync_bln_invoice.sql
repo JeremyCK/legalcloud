@@ -45,3 +45,5 @@ WHERE im.status <> 99
   AND im.bln_invoice != bm.bln_invoice;
 
 
+
+

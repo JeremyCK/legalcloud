@@ -1006,16 +1006,39 @@ class TransferFeeV3Controller extends Controller
                 $detail->bill_total_amt_divided = round($totalUnrounded, 2);
             }
             
-            // Fix decimal precision: use simple rounding but ensure exact total
-            // Use bill_collected_amt divided by invoice count for both Total amt and Collected amt
-            // This ensures they match exactly
-            $totalAmount = $detail->bill_collected_amt ?? 0;
-            $calculatedAmount = round($totalAmount / $invoiceCount, 2);
+            // ====================================================================
+            // OPTION 2: Show individual invoice amounts (Total amt ≠ Collected amt)
+            // To revert to OPTION 1 (matching amounts), uncomment the code below
+            // ====================================================================
             
-            // Make Total amt match Collected amt by using the same calculation
-            // This ensures both columns tally correctly
-            $detail->bill_total_amt_divided = $calculatedAmount;
-            $detail->bill_collected_amt_divided = $calculatedAmount;
+            // Use invoice amount for Total amt (already calculated at line 984)
+            // Keep the invoice amount - don't overwrite it
+            // Note: bill_total_amt_divided is already set correctly at line 984 using invoice_amount
+            
+            // Check for custom total amount override (set by user via edit icon)
+            $customTotalAmt = \Cache::get("transfer_fee_detail_{$detail->id}_custom_total_amt");
+            if ($customTotalAmt === null) {
+                $customTotalAmt = session("transfer_fee_detail_{$detail->id}_custom_total_amt");
+            }
+            
+            // Use custom total amount if set, otherwise use calculated value
+            if ($customTotalAmt !== null) {
+                $detail->bill_total_amt_divided = round($customTotalAmt, 2);
+            }
+            // Note: bill_total_amt_divided is already set at line 984 if no custom value
+            
+            // Calculate Collected amt from bill collected amount (divided equally)
+            $totalAmount = $detail->bill_collected_amt ?? 0;
+            $calculatedCollectedAmount = round($totalAmount / $invoiceCount, 2);
+            $detail->bill_collected_amt_divided = $calculatedCollectedAmount;
+            
+            // ====================================================================
+            // OPTION 1 (REVERT CODE): Uncomment below to make both amounts match
+            // ====================================================================
+            // $totalAmount = $detail->bill_collected_amt ?? 0;
+            // $calculatedAmount = round($totalAmount / $invoiceCount, 2);
+            // $detail->bill_total_amt_divided = $calculatedAmount;
+            // $detail->bill_collected_amt_divided = $calculatedAmount;
         }
 
         // Keep individual amounts at 1340.67, round total in frontend display
@@ -2331,6 +2354,76 @@ class TransferFeeV3Controller extends Controller
     }
 
     /**
+     * Update Total Amount for a specific transfer fee detail
+     */
+    public function updateTotalAmtV3(Request $request, $detailId)
+    {
+        try {
+            $current_user = auth()->user();
+            
+            // Check permissions - admin, maker and account users can edit
+            if (!in_array($current_user->menuroles, ['admin', 'maker', 'account'])) {
+                return response()->json([
+                    'status' => 0,
+                    'message' => 'Access denied. Only admin, maker and account users can edit total amounts.'
+                ], 403);
+            }
+            
+            // Validate input
+            $request->validate([
+                'total_amt' => 'required|numeric|min:0',
+                'invoice_id' => 'required|integer'
+            ]);
+            
+            // Get transfer fee detail
+            $transferFeeDetail = TransferFeeDetails::where('id', $detailId)->first();
+            
+            if (!$transferFeeDetail) {
+                return response()->json([
+                    'status' => 0,
+                    'message' => 'Transfer fee detail not found'
+                ], 404);
+            }
+            
+            // Check if transfer fee is reconciled (read-only)
+            $transferFeeMain = TransferFeeMain::where('id', $transferFeeDetail->transfer_fee_main_id)->first();
+            if ($transferFeeMain && $transferFeeMain->is_recon == '1') {
+                return response()->json([
+                    'status' => 0,
+                    'message' => 'Cannot edit reconciled transfer fee'
+                ], 403);
+            }
+            
+            // Store custom total amount in a JSON field or cache
+            // For now, we'll store it in a session/cache keyed by detail ID
+            // In production, you may want to add a 'custom_total_amt' column to transfer_fee_details table
+            $customTotalAmt = round($request->input('total_amt'), 2);
+            
+            // Store in cache with a long expiration (or use database column)
+            \Cache::put("transfer_fee_detail_{$detailId}_custom_total_amt", $customTotalAmt, now()->addYears(1));
+            
+            // Also store in session for immediate use
+            session(["transfer_fee_detail_{$detailId}_custom_total_amt" => $customTotalAmt]);
+            
+            return response()->json([
+                'status' => 1,
+                'message' => 'Total amount updated successfully',
+                'data' => [
+                    'detail_id' => $detailId,
+                    'total_amt' => $customTotalAmt
+                ]
+            ]);
+            
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Update Total Amount Error: ' . $e->getMessage());
+            return response()->json([
+                'status' => 0,
+                'message' => 'Error updating total amount: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
      * Export Transfer Fee Invoices to Excel or PDF
      */
     public function exportTransferFeeInvoices(Request $request)
@@ -2441,20 +2534,34 @@ class TransferFeeV3Controller extends Controller
                     $detail->bill_total_amt_divided = round($totalUnrounded, 2);
                 }
                 
-                // Fix decimal precision: use simple rounding but ensure exact total
-                // Use bill_collected_amt divided by invoice count for both Total amt and Collected amt
-                // This ensures they match exactly
+                // ====================================================================
+                // OPTION 2: Show individual invoice amounts (Total amt ≠ Collected amt)
+                // To revert to OPTION 1 (matching amounts), uncomment the code below
+                // ====================================================================
+                
+                // Use invoice amount for Total amt (already calculated at line 2447)
+                // Keep the invoice amount - don't overwrite it
+                // Note: bill_total_amt_divided is already set correctly at line 2447 using invoice_amount
+                
+                // Calculate Collected amt from bill collected amount (divided equally)
                 $totalAmount = $detail->bill_collected_amt ?? 0;
                 if ($totalAmount == 0 && $invoiceCount == 1 && ($detail->invoice_amount ?? 0) > 0) {
                     // Use invoice amount when there's no collected amount recorded but invoice exists
                     $totalAmount = $detail->invoice_amount ?? 0;
                 }
-                $calculatedAmount = round($totalAmount / $invoiceCount, 2);
+                $calculatedCollectedAmount = round($totalAmount / $invoiceCount, 2);
+                $detail->bill_collected_amt_divided = $calculatedCollectedAmount;
                 
-                // Make Total amt match Collected amt by using the same calculation
-                // This ensures both columns tally correctly
-                $detail->bill_total_amt_divided = $calculatedAmount;
-                $detail->bill_collected_amt_divided = $calculatedAmount;
+                // ====================================================================
+                // OPTION 1 (REVERT CODE): Uncomment below to make both amounts match
+                // ====================================================================
+                // $totalAmount = $detail->bill_collected_amt ?? 0;
+                // if ($totalAmount == 0 && $invoiceCount == 1 && ($detail->invoice_amount ?? 0) > 0) {
+                //     $totalAmount = $detail->invoice_amount ?? 0;
+                // }
+                // $calculatedAmount = round($totalAmount / $invoiceCount, 2);
+                // $detail->bill_total_amt_divided = $calculatedAmount;
+                // $detail->bill_collected_amt_divided = $calculatedAmount;
             }
 
             // Keep individual amounts at 1340.67, round total in frontend display
@@ -2824,22 +2931,31 @@ class TransferFeeV3Controller extends Controller
             // Calculate total transferred amounts
             $totalTransferredPfee = 0;
             $totalTransferredSst = 0;
+            $totalTransferredReimbursement = 0;
+            $totalTransferredReimbursementSst = 0;
             
             foreach ($allTransferDetails as $detail) {
                 $totalTransferredPfee += $detail->transfer_amount;
                 $totalTransferredSst += ($detail->sst_amount ?? 0);
+                $totalTransferredReimbursement += ($detail->reimbursement_amount ?? 0);
+                $totalTransferredReimbursementSst += ($detail->reimbursement_sst_amount ?? 0);
             }
             
             // Update invoice totals
             $invoice->transferred_pfee_amt = $totalTransferredPfee;
             $invoice->transferred_sst_amt = $totalTransferredSst;
+            $invoice->transferred_reimbursement_amt = $totalTransferredReimbursement;
+            $invoice->transferred_reimbursement_sst_amt = $totalTransferredReimbursementSst;
             
-            // Check if fully transferred
+            // Check if all amounts (pfee, SST, reimbursement, reimbursement SST) are fully transferred
             $inv_pfee = $invoice->pfee1_inv + $invoice->pfee2_inv;
             $remaining_pfee = bcsub($inv_pfee, $totalTransferredPfee, 2);
             $remaining_sst = bcsub($invoice->sst_inv, $totalTransferredSst, 2);
+            $remaining_reimbursement = bcsub($invoice->reimbursement_amount ?? 0, $totalTransferredReimbursement, 2);
+            $remaining_reimbursement_sst = bcsub($invoice->reimbursement_sst ?? 0, $totalTransferredReimbursementSst, 2);
             
-            if ($remaining_pfee <= 0 && $remaining_sst <= 0) {
+            // Mark as fully transferred only if all amounts are <= 0
+            if ($remaining_pfee <= 0 && $remaining_sst <= 0 && $remaining_reimbursement <= 0 && $remaining_reimbursement_sst <= 0) {
                 $invoice->transferred_to_office_bank = 1;
             } else {
                 $invoice->transferred_to_office_bank = 0;
@@ -2850,6 +2966,12 @@ class TransferFeeV3Controller extends Controller
             \Illuminate\Support\Facades\Log::info('Recalculated invoice ' . $invoiceId . ' totals:', [
                 'total_transferred_pfee' => $totalTransferredPfee,
                 'total_transferred_sst' => $totalTransferredSst,
+                'total_transferred_reimbursement' => $totalTransferredReimbursement,
+                'total_transferred_reimbursement_sst' => $totalTransferredReimbursementSst,
+                'remaining_pfee' => $remaining_pfee,
+                'remaining_sst' => $remaining_sst,
+                'remaining_reimbursement' => $remaining_reimbursement,
+                'remaining_reimbursement_sst' => $remaining_reimbursement_sst,
                 'transferred_to_office_bank' => $invoice->transferred_to_office_bank
             ]);
             

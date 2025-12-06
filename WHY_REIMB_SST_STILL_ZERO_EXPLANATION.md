@@ -88,3 +88,5 @@ If **YES** (already in another SST record):
 The previous patch scripts marked reimbursement SST as "transferred" (which is why it shows 0.00). If you want reimbursement SST to show in SST 96, you need to **reset** the transferred amount to 0.
 
 
+
+

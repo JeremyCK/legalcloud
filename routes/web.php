@@ -1221,6 +1221,7 @@ Route::get('transfer-fee-create', [AccountController::class, 'transferFeeCreate'
     
                     Route::get('/{id}/edit', [TransferFeeV3Controller::class, 'transferFeeEditV3'])->name('transferfee.edit');
         Route::put('/{id}', [TransferFeeV3Controller::class, 'transferFeeUpdateV3'])->name('transferfee.update');
+        Route::post('/update-total-amt/{detailId}', [TransferFeeV3Controller::class, 'updateTotalAmtV3'])->name('transferfee.updateTotalAmt');
         Route::delete('/{id}', [TransferFeeV3Controller::class, 'transferFeeDeleteV3'])->name('transferfee.destroy');
             Route::delete('/{id}/delete-detail', [TransferFeeV3Controller::class, 'deleteTransferFeeDetailV3'])->name('transferfee.delete-detail');
     Route::post('/{id}/reconcile', [TransferFeeV3Controller::class, 'reconTransferFeeV3'])->name('transferfee.reconcile');

@@ -81,3 +81,5 @@ $query = $query->whereRaw('((im.sst_inv - COALESCE(im.transferred_sst_amt, 0)) +
 **However**, if you're getting results WITHOUT this condition, it means your Ramakrishnan invoices **DO have remaining SST**, so the condition should pass. If they're not showing, the issue is likely elsewhere (branch access, bln_invoice sync, etc.).
 
 
+
+

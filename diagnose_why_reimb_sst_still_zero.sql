@@ -85,3 +85,5 @@ WHERE sm.id = 96
 GROUP BY sm.id, sm.amount;
 
 
+
+

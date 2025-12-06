@@ -61,3 +61,5 @@ WHERE sm.id = @sst_record_id
 GROUP BY sm.id, sm.amount;
 
 
+
+

@@ -98,3 +98,5 @@ SET sm.amount = calculated.calculated_total,
 WHERE sm.id = 96;
 
 
+
+

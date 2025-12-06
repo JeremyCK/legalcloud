@@ -198,3 +198,5 @@ The `stored_amount` and `calculated_total` should match (difference < 0.01).
 **Remember:** If invoices don't have reimbursement expenses (account_cat_id = 4), showing 0.00 is CORRECT!
 
 
+
+

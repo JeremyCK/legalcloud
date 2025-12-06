@@ -57,3 +57,5 @@ HAVING ABS(difference) > 0.01;
 -- If the query above returns no rows, the fix was successful!
 
 
+
+

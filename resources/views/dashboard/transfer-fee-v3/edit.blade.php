@@ -307,7 +307,21 @@
                                                                             </td>
                                                                             <td class="text-right"
                                                                                 style="font-size: 11px;">
-                                                                                {{ number_format($detail->bill_total_amt_divided ?? 0, 2) }}
+                                                                                <div class="d-inline-flex align-items-center">
+                                                                                    <span class="total-amt-display" 
+                                                                                          data-detail-id="{{ $detail->id }}" 
+                                                                                          data-invoice-id="{{ $detail->loan_case_invoice_main_id }}"
+                                                                                          data-original-value="{{ $detail->bill_total_amt_divided ?? 0 }}">
+                                                                                        {{ number_format($detail->bill_total_amt_divided ?? 0, 2) }}
+                                                                                    </span>
+                                                                                    @if(in_array(auth()->user()->menuroles, ['admin', 'maker', 'account']) && $TransferFeeMain->is_recon != '1')
+                                                                                        <i class="fa fa-pencil edit-total-amt ml-1" 
+                                                                                           style="cursor: pointer; color: #007bff; font-size: 11px;" 
+                                                                                           data-detail-id="{{ $detail->id }}"
+                                                                                           data-invoice-id="{{ $detail->loan_case_invoice_main_id }}"
+                                                                                           title="Edit Total Amount"></i>
+                                                                                    @endif
+                                                                                </div>
                                                                             </td>
                                                                             <td class="text-right"
                                                                                 style="font-size: 11px;">
@@ -3230,6 +3244,112 @@
         // Call initialization when page loads
         $(document).ready(function() {
             initializeCombinedTotals();
+        });
+
+        // Edit Total Amount functionality
+        $(document).on('click', '.edit-total-amt', function() {
+            const $icon = $(this);
+            const $display = $icon.siblings('.total-amt-display');
+            const detailId = $icon.data('detail-id');
+            const invoiceId = $icon.data('invoice-id');
+            const currentValue = parseFloat($display.data('original-value') || $display.text().replace(/,/g, '')) || 0;
+            
+            // Replace display with input field
+            const $input = $('<input>', {
+                type: 'number',
+                class: 'form-control form-control-sm total-amt-input',
+                style: 'width: 100px; display: inline-block; font-size: 11px;',
+                value: currentValue.toFixed(2),
+                step: '0.01',
+                min: '0'
+            });
+            
+            const $saveBtn = $('<button>', {
+                type: 'button',
+                class: 'btn btn-sm btn-success ml-1 save-total-amt',
+                style: 'font-size: 10px; padding: 2px 8px;',
+                html: '<i class="fa fa-check"></i>'
+            });
+            
+            const $cancelBtn = $('<button>', {
+                type: 'button',
+                class: 'btn btn-sm btn-secondary ml-1 cancel-total-amt',
+                style: 'font-size: 10px; padding: 2px 8px;',
+                html: '<i class="fa fa-times"></i>'
+            });
+            
+            $display.hide();
+            $icon.hide();
+            $display.after($input);
+            $input.after($saveBtn);
+            $saveBtn.after($cancelBtn);
+            $input.focus().select();
+            
+            // Save handler
+            $saveBtn.on('click', function() {
+                const newValue = parseFloat($input.val()) || 0;
+                if (newValue < 0) {
+                    alert('Amount cannot be negative');
+                    return;
+                }
+                
+                // Save via AJAX
+                $.ajax({
+                    url: '{{ route("transferfee.updateTotalAmt", ":detailId") }}'.replace(':detailId', detailId),
+                    method: 'POST',
+                    data: {
+                        _token: '{{ csrf_token() }}',
+                        total_amt: newValue,
+                        invoice_id: invoiceId
+                    },
+                    success: function(response) {
+                        if (response.status === 1) {
+                            // Update display
+                            $display.data('original-value', newValue);
+                            $display.text(newValue.toLocaleString('en-US', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
+                            }));
+                            
+                            // Remove input and buttons
+                            $input.remove();
+                            $saveBtn.remove();
+                            $cancelBtn.remove();
+                            $display.show();
+                            $icon.show();
+                            
+                            // Update footer totals
+                            updateFooterTotals();
+                            
+                            // Show success message
+                            Swal.fire('Success', 'Total amount updated successfully', 'success');
+                        } else {
+                            Swal.fire('Error', response.message || 'Failed to update total amount', 'error');
+                        }
+                    },
+                    error: function(xhr) {
+                        Swal.fire('Error', 'Failed to update total amount. Please try again.', 'error');
+                    }
+                });
+            });
+            
+            // Cancel handler
+            $cancelBtn.on('click', function() {
+                $input.remove();
+                $saveBtn.remove();
+                $cancelBtn.remove();
+                $display.show();
+                $icon.show();
+            });
+            
+            // Enter key handler
+            $input.on('keypress', function(e) {
+                if (e.which === 13) {
+                    $saveBtn.click();
+                } else if (e.which === 27) {
+                    $cancelBtn.click();
+                }
+            });
         });
     </script>
 @endsection
