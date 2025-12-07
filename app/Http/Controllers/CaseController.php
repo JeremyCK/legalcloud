@@ -2909,6 +2909,16 @@ class CaseController extends Controller
         }
 
         if (AccessController::UserAccessPermissionController(PermissionController::LedgerPermission()) == true) {
+            // Get CA (Client Account) bank account IDs, exclude OA (Office Account)
+            $clientBankAccountIds = DB::table('office_bank_account')
+                ->where('status', '=', 1)
+                ->where(function($query) {
+                    $query->where('account_type', '=', 'CA')
+                          ->orWhereNull('account_type'); // Include entries with no account type or null
+                })
+                ->pluck('id')
+                ->toArray();
+
             $ledgers = DB::table('ledger_entries_v2 as a')
                 ->leftJoin('office_bank_account as c', 'c.id', '=', 'a.bank_id')
                 ->leftJoin('loan_case_bill_main as d', 'd.id', '=', 'a.loan_case_main_bill_id')
@@ -2919,6 +2929,25 @@ class CaseController extends Controller
                 // ->leftJoin('account_item as ai', 'ai.id', '=', 'lb.account_item_id')
                 ->select('a.*', 'c.name as bank_name', 'c.account_no as bank_account_no', 'e.case_ref_no', 'e.id as case_id', 'f.voucher_no as voucher_no', 'f.payee as payee_voucher',)
                 ->where('e.id', '=',  $id)
+                ->where(function($query) use ($clientBankAccountIds) {
+                    // Exclude OA accounts - only include CA accounts or entries with no bank_id
+                    if (!empty($clientBankAccountIds)) {
+                        $query->whereIn('a.bank_id', $clientBankAccountIds)
+                              ->orWhereNull('a.bank_id');
+                    } else {
+                        // If no CA accounts exist, exclude entries linked to OA accounts
+                        $query->whereNull('a.bank_id')
+                              ->orWhere(function($q) {
+                                  $q->whereNotNull('a.bank_id')
+                                    ->whereNotExists(function($subQuery) {
+                                        $subQuery->select(DB::raw(1))
+                                                 ->from('office_bank_account as oba')
+                                                 ->whereColumn('oba.id', 'a.bank_id')
+                                                 ->where('oba.account_type', '=', 'OA');
+                                    });
+                              });
+                    }
+                })
                 ->whereNotIn('a.type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'SST_IN', 'TRANSFER_IN', 'CLOSEFILE_IN', 'ABORTFILE_IN', 'REIMB_IN', 'REIMB_SST_IN']) 
                 ->where('a.status', '<>',  99)
                 ->orderBy('a.date', 'ASC')

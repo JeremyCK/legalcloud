@@ -206,3 +206,4 @@ After modification:
 - ✅ Each invoice shows its correct total
 - ✅ Collected amount logic remains unchanged
 
+

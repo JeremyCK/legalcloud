@@ -21,7 +21,7 @@
             <div class="box-header">
                 <div class="row no-print">
                     <div class="col-6">
-                        <h3 class="box-title">Ledger</h3>
+                        <h3 class="box-title">CA Ledger</h3>
                     </div>
                     <div class="col-6">
                         <a class="btn btn-lg btn-success  float-right" href="javascript:void(0)"

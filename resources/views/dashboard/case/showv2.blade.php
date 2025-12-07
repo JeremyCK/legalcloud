@@ -477,7 +477,7 @@
 
                     @if (App\Http\Controllers\AccessController::UserAccessPermissionController(App\Http\Controllers\PermissionController::LedgerPermission()) == true)
                         <li class="nav-item"><a class="nav-link " data-toggle="tab" href="#ledger" role="tab"
-                                aria-controls="trust" aria-selected="true">Ledger</a></li>
+                                aria-controls="trust" aria-selected="true">CA Ledger</a></li>
                     @endif
 
                     @if (App\Http\Controllers\AccessController::UserAccessPermissionController(App\Http\Controllers\PermissionController::OfficeAccountBalancePermission()) == true)

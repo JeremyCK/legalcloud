@@ -103,3 +103,4 @@ If you want both to remain the same, keep the current code as is.
 - It matches what the invoice actually totals to
 - Collected amount correctly reflects what was actually collected
 
+

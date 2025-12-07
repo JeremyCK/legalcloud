@@ -140,3 +140,4 @@ $detail->bill_collected_amt_divided = $calculatedAmount;
 
 To revert, follow steps above and swap the active/commented code sections.
 
+
