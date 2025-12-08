@@ -35,6 +35,7 @@
                                 <th>Account Name</th>
                                 <th>Account No</th>
                                 <th>Balance</th>
+                                <th>Action</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -58,6 +59,14 @@
                                                 ({{ number_format((float) ($row->amount_ledger * -1), 2, '.', ',') }})
                                             @endif
                                         </td>
+                                        <td class="text-center">
+                                            <a href="{{ url('office-account-ledger-details/' . $row->id) }}" 
+                                               class="btn btn-sm btn-info" 
+                                               target="_blank"
+                                               title="View Transaction Details">
+                                                <i class="fa fa-eye"></i> Details
+                                            </a>
+                                        </td>
                                     </tr>
 
                                     @php
@@ -66,7 +75,7 @@
                                 @endforeach
                             @else
                                 <tr class="text-center">
-                                    <td colspan="4">No records</td>
+                                    <td colspan="5">No records</td>
                                 </tr>
                             @endif
 
@@ -83,6 +92,7 @@
                                         ({{ number_format((float) ($total * -1), 2, '.', ',') }})
                                     @endif
                                 </td>
+                                <td></td>
                             </tr> 
                         </tfoot>
                     </table>

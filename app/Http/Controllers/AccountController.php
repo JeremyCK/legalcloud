@@ -2796,29 +2796,16 @@ class AccountController extends Controller
         $current_user = auth()->user();
         $OfficeBankAccount = OfficeBankAccount::where('status', '=', 1);
 
-        if (in_array($current_user->menuroles, ['maker'])) {
-            if (in_array($current_user->branch_id, [5,6])) {
-                $OfficeBankAccount = $OfficeBankAccount->whereIn('branch_id', [5,6]);
-            }
-            else
-            {
-                $OfficeBankAccount = $OfficeBankAccount->where('branch_id', $current_user->branch_id);
-            }
-        } else if (in_array($current_user->menuroles, ['sales'])) {
-            if (in_array($current_user->id, [32, 51])) {
-                $OfficeBankAccount = $OfficeBankAccount->whereIn('branch_id', [5, 6]);
-            }
-        } else if (in_array($current_user->menuroles, ['lawyer'])) {
-            if (in_array($current_user->id, [13])) {
-                $OfficeBankAccount = $OfficeBankAccount->whereIn('branch_id', [$current_user->branch_id]);
-            }
-             else if (in_array($current_user->id, [187])) {
-                $OfficeBankAccount = $OfficeBankAccount->whereIn('branch_id', [$current_user->branch_id]);
-            }
-            else
-            {
-                $OfficeBankAccount = $OfficeBankAccount->whereIn('branch_id', [99]);
-            }
+        // Get user's accessible branches using the same logic as other methods
+        $branchInfo = BranchController::manageBranchAccess();
+        $accessibleBranchIds = $branchInfo['brancAccessList'];
+
+        // Apply branch filtering based on accessible branches
+        if (count($accessibleBranchIds) > 0) {
+            $OfficeBankAccount = $OfficeBankAccount->whereIn('branch_id', $accessibleBranchIds);
+        } else {
+            // If user has no accessible branches, return empty result
+            $OfficeBankAccount = $OfficeBankAccount->where('branch_id', '=', -1);
         }
 
         $OfficeBankAccount = $OfficeBankAccount->get();
@@ -5510,7 +5497,12 @@ class AccountController extends Controller
 
     public function getOfficeAccountLedger(Request $request)
     {
+        $current_user = auth()->user();
         $status = $request->input("status");
+
+        // Get user's accessible branches
+        $branchInfo = BranchController::manageBranchAccess();
+        $accessibleBranchIds = $branchInfo['brancAccessList'];
 
         $rows = DB::table('office_bank_account as a')
             ->leftJoin('account_code as b', 'a.account_code', '=', 'b.id')
@@ -5524,8 +5516,25 @@ class AccountController extends Controller
 
         $last_day = Carbon::create($request->input("year"), $request->input("mon"))->lastOfMonth()->format('Y-m-d');
 
+        // Validate and filter by branch_id if provided
         if ($request->input("branch_id")) {
-            $rows = $rows->where('a.branch_id', '=', $request->input("branch_id"));
+            $requestedBranchId = (int)$request->input("branch_id");
+            // Validate that user has access to the requested branch
+            if (!in_array($requestedBranchId, $accessibleBranchIds)) {
+                return response()->json([
+                    'status' => 0,
+                    'message' => 'Access denied to this branch'
+                ], 403);
+            }
+            $rows = $rows->where('a.branch_id', '=', $requestedBranchId);
+        } else {
+            // If no branch_id specified, filter by user's accessible branches
+            if (count($accessibleBranchIds) > 0) {
+                $rows = $rows->whereIn('a.branch_id', $accessibleBranchIds);
+            } else {
+                // If user has no accessible branches, return empty result
+                $rows = $rows->where('a.branch_id', '=', -1);
+            }
         }
 
         $rows = $rows->orderBy('a.created_at', 'asc')->get();
@@ -5566,6 +5575,115 @@ class AccountController extends Controller
         ]);
     }
 
+    public function officeAccountLedgerDetails($bank_id)
+    {
+        $current_user = auth()->user();
+
+        // Check permissions
+        if (AccessController::UserAccessPermissionController(PermissionController::OfficeAccountBalancePermission()) == false) {
+            return redirect()->route('dashboard.index');
+        }
+
+        // Get user's accessible branches
+        $branchInfo = BranchController::manageBranchAccess();
+        $accessibleBranchIds = $branchInfo['brancAccessList'];
+
+        // Get bank account info and validate branch access
+        $bankAccount = DB::table('office_bank_account as a')
+            ->leftJoin('account_code as b', 'a.account_code', '=', 'b.id')
+            ->select('a.*', 'b.name as account_code_name', 'b.code as account_code_code')
+            ->where('a.id', '=', $bank_id)
+            ->where('a.status', '=', 1)
+            ->first();
+
+        if (!$bankAccount) {
+            return redirect()->to('office-account-ledger')->with('error', 'Bank account not found');
+        }
+
+        // Validate that user has access to this bank account's branch
+        if (!in_array($bankAccount->branch_id, $accessibleBranchIds)) {
+            return redirect()->to('office-account-ledger')->with('error', 'Access denied to this bank account');
+        }
+
+        return view('dashboard.account.office-account-ledger-details', [
+            'bankAccount' => $bankAccount,
+            'bank_id' => $bank_id
+        ]);
+    }
+
+    public function getOfficeAccountLedgerDetails(Request $request)
+    {
+        $current_user = auth()->user();
+        $bank_id = $request->input('bank_id');
+
+        // Check permissions
+        if (AccessController::UserAccessPermissionController(PermissionController::OfficeAccountBalancePermission()) == false) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'Access denied'
+            ], 403);
+        }
+
+        // Get user's accessible branches
+        $branchInfo = BranchController::manageBranchAccess();
+        $accessibleBranchIds = $branchInfo['brancAccessList'];
+
+        // Validate bank account exists and user has access
+        $bankAccount = DB::table('office_bank_account')
+            ->where('id', '=', $bank_id)
+            ->where('status', '=', 1)
+            ->first();
+
+        if (!$bankAccount) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'Bank account not found'
+            ], 404);
+        }
+
+        // Validate branch access
+        if (!in_array($bankAccount->branch_id, $accessibleBranchIds)) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'Access denied to this bank account'
+            ], 403);
+        }
+
+        // Get ledger entries for this bank account
+        $rows = DB::table('ledger_entries_v2 as a')
+            ->leftJoin('office_bank_account as c', 'c.id', '=', 'a.bank_id')
+            ->leftJoin('loan_case_bill_main as d', 'd.id', '=', 'a.loan_case_main_bill_id')
+            ->leftJoin('loan_case as e', 'e.id', '=', 'a.case_id')
+            ->leftJoin('voucher_main as f', 'f.id', '=', 'a.key_id')
+            ->select('a.*', 'c.name as bank_name', 'c.account_no as bank_account_no', 'e.case_ref_no', 'e.id as case_id', 'f.voucher_no as voucher_no', 'f.payee as payee_voucher')
+            ->where('a.bank_id', '=', $bank_id)
+            ->whereNotIn('a.type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'SST_IN', 'TRANSFER_IN', 'CLOSEFILE_IN'])
+            ->where('a.status', '<>', 99);
+
+        // Apply date filters if provided
+        if ($request->input("date_from") != null && $request->input("date_to") != null) {
+            $rows = $rows->whereBetween('a.date', [$request->input("date_from"), $request->input("date_to")]);
+        } else {
+            if ($request->input("date_from") != null) {
+                $rows = $rows->where('a.date', '>=', $request->input("date_from"));
+            }
+
+            if ($request->input("date_to") != null) {
+                $rows = $rows->where('a.date', '<=', $request->input("date_to"));
+            }
+        }
+
+        $rows = $rows->orderBy('a.date', 'asc')
+            ->orderBy('a.last_row_entry', 'asc')
+            ->get();
+
+        $bank_name = $bankAccount->name . ' (' . $bankAccount->account_no . ')';
+
+        return response()->json([
+            'view' => view('dashboard.account.table.tab-office-account-ledger-details', compact('rows', 'bank_name'))->render(),
+        ]);
+    }
+
     public function exportOfficeAccountLedger(Request $request)
     {
         try {
@@ -5578,6 +5696,10 @@ class AccountController extends Controller
                     'message' => 'Access denied'
                 ], 403);
             }
+
+            // Get user's accessible branches
+            $branchInfo = BranchController::manageBranchAccess();
+            $accessibleBranchIds = $branchInfo['brancAccessList'];
 
             $status = $request->input("status");
             $year = $request->input("year");
@@ -5597,8 +5719,25 @@ class AccountController extends Controller
 
             $last_day = Carbon::create($year, $month)->lastOfMonth()->format('Y-m-d');
 
+            // Validate and filter by branch_id if provided
             if ($branch_id) {
-                $rows = $rows->where('a.branch_id', '=', $branch_id);
+                $requestedBranchId = (int)$branch_id;
+                // Validate that user has access to the requested branch
+                if (!in_array($requestedBranchId, $accessibleBranchIds)) {
+                    return response()->json([
+                        'status' => 0,
+                        'message' => 'Access denied to this branch'
+                    ], 403);
+                }
+                $rows = $rows->where('a.branch_id', '=', $requestedBranchId);
+            } else {
+                // If no branch_id specified, filter by user's accessible branches
+                if (count($accessibleBranchIds) > 0) {
+                    $rows = $rows->whereIn('a.branch_id', $accessibleBranchIds);
+                } else {
+                    // If user has no accessible branches, return empty result
+                    $rows = $rows->where('a.branch_id', '=', -1);
+                }
             }
 
             $rows = $rows->orderBy('a.created_at', 'asc')->get();

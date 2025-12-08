@@ -912,6 +912,8 @@ Route::get('transfer-fee-create', [AccountController::class, 'transferFeeCreate'
             Route::get('office-account-ledger', [AccountController::class, 'officeAccountLedger']);
             Route::post('getOfficeAccountLedger', [AccountController::class, 'getOfficeAccountLedger']);
             Route::post('exportOfficeAccountLedger', [AccountController::class, 'exportOfficeAccountLedger']);
+            Route::get('office-account-ledger-details/{bank_id}', [AccountController::class, 'officeAccountLedgerDetails'])->name('office-account-ledger-details');
+            Route::post('getOfficeAccountLedgerDetails', [AccountController::class, 'getOfficeAccountLedgerDetails']);
 
             
             Route::resource('files',    'FileController');
