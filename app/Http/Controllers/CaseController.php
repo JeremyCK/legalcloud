@@ -2885,7 +2885,7 @@ class CaseController extends Controller
         $closeFileEntry_in = LedgerEntriesV2::where('case_id', '=', $id)->where('type', 'CLOSEFILE_IN')->first();
 
         $CheckListMain = CheckListMain::where('status', 1)->get();
-        $CheckListDetails = CheckListDetails::where('status', 1)->get();
+        $CheckListDetails = CheckListDetails::where('status', 1)->orderby('order', 'asc')->get();
 
         $QuotationGeneratorMain = null;
         $claims = null;
@@ -17036,10 +17036,21 @@ class CaseController extends Controller
         $bill_id = [];
         $LoanCase = LoanCase::where('id', $id)->first();
         $current_user = auth()->user();
+        
+        // Get OA (Office Account) bank account IDs to exclude from calculations (used amount and ledger amount)
+        $oaBankAccountIds = DB::table('office_bank_account')
+            ->where('status', '=', 1)
+            ->where('account_type', '=', 'OA') // Only Office Account, not Client Account
+            ->pluck('id')
+            ->toArray();
 
-        $LoanCaseBillMain = LoanCaseBillMain::where('case_id', $id)->where('status', 1)->get();
+        $LoanCaseBillMain = LoanCaseBillMain::where('case_id', $id)
+            ->where('status', 1)
+            ->select('*') // Select all fields including reimbursement_amount, reimbursement_sst, transferred_reimbursement_amt, transferred_reimbursement_sst_amt
+            ->get();
 
         if (count($LoanCaseBillMain) > 0) {
+            
             for ($i = 0; $i < count($LoanCaseBillMain); $i++) {
                 $total_sum = 0;
                 $total_sum = LoanCaseBillDetails::where('loan_case_main_bill_id', $LoanCaseBillMain[$i]->id)->where('status', 1)->sum('amount');
@@ -17047,10 +17058,40 @@ class CaseController extends Controller
 
                 $total_sum = LoanCaseBillDetails::where('loan_case_main_bill_id', $LoanCaseBillMain[$i]->id)->where('status', 1)->sum('amount');
                 $total_sum = VoucherMain::where('case_bill_main_id', $LoanCaseBillMain[$i]->id)->where('account_approval', 1)->where('voucher_type', 4)->sum('total_amount');
-                $VoucherMainDisburse = VoucherMain::where('case_bill_main_id', $LoanCaseBillMain[$i]->id)->where('account_approval', 1)->where('status', '<>', 99)->where('voucher_type', 1)->sum('total_amount');
+                
+                // Calculate CA used amount (disbursement vouchers) - EXCLUDE OA bank accounts
+                // Only count vouchers that are NOT linked to OA bank accounts
+                $VoucherMainDisburseQuery = VoucherMain::where('case_bill_main_id', $LoanCaseBillMain[$i]->id)
+                    ->where('account_approval', 1)
+                    ->where('status', '<>', 99)
+                    ->where('voucher_type', 1);
+                
+                // Exclude vouchers linked to OA bank accounts
+                // Vouchers with NULL or 0 office_account_id will be included (not in OA list)
+                if (!empty($oaBankAccountIds)) {
+                    $VoucherMainDisburseQuery->where(function($query) use ($oaBankAccountIds) {
+                        $query->whereNotIn('office_account_id', $oaBankAccountIds)
+                              ->orWhereNull('office_account_id')
+                              ->orWhere('office_account_id', 0);
+                    });
+                }
+                
+                $VoucherMainDisburse = $VoucherMainDisburseQuery->sum('total_amount');
+                
+                // Calculate OA used amount (disbursement vouchers) - ONLY OA bank accounts
+                $VoucherMainOADisburse = 0;
+                if (!empty($oaBankAccountIds)) {
+                    $VoucherMainOADisburse = VoucherMain::where('case_bill_main_id', $LoanCaseBillMain[$i]->id)
+                        ->where('account_approval', 1)
+                        ->where('status', '<>', 99)
+                        ->where('voucher_type', 1)
+                        ->whereIn('office_account_id', $oaBankAccountIds)
+                        ->sum('total_amount');
+                }
 
                 $LoanCaseBillMain[$i]->total_sum = $total_sum;
-                $LoanCaseBillMain[$i]->total_disb = $VoucherMainDisburse;
+                $LoanCaseBillMain[$i]->total_disb = $VoucherMainDisburse; // CA Used Amount
+                $LoanCaseBillMain[$i]->total_oa_disb = $VoucherMainOADisburse; // OA Used Amount
                 array_push($bill_id, $LoanCaseBillMain[$i]->id);
             }
         }
@@ -17064,6 +17105,78 @@ class CaseController extends Controller
             ->whereIn('loan_case_main_bill_id', $bill_id)
             ->where('a.status', 1)
             ->get();
+        
+        // Process Reimbursement and Reimbursement SST from transfer_fee_details
+        // EXACTLY like Transfer Fee - loop through same $TransferFeeDetails collection
+        // Transfer Fee shows amounts in brackets (negative) because already transferred
+        // Reimbursement should also show in brackets (negative) if already transferred via REIMB_OUT ledger entries
+        $ReimbursementDetails = [];
+        
+        // Get all REIMB_OUT and REIMB_SST_OUT entries from ledger to check if reimbursement has been transferred
+        $AllReimbOutLedger = DB::table('ledger_entries_v2')
+            ->where('case_id', $id)
+            ->where('status', '<>', 99)
+            ->whereIn('type', ['REIMB_OUT', 'REIMB_SST_OUT'])
+            ->select('loan_case_main_bill_id', 'type', 'amount')
+            ->get();
+        
+        // Group transferred amounts by bill_id and type
+        $ledgerTransferredMap = [];
+        foreach ($AllReimbOutLedger as $ledger) {
+            $billId = (int)($ledger->loan_case_main_bill_id ?? 0);
+            $amount = (float)$ledger->amount;
+            
+            if ($billId > 0) {
+                if (!isset($ledgerTransferredMap[$billId])) {
+                    $ledgerTransferredMap[$billId] = ['reimbursement' => 0, 'reimbursement_sst' => 0];
+                }
+                
+                if ($ledger->type == 'REIMB_OUT') {
+                    $ledgerTransferredMap[$billId]['reimbursement'] += $amount;
+                } elseif ($ledger->type == 'REIMB_SST_OUT') {
+                    $ledgerTransferredMap[$billId]['reimbursement_sst'] += $amount;
+                }
+            }
+        }
+        
+        foreach ($TransferFeeDetails as $tfDetail) {
+            $reimbursement_amount = (float)($tfDetail->reimbursement_amount ?? 0);
+            $reimbursement_sst_amount = (float)($tfDetail->reimbursement_sst_amount ?? 0);
+            
+            // Skip if no reimbursement in this transfer_fee_details record
+            if ($reimbursement_amount <= 0.01 && $reimbursement_sst_amount <= 0.01) {
+                continue;
+            }
+            
+            // Get bill info for this transfer_fee_details record
+            $billId = $tfDetail->loan_case_main_bill_id;
+            $bill = $LoanCaseBillMain->firstWhere('id', (int)$billId);
+            
+            if ($bill) {
+                // Check if reimbursement has been transferred (like Transfer Fee - if transferred, show negative)
+                $transferred_reimbursement = $ledgerTransferredMap[$billId]['reimbursement'] ?? 0;
+                $transferred_reimbursement_sst = $ledgerTransferredMap[$billId]['reimbursement_sst'] ?? 0;
+                
+                // If transferred, show as negative (in brackets) like Transfer Fee
+                // If not transferred, show as positive
+                $display_reimbursement = $reimbursement_amount;
+                $display_reimbursement_sst = $reimbursement_sst_amount;
+                $is_transferred_reimbursement = ($transferred_reimbursement >= $reimbursement_amount - 0.01);
+                $is_transferred_reimbursement_sst = ($transferred_reimbursement_sst >= $reimbursement_sst_amount - 0.01);
+                
+                $ReimbursementDetails[] = (object)[
+                    'bill_id' => $bill->id,
+                    'bill_no' => $bill->bill_no,
+                    'reimbursement_amount' => round($display_reimbursement, 2),
+                    'reimbursement_sst' => round($display_reimbursement_sst, 2),
+                    'is_transferred' => $is_transferred_reimbursement, // Flag to show in brackets
+                    'is_transferred_sst' => $is_transferred_reimbursement_sst, // Flag to show in brackets
+                    'transfer_id' => $tfDetail->transfer_id ?? null,
+                    'transaction_id' => $tfDetail->transaction_id ?? null,
+                    'purpose' => $tfDetail->purpose ?? null
+                ];
+            }
+        }
 
         // $total_debit = LedgerEntries::where('case_id', $id)->where('status', 1)
         //     ->whereNotIn('type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'SSTINRECON', 'TRANSFERINRECON', 'CLOSEFILEIN'])
@@ -17075,17 +17188,39 @@ class CaseController extends Controller
         //     ->where('transaction_type', 'D') 
         //     ->where('status', 1)->sum('amount');
 
-        $total_debit = LedgerEntriesV2::where('case_id', $id)->where('status', 1)
-            // ->whereNotIn('type', ['RECONADD', 'RECONLESS', 'SST_IN', 'TRANSFER_IN', 'SSTINRECON', 'TRANSFERINRECON', 'CLOSEFILE_IN'])
+        // Calculate total_debit (Credit transactions) - EXCLUDE OA bank accounts
+        $total_debitQuery = LedgerEntriesV2::where('case_id', $id)
+            ->where('status', 1)
             ->whereNotIn('type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'SST_IN', 'TRANSFER_IN', 'CLOSEFILE_IN', 'ABORTFILE_IN', 'REIMB_IN', 'REIMB_SST_IN'])
-            ->where('transaction_type', 'C')
-            ->where('status', 1)->sum('amount');
+            ->where('transaction_type', 'C');
+        
+        // Exclude ledger entries linked to OA bank accounts
+        if (!empty($oaBankAccountIds)) {
+            $total_debitQuery->where(function($query) use ($oaBankAccountIds) {
+                $query->whereNotIn('bank_id', $oaBankAccountIds)
+                      ->orWhereNull('bank_id')
+                      ->orWhere('bank_id', 0);
+            });
+        }
+        
+        $total_debit = $total_debitQuery->sum('amount');
 
-        $total_credit = LedgerEntriesV2::where('case_id', $id)->where('status', 1)
-            // ->whereNotIn('type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'SSTINRECON', 'TRANSFERINRECON', 'CLOSEFILEIN'])
+        // Calculate total_credit (Debit transactions) - EXCLUDE OA bank accounts
+        $total_creditQuery = LedgerEntriesV2::where('case_id', $id)
+            ->where('status', 1)
             ->where('transaction_type', 'D')
-            ->whereNotIn('type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'SST_IN', 'TRANSFER_IN', 'CLOSEFILE_IN', 'ABORTFILE_IN', 'REIMB_IN', 'REIMB_SST_IN'])
-            ->where('status', 1)->sum('amount');
+            ->whereNotIn('type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'SST_IN', 'TRANSFER_IN', 'CLOSEFILE_IN', 'ABORTFILE_IN', 'REIMB_IN', 'REIMB_SST_IN']);
+        
+        // Exclude ledger entries linked to OA bank accounts
+        if (!empty($oaBankAccountIds)) {
+            $total_creditQuery->where(function($query) use ($oaBankAccountIds) {
+                $query->whereNotIn('bank_id', $oaBankAccountIds)
+                      ->orWhereNull('bank_id')
+                      ->orWhere('bank_id', 0);
+            });
+        }
+        
+        $total_credit = $total_creditQuery->sum('amount');
 
 
         $VoucherMain = VoucherMain::where('case_id', $id)->where('status', '<>', 99)->where('account_approval', 6)->get();
@@ -17098,7 +17233,6 @@ class CaseController extends Controller
             ->where('a.case_id', $id)
             ->where('a.status', '<>', 99)
             ->get();
-
 
         $current_user = auth()->user();
         $userRoles = $current_user->menuroles;
@@ -17132,11 +17266,17 @@ class CaseController extends Controller
         $case_list = $case_list->orderBy('l.created_at', 'DESC')->get();
         // return $JournalEntry;
 
+        // Debug: Log ReimbursementDetails to see what's being calculated
+        \Log::info("ReimbursementDetails for Case $id", [
+            'count' => count($ReimbursementDetails),
+            'details' => $ReimbursementDetails
+        ]);
+        
         return response()->json([
             'status' => 1,
             'message' => 'Successfully updated case summary',
             'case_list' => $case_list,
-            'view' => view('dashboard.case.table.tbl-close-file-bill-list', compact('LoanCaseBillMain', 'LoanCaseTrustMain', 'TransferFeeDetails', 'VoucherMain', 'total_credit', 'total_debit', 'JournalEntry', 'current_user'))->render(),
+            'view' => view('dashboard.case.table.tbl-close-file-bill-list', compact('LoanCaseBillMain', 'LoanCaseTrustMain', 'TransferFeeDetails', 'VoucherMain', 'total_credit', 'total_debit', 'JournalEntry', 'ReimbursementDetails', 'current_user'))->render(),
         ]);
     }
 

@@ -17,7 +17,10 @@ $count=0;
             </td>
             <td>
               <b>Collected amount:</b> {{ number_format($bill->collected_amt, 2, '.', ',') }} <br/>
-              <b>Used amount:</b> {{ number_format($bill->total_disb, 2, '.', ',') }} <br/>
+              <b>CA Used Amount:</b> {{ number_format($bill->total_disb, 2, '.', ',') }} <br/>
+              @if (isset($bill->total_oa_disb) && $bill->total_oa_disb > 0.01)
+              <b style="color: red;">OA Used Amount:</b> <span style="color: red;">{{ number_format($bill->total_oa_disb, 2, '.', ',') }}</span> <br/>
+              @endif
             </td>
             {{-- <td class="text-right">{{ number_format($bill->collected_amt, 2, '.', ',') }}</td>
             <td class="text-right">{{ number_format($bill->used_amt, 2, '.', ',') }}</td> --}}
@@ -109,8 +112,90 @@ $count=0;
         $count += 1;
         @endphp
     @endforeach
-@endif
+  @endif
 
+@if (isset($ReimbursementDetails) && count($ReimbursementDetails))
+    @foreach ($ReimbursementDetails as $index => $reimb)
+        {{-- Show Reimbursement entry - same concept as Transfer Fee --}}
+        {{-- If already transferred, show in brackets (negative) like Transfer Fee --}}
+        @if ($reimb->reimbursement_amount > 0.01)
+        <tr>
+            <td>
+                <div class="checkbox" style="display: none">
+                    <input onchange="updateCloseFileTotalAmt({{$count}})" type="checkbox" name="close_file_bill" value="{{$count}}" id="chk_close_file_{{$count}}" checked>
+                    <label for="chk_close_file_{{$count}}">Reimbursement</label>
+                </div>
+                <b>Reimbursement: </b> Bill No: {{ $reimb->bill_no }}
+                @if (isset($reimb->transaction_id))
+                    <a target="_blank" href="/transfer-fee/{{ $reimb->transfer_id }}">{{ $reimb->transaction_id }} >></a>
+                @endif
+            </td>
+            <td>
+                Reimbursement
+            </td>
+            <td class="text-right">
+                @if (isset($reimb->is_transferred) && $reimb->is_transferred)
+                    ({{ number_format($reimb->reimbursement_amount, 2, '.', ',') }})
+                    <input type="hidden" id="sum_close_file_{{$count}}" value="-{{$reimb->reimbursement_amount}}" />
+                @else
+                    {{ number_format($reimb->reimbursement_amount, 2, '.', ',') }}
+                    <input type="hidden" id="sum_close_file_{{$count}}" value="{{$reimb->reimbursement_amount}}" />
+                @endif
+              <input type="hidden" id="bill_no_close_file_{{$count}}" value="{{$reimb->bill_id}}" />
+            </td>
+        </tr>
+        @php
+        if (isset($reimb->is_transferred) && $reimb->is_transferred) {
+            $total_bal -= $reimb->reimbursement_amount; // Subtract if transferred (negative)
+        } else {
+            $total_bal += $reimb->reimbursement_amount; // Add if not transferred (positive)
+        }
+        $count += 1;
+        @endphp
+        @endif
+        
+        {{-- Show Reimbursement SST entry - same concept as Transfer Fee SST --}}
+        {{-- If already transferred, show in brackets (negative) like Transfer Fee SST --}}
+        @if ($reimb->reimbursement_sst > 0.01)
+        <tr>
+            <td>
+                <div class="checkbox" style="display: none">
+                    <input onchange="updateCloseFileTotalAmt({{$count}})" type="checkbox" name="close_file_bill" value="{{$count}}" id="chk_close_file_{{$count}}" checked>
+                    <label for="chk_close_file_{{$count}}">Reimbursement SST</label>
+                </div>
+                <b>Reimbursement SST</b> @if ($reimb->reimbursement_amount <= 0.01) - Bill No: {{ $reimb->bill_no }} @endif
+            </td>
+            <td>
+                @if ($reimb->reimbursement_amount <= 0.01)
+                    Reimbursement SST
+                @else
+                    -
+                @endif
+            </td>
+            <td class="text-right">
+                @if (isset($reimb->is_transferred_sst) && $reimb->is_transferred_sst)
+                    ({{ number_format($reimb->reimbursement_sst, 2, '.', ',') }})
+                    <input type="hidden" id="sum_close_file_{{$count}}" value="-{{$reimb->reimbursement_sst}}" />
+                @else
+                    {{ number_format($reimb->reimbursement_sst, 2, '.', ',') }}
+                    <input type="hidden" id="sum_close_file_{{$count}}" value="{{$reimb->reimbursement_sst}}" />
+                @endif
+              @if ($reimb->reimbursement_amount <= 0.01)
+                <input type="hidden" id="bill_no_close_file_{{$count}}" value="{{$reimb->bill_id}}" />
+              @endif
+            </td>
+        </tr>
+        @php
+        if (isset($reimb->is_transferred_sst) && $reimb->is_transferred_sst) {
+            $total_bal -= $reimb->reimbursement_sst; // Subtract if transferred (negative)
+        } else {
+            $total_bal += $reimb->reimbursement_sst; // Add if not transferred (positive)
+        }
+        $count += 1;
+        @endphp
+        @endif
+    @endforeach
+@endif
 
   @if (count($JournalEntry))
       @foreach ($JournalEntry as $index => $bill)
