@@ -17227,11 +17227,22 @@ class CaseController extends Controller
 
         // $JournalEntry = DB::table('journal_entry_main')->where('case_id', $id)->where('status', '<>', 99)->get();
 
+        // Filter journal entries to only show those linked to CA bank accounts
+        // Relationship: journal_entry_details -> account_code -> office_bank_account
+        // journal_entry_details.account_code_id -> account_code.id -> account_code.key_id -> office_bank_account.id
         $JournalEntry = DB::table('journal_entry_details as a')
-            ->leftJoin('journal_entry_main as b', 'a.journal_entry_main_id', '=', 'b.id')
+            ->join('journal_entry_main as b', 'a.journal_entry_main_id', '=', 'b.id')
+            ->join('account_code as c', 'a.account_code_id', '=', 'c.id')
+            ->join('office_bank_account as d', function($join) {
+                $join->on('c.key_id', '=', 'd.id')
+                     ->where('d.account_type', '=', 'CA')
+                     ->where('d.status', '=', 1);
+            })
             ->select('b.*', 'a.amount', 'a.transaction_type')
             ->where('a.case_id', $id)
             ->where('a.status', '<>', 99)
+            ->whereNotNull('c.key_id')
+            ->where('c.key_id', '<>', 0)
             ->get();
 
         $current_user = auth()->user();

@@ -18,9 +18,6 @@ $count=0;
             <td>
               <b>Collected amount:</b> {{ number_format($bill->collected_amt, 2, '.', ',') }} <br/>
               <b>CA Used Amount:</b> {{ number_format($bill->total_disb, 2, '.', ',') }} <br/>
-              @if (isset($bill->total_oa_disb) && $bill->total_oa_disb > 0.01)
-              <b style="color: red;">OA Used Amount:</b> <span style="color: red;">{{ number_format($bill->total_oa_disb, 2, '.', ',') }}</span> <br/>
-              @endif
             </td>
             {{-- <td class="text-right">{{ number_format($bill->collected_amt, 2, '.', ',') }}</td>
             <td class="text-right">{{ number_format($bill->used_amt, 2, '.', ',') }}</td> --}}
