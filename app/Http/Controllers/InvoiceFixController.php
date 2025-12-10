@@ -10,6 +10,7 @@ use App\Models\LedgerEntriesV2;
 use App\Models\LoanCaseInvoiceMain;
 use App\Models\LoanCaseBillMain;
 use App\Models\TransferFeeDetails;
+use App\Models\TransferFeeMain;
 
 class InvoiceFixController extends Controller
 {
@@ -17,7 +18,12 @@ class InvoiceFixController extends Controller
     {
         $current_user = auth()->user();
         
-        return view('dashboard.invoice-fix.index', [
+        // Check permission
+        if (AccessController::UserAccessPermissionController(PermissionController::AccountToolPermission()) == false) {
+            return redirect()->route('dashboard.index')->with('error', 'You do not have permission to access this page.');
+        }
+        
+        return view('dashboard.account-tool.index', [
             'current_user' => $current_user,
             'locales' => [],
             'appLocale' => 'en'
@@ -247,7 +253,7 @@ class InvoiceFixController extends Controller
      */
     public function fixMultipleInvoices(Request $request)
     {
-        $invoiceNumbers = $request->get('invoice_numbers'); // Comma-separated
+        $invoiceNumbers = $request->input('invoice_numbers');
         
         if (empty($invoiceNumbers)) {
             return response()->json([
@@ -257,8 +263,16 @@ class InvoiceFixController extends Controller
         }
         
         try {
-            // Parse invoice numbers
-            $invoiceList = array_map('trim', explode(',', $invoiceNumbers));
+            // Handle both array and string inputs
+            if (is_array($invoiceNumbers)) {
+                // Already an array from JavaScript
+                $invoiceList = array_map('trim', $invoiceNumbers);
+            } else {
+                // String input - split by comma or newline
+                $invoiceList = preg_split('/[,\n]+/', $invoiceNumbers);
+                $invoiceList = array_map('trim', $invoiceList);
+            }
+            
             $invoiceList = array_filter($invoiceList); // Remove empty values
             
             $results = [];
@@ -271,14 +285,14 @@ class InvoiceFixController extends Controller
                     $result = $this->fixInvoiceByNumber($invoiceNo);
                     
                     $resultData = [
+                        'success' => $result['success'],
                         'invoice_no' => $invoiceNo,
-                        'status' => $result['success'] ? 'SUCCESS' : 'ERROR',
                         'message' => $result['message']
                     ];
                     
                     // Include detailed data if available
                     if ($result['success'] && isset($result['data'])) {
-                        $resultData['details'] = $result['data'];
+                        $resultData['data'] = $result['data'];
                     }
                     
                     $results[] = $resultData;
@@ -290,8 +304,8 @@ class InvoiceFixController extends Controller
                     }
                 } catch (\Exception $e) {
                     $results[] = [
+                        'success' => false,
                         'invoice_no' => $invoiceNo,
-                        'status' => 'ERROR',
                         'message' => 'Error: ' . $e->getMessage()
                     ];
                     $errorCount++;
@@ -301,7 +315,7 @@ class InvoiceFixController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => "Fixed {$successCount} invoice(s) successfully. {$errorCount} error(s).",
-                'data' => $results
+                'results' => $results
             ]);
             
         } catch (\Exception $e) {
@@ -408,73 +422,166 @@ class InvoiceFixController extends Controller
                 ->get();
             
             if ($transferFeeDetails->count() > 0) {
+                // Check if this is a split invoice (multiple invoices for same bill)
+                $invoiceCount = LoanCaseInvoiceMain::where('loan_case_main_bill_id', $bill->id)
+                    ->where('status', '<>', 99)
+                    ->count();
+                
+                $isSplitInvoice = $invoiceCount > 1;
+                
+                // Check if total can be divided equally across split invoices
+                $canDivideEqually = false;
+                $equalPfee = 0;
+                $equalSst = 0;
+                $equalReimb = 0;
+                $equalReimbSst = 0;
+                
+                if ($isSplitInvoice) {
+                    $allInvoices = LoanCaseInvoiceMain::where('loan_case_main_bill_id', $bill->id)
+                        ->where('status', '<>', 99)
+                        ->get();
+                    
+                    // Calculate totals across all invoices using the same calculation method
+                    $totalPfeeAllInvoices = 0;
+                    $totalSstAllInvoices = 0;
+                    $totalReimbAllInvoices = 0;
+                    $totalReimbSstAllInvoices = 0;
+                    
+                    foreach ($allInvoices as $inv) {
+                        // Use the same calculation method as calculateInvoiceAmountsFromDetails
+                        $invCalculated = $this->calculateInvoiceAmountsFromDetails($inv->id, $bill->sst_rate);
+                        
+                        $totalPfeeAllInvoices += $invCalculated['pfee1'] + $invCalculated['pfee2'];
+                        $totalSstAllInvoices += $invCalculated['sst'];
+                        $totalReimbAllInvoices += $invCalculated['reimbursement_amount'];
+                        $totalReimbSstAllInvoices += $invCalculated['reimbursement_sst'];
+                    }
+                    
+                    // Check if totals can be divided equally
+                    $equalPfeeTest = round($totalPfeeAllInvoices / $invoiceCount, 2);
+                    $expectedPfeeTotal = $equalPfeeTest * $invoiceCount;
+                    $canDivideEqually = abs($totalPfeeAllInvoices - $expectedPfeeTotal) <= 0.01;
+                    
+                    if ($canDivideEqually) {
+                        $equalPfee = $equalPfeeTest;
+                        $equalSst = round($totalSstAllInvoices / $invoiceCount, 2);
+                        $equalReimb = round($totalReimbAllInvoices / $invoiceCount, 2);
+                        $equalReimbSst = round($totalReimbSstAllInvoices / $invoiceCount, 2);
+                    }
+                }
+                
                 // If only one record, update it directly with correct amounts
                 if ($transferFeeDetails->count() == 1) {
                     $tfd = $transferFeeDetails->first();
-                    $tfd->transfer_amount = round($totalPfee, 2);
-                    $tfd->sst_amount = round($calculated['sst'], 2);
-                    $tfd->reimbursement_amount = round($calculated['reimbursement_amount'], 2);
-                    $tfd->reimbursement_sst_amount = round($calculated['reimbursement_sst'], 2);
+                    
+                    // Use equal amounts if can divide equally, otherwise use calculated amounts
+                    if ($canDivideEqually) {
+                        $tfd->transfer_amount = round($equalPfee, 2);
+                        $tfd->sst_amount = round($equalSst, 2);
+                        $tfd->reimbursement_amount = round($equalReimb, 2);
+                        $tfd->reimbursement_sst_amount = round($equalReimbSst, 2);
+                    } else {
+                        $tfd->transfer_amount = round($totalPfee, 2);
+                        $tfd->sst_amount = round($calculated['sst'], 2);
+                        $tfd->reimbursement_amount = round($calculated['reimbursement_amount'], 2);
+                        $tfd->reimbursement_sst_amount = round($calculated['reimbursement_sst'], 2);
+                    }
                     $tfd->updated_at = now();
                     $tfd->save();
                 } else {
-                    // Multiple records: preserve original distribution ratio, but ensure totals are correct
-                    $totalOriginalPfee = $transferFeeDetails->sum('transfer_amount');
-                    $totalOriginalSst = $transferFeeDetails->sum('sst_amount');
-                    $totalOriginalReimb = $transferFeeDetails->sum('reimbursement_amount');
-                    $totalOriginalReimbSst = $transferFeeDetails->sum('reimbursement_sst_amount');
-                    
-                    $totalDistributedPfee = 0;
-                    $totalDistributedSst = 0;
-                    $totalDistributedReimb = 0;
-                    $totalDistributedReimbSst = 0;
-                    
-                    foreach ($transferFeeDetails as $index => $tfd) {
-                        // If original totals are 0 or very small, distribute equally
-                        if ($totalOriginalPfee > 0.01) {
-                            $ratio = $tfd->transfer_amount / $totalOriginalPfee;
-                            $tfd->transfer_amount = round($totalPfee * $ratio, 2);
-                        } else {
-                            $tfd->transfer_amount = round($totalPfee / $transferFeeDetails->count(), 2);
-                        }
-                        $totalDistributedPfee += $tfd->transfer_amount;
+                    if ($canDivideEqually) {
+                        // Distribute equally: Use equal amounts for this invoice
+                        $pfeePerRecord = round($equalPfee / $transferFeeDetails->count(), 2);
+                        $totalDistributedPfee = $pfeePerRecord * ($transferFeeDetails->count() - 1);
+                        $lastPfeeRecord = round($equalPfee - $totalDistributedPfee, 2);
                         
-                        if ($totalOriginalSst > 0.01) {
-                            $ratio = $tfd->sst_amount / $totalOriginalSst;
-                            $tfd->sst_amount = round($calculated['sst'] * $ratio, 2);
-                        } else {
-                            $tfd->sst_amount = round($calculated['sst'] / $transferFeeDetails->count(), 2);
-                        }
-                        $totalDistributedSst += $tfd->sst_amount;
+                        $sstPerRecord = round($equalSst / $transferFeeDetails->count(), 2);
+                        $totalDistributedSst = $sstPerRecord * ($transferFeeDetails->count() - 1);
+                        $lastSstRecord = round($equalSst - $totalDistributedSst, 2);
                         
-                        if ($totalOriginalReimb > 0.01) {
-                            $ratio = $tfd->reimbursement_amount / $totalOriginalReimb;
-                            $tfd->reimbursement_amount = round($calculated['reimbursement_amount'] * $ratio, 2);
-                        } else {
-                            $tfd->reimbursement_amount = round($calculated['reimbursement_amount'] / $transferFeeDetails->count(), 2);
-                        }
-                        $totalDistributedReimb += $tfd->reimbursement_amount;
+                        $reimbPerRecord = round($equalReimb / $transferFeeDetails->count(), 2);
+                        $totalDistributedReimb = $reimbPerRecord * ($transferFeeDetails->count() - 1);
+                        $lastReimbRecord = round($equalReimb - $totalDistributedReimb, 2);
                         
-                        if ($totalOriginalReimbSst > 0.01) {
-                            $ratio = $tfd->reimbursement_sst_amount / $totalOriginalReimbSst;
-                            $tfd->reimbursement_sst_amount = round($calculated['reimbursement_sst'] * $ratio, 2);
-                        } else {
-                            $tfd->reimbursement_sst_amount = round($calculated['reimbursement_sst'] / $transferFeeDetails->count(), 2);
-                        }
-                        $totalDistributedReimbSst += $tfd->reimbursement_sst_amount;
+                        $reimbSstPerRecord = round($equalReimbSst / $transferFeeDetails->count(), 2);
+                        $totalDistributedReimbSst = $reimbSstPerRecord * ($transferFeeDetails->count() - 1);
+                        $lastReimbSstRecord = round($equalReimbSst - $totalDistributedReimbSst, 2);
                         
-                        $tfd->updated_at = now();
-                        $tfd->save();
-                    }
-                    
-                    // Ensure last record gets remainder to avoid rounding errors
-                    if ($transferFeeDetails->count() > 1) {
-                        $lastTfd = $transferFeeDetails->last();
-                        $lastTfd->transfer_amount = round($totalPfee - ($totalDistributedPfee - $lastTfd->transfer_amount), 2);
-                        $lastTfd->sst_amount = round($calculated['sst'] - ($totalDistributedSst - $lastTfd->sst_amount), 2);
-                        $lastTfd->reimbursement_amount = round($calculated['reimbursement_amount'] - ($totalDistributedReimb - $lastTfd->reimbursement_amount), 2);
-                        $lastTfd->reimbursement_sst_amount = round($calculated['reimbursement_sst'] - ($totalDistributedReimbSst - $lastTfd->reimbursement_sst_amount), 2);
-                        $lastTfd->save();
+                        foreach ($transferFeeDetails as $index => $tfd) {
+                            if ($index == $transferFeeDetails->count() - 1) {
+                                $tfd->transfer_amount = $lastPfeeRecord;
+                                $tfd->sst_amount = $lastSstRecord;
+                                $tfd->reimbursement_amount = $lastReimbRecord;
+                                $tfd->reimbursement_sst_amount = $lastReimbSstRecord;
+                            } else {
+                                $tfd->transfer_amount = $pfeePerRecord;
+                                $tfd->sst_amount = $sstPerRecord;
+                                $tfd->reimbursement_amount = $reimbPerRecord;
+                                $tfd->reimbursement_sst_amount = $reimbSstPerRecord;
+                            }
+                            
+                            $tfd->updated_at = now();
+                            $tfd->save();
+                        }
+                    } else {
+                        // Multiple records: preserve original distribution ratio, but ensure totals are correct
+                        $totalOriginalPfee = $transferFeeDetails->sum('transfer_amount');
+                        $totalOriginalSst = $transferFeeDetails->sum('sst_amount');
+                        $totalOriginalReimb = $transferFeeDetails->sum('reimbursement_amount');
+                        $totalOriginalReimbSst = $transferFeeDetails->sum('reimbursement_sst_amount');
+                        
+                        $totalDistributedPfee = 0;
+                        $totalDistributedSst = 0;
+                        $totalDistributedReimb = 0;
+                        $totalDistributedReimbSst = 0;
+                        
+                        foreach ($transferFeeDetails as $index => $tfd) {
+                            // If original totals are 0 or very small, distribute equally
+                            if ($totalOriginalPfee > 0.01) {
+                                $ratio = $tfd->transfer_amount / $totalOriginalPfee;
+                                $tfd->transfer_amount = round($totalPfee * $ratio, 2);
+                            } else {
+                                $tfd->transfer_amount = round($totalPfee / $transferFeeDetails->count(), 2);
+                            }
+                            $totalDistributedPfee += $tfd->transfer_amount;
+                            
+                            if ($totalOriginalSst > 0.01) {
+                                $ratio = $tfd->sst_amount / $totalOriginalSst;
+                                $tfd->sst_amount = round($calculated['sst'] * $ratio, 2);
+                            } else {
+                                $tfd->sst_amount = round($calculated['sst'] / $transferFeeDetails->count(), 2);
+                            }
+                            $totalDistributedSst += $tfd->sst_amount;
+                            
+                            if ($totalOriginalReimb > 0.01) {
+                                $ratio = $tfd->reimbursement_amount / $totalOriginalReimb;
+                                $tfd->reimbursement_amount = round($calculated['reimbursement_amount'] * $ratio, 2);
+                            } else {
+                                $tfd->reimbursement_amount = round($calculated['reimbursement_amount'] / $transferFeeDetails->count(), 2);
+                            }
+                            $totalDistributedReimb += $tfd->reimbursement_amount;
+                            
+                            if ($totalOriginalReimbSst > 0.01) {
+                                $ratio = $tfd->reimbursement_sst_amount / $totalOriginalReimbSst;
+                                $tfd->reimbursement_sst_amount = round($calculated['reimbursement_sst'] * $ratio, 2);
+                            } else {
+                                $tfd->reimbursement_sst_amount = round($calculated['reimbursement_sst'] / $transferFeeDetails->count(), 2);
+                            }
+                            $totalDistributedReimbSst += $tfd->reimbursement_sst_amount;
+                            
+                            $tfd->updated_at = now();
+                            $tfd->save();
+                        }
+                        
+                        // Ensure last record gets remainder to avoid rounding errors
+                        if ($transferFeeDetails->count() > 1) {
+                            $lastTfd = $transferFeeDetails->last();
+                            $lastTfd->transfer_amount = round($totalPfee - ($totalDistributedPfee - $lastTfd->transfer_amount), 2);
+                            $lastTfd->sst_amount = round($calculated['sst'] - ($totalDistributedSst - $lastTfd->sst_amount), 2);
+                            $lastTfd->reimbursement_amount = round($calculated['reimbursement_amount'] - ($totalDistributedReimb - $lastTfd->reimbursement_amount), 2);
+                            $lastTfd->reimbursement_sst_amount = round($calculated['reimbursement_sst'] - ($totalDistributedReimbSst - $lastTfd->reimbursement_sst_amount), 2);
+                            $lastTfd->save();
+                        }
                     }
                 }
             }
@@ -517,7 +624,8 @@ class InvoiceFixController extends Controller
                 'pfee2' => $calculated['pfee2'],
                 'sst' => $calculated['sst'],
                 'reimbursement' => $calculated['reimbursement_amount'],
-                'ledger_updated' => $ledgerUpdateResult['updated_count']
+                'ledger_updated' => $ledgerUpdateResult['updated_count'],
+                'ledger_created' => $ledgerUpdateResult['created_count'] ?? 0
             ]);
             
             return [
@@ -546,6 +654,7 @@ class InvoiceFixController extends Controller
                         ];
                     }),
                     'ledger_entries_updated' => $ledgerUpdateResult['updated_count'],
+                    'ledger_entries_created' => $ledgerUpdateResult['created_count'] ?? 0,
                     'ledger_entries' => $ledgerEntries->map(function($le) {
                         return [
                             'id' => $le->id,
@@ -694,18 +803,14 @@ class InvoiceFixController extends Controller
             $sst = $calculatedSsts[$invoiceId];
         } else {
             // For single invoice: calculate SST from individual detail items (matches invoice display)
+            // IMPORTANT: The invoice display sums individual item SSTs, and each item uses standard rounding
+            // (not the special "round down if 3rd decimal is 5" rule for individual items)
+            // The special rule might only apply in certain contexts, but for consistency with invoice display,
+            // we use standard rounding for individual items
             $sst = 0;
             foreach ($invoiceDetails as $detail) {
-                // Apply special rounding rule: round DOWN if 3rd decimal is 5
-                $sst_calculation = $detail->amount * $sstRateDecimal;
-                $sst_string = number_format($sst_calculation, 3, '.', '');
-                
-                if (substr($sst_string, -1) == '5') {
-                    $row_sst = floor($sst_calculation * 100) / 100; // Round down
-                } else {
-                    $row_sst = round($sst_calculation, 2); // Normal rounding
-                }
-                
+                // Use standard rounding to match invoice display behavior
+                $row_sst = round($detail->amount * $sstRateDecimal, 2);
                 $sst += $row_sst;
             }
             $sst = round($sst, 2);
@@ -866,21 +971,37 @@ class InvoiceFixController extends Controller
 
     /**
      * Fix ledger entries for an invoice
-     * Returns count of updated entries
+     * Returns count of updated/created entries
      */
     private function fixLedgerEntries($invoiceId)
     {
+        // Get invoice and bill information
+        $invoice = LoanCaseInvoiceMain::find($invoiceId);
+        if (!$invoice) {
+            return ['updated_count' => 0];
+        }
+        
+        $bill = LoanCaseBillMain::find($invoice->loan_case_main_bill_id);
+        if (!$bill) {
+            return ['updated_count' => 0];
+        }
+        
         // Get all transfer fee details for this invoice
         $transferFeeDetails = TransferFeeDetails::where('loan_case_invoice_main_id', $invoiceId)
             ->where('status', '<>', 99)
             ->get();
         
         $updatedCount = 0;
+        $createdCount = 0;
         
         foreach ($transferFeeDetails as $tfd) {
+            // Get TransferFeeMain for transaction details
+            $transferFeeMain = TransferFeeMain::find($tfd->transfer_fee_main_id);
+            if (!$transferFeeMain) {
+                continue;
+            }
+            
             // Update LedgerEntriesV2 - TRANSFER_OUT/IN
-            // IMPORTANT: Update ALL ledger entries for this transfer_fee_detail (key_id_2)
-            // Don't filter by invoice_id because ledger entries are linked via transfer_fee_details
             $count = DB::table('ledger_entries_v2')
                 ->where('key_id_2', $tfd->id)
                 ->where('status', '<>', 99)
@@ -896,21 +1017,137 @@ class InvoiceFixController extends Controller
                 ->update(['amount' => $tfd->sst_amount, 'updated_at' => now()]);
             $updatedCount += $count;
             
-            // Update LedgerEntriesV2 - REIMB_OUT/IN
-            $count = DB::table('ledger_entries_v2')
-                ->where('key_id_2', $tfd->id)
-                ->where('status', '<>', 99)
-                ->whereIn('type', ['REIMB_OUT', 'REIMB_IN'])
-                ->update(['amount' => $tfd->reimbursement_amount, 'updated_at' => now()]);
-            $updatedCount += $count;
+            // Update or Create LedgerEntriesV2 - REIMB_OUT/IN
+            if ($tfd->reimbursement_amount > 0) {
+                $reimbOutExists = DB::table('ledger_entries_v2')
+                    ->where('key_id_2', $tfd->id)
+                    ->where('status', '<>', 99)
+                    ->where('type', 'REIMB_OUT')
+                    ->exists();
+                
+                $reimbInExists = DB::table('ledger_entries_v2')
+                    ->where('key_id_2', $tfd->id)
+                    ->where('status', '<>', 99)
+                    ->where('type', 'REIMB_IN')
+                    ->exists();
+                
+                if ($reimbOutExists) {
+                    $count = DB::table('ledger_entries_v2')
+                        ->where('key_id_2', $tfd->id)
+                        ->where('status', '<>', 99)
+                        ->whereIn('type', ['REIMB_OUT', 'REIMB_IN'])
+                        ->update(['amount' => $tfd->reimbursement_amount, 'updated_at' => now()]);
+                    $updatedCount += $count;
+                } else {
+                    // Create REIMB_OUT entry
+                    DB::table('ledger_entries_v2')->insert([
+                        'transaction_id' => $transferFeeMain->transaction_id,
+                        'case_id' => $bill->case_id,
+                        'loan_case_main_bill_id' => $bill->id,
+                        'loan_case_invoice_main_id' => $invoiceId,
+                        'user_id' => auth()->id() ?? $transferFeeMain->transfer_by,
+                        'key_id' => $transferFeeMain->id,
+                        'key_id_2' => $tfd->id,
+                        'transaction_type' => 'C',
+                        'amount' => $tfd->reimbursement_amount,
+                        'bank_id' => $transferFeeMain->transfer_from,
+                        'remark' => $transferFeeMain->purpose ?? '',
+                        'status' => 1,
+                        'is_recon' => 0,
+                        'created_at' => $transferFeeMain->transfer_date ?? now(),
+                        'date' => $transferFeeMain->transfer_date ?? now(),
+                        'type' => 'REIMB_OUT'
+                    ]);
+                    $createdCount++;
+                    
+                    // Create REIMB_IN entry
+                    DB::table('ledger_entries_v2')->insert([
+                        'transaction_id' => $transferFeeMain->transaction_id,
+                        'case_id' => $bill->case_id,
+                        'loan_case_main_bill_id' => $bill->id,
+                        'loan_case_invoice_main_id' => $invoiceId,
+                        'user_id' => auth()->id() ?? $transferFeeMain->transfer_by,
+                        'key_id' => $transferFeeMain->id,
+                        'key_id_2' => $tfd->id,
+                        'transaction_type' => 'D',
+                        'amount' => $tfd->reimbursement_amount,
+                        'bank_id' => $transferFeeMain->transfer_to,
+                        'remark' => $transferFeeMain->purpose ?? '',
+                        'status' => 1,
+                        'is_recon' => 0,
+                        'created_at' => $transferFeeMain->transfer_date ?? now(),
+                        'date' => $transferFeeMain->transfer_date ?? now(),
+                        'type' => 'REIMB_IN'
+                    ]);
+                    $createdCount++;
+                }
+            }
             
-            // Update LedgerEntriesV2 - REIMB_SST_OUT/IN
-            $count = DB::table('ledger_entries_v2')
-                ->where('key_id_2', $tfd->id)
-                ->where('status', '<>', 99)
-                ->whereIn('type', ['REIMB_SST_OUT', 'REIMB_SST_IN'])
-                ->update(['amount' => $tfd->reimbursement_sst_amount, 'updated_at' => now()]);
-            $updatedCount += $count;
+            // Update or Create LedgerEntriesV2 - REIMB_SST_OUT/IN
+            if ($tfd->reimbursement_sst_amount > 0) {
+                $reimbSstOutExists = DB::table('ledger_entries_v2')
+                    ->where('key_id_2', $tfd->id)
+                    ->where('status', '<>', 99)
+                    ->where('type', 'REIMB_SST_OUT')
+                    ->exists();
+                
+                $reimbSstInExists = DB::table('ledger_entries_v2')
+                    ->where('key_id_2', $tfd->id)
+                    ->where('status', '<>', 99)
+                    ->where('type', 'REIMB_SST_IN')
+                    ->exists();
+                
+                if ($reimbSstOutExists) {
+                    $count = DB::table('ledger_entries_v2')
+                        ->where('key_id_2', $tfd->id)
+                        ->where('status', '<>', 99)
+                        ->whereIn('type', ['REIMB_SST_OUT', 'REIMB_SST_IN'])
+                        ->update(['amount' => $tfd->reimbursement_sst_amount, 'updated_at' => now()]);
+                    $updatedCount += $count;
+                } else {
+                    // Create REIMB_SST_OUT entry
+                    DB::table('ledger_entries_v2')->insert([
+                        'transaction_id' => $transferFeeMain->transaction_id,
+                        'case_id' => $bill->case_id,
+                        'loan_case_main_bill_id' => $bill->id,
+                        'loan_case_invoice_main_id' => $invoiceId,
+                        'user_id' => auth()->id() ?? $transferFeeMain->transfer_by,
+                        'key_id' => $transferFeeMain->id,
+                        'key_id_2' => $tfd->id,
+                        'transaction_type' => 'C',
+                        'amount' => $tfd->reimbursement_sst_amount,
+                        'bank_id' => $transferFeeMain->transfer_from,
+                        'remark' => $transferFeeMain->purpose ?? '',
+                        'status' => 1,
+                        'is_recon' => 0,
+                        'created_at' => $transferFeeMain->transfer_date ?? now(),
+                        'date' => $transferFeeMain->transfer_date ?? now(),
+                        'type' => 'REIMB_SST_OUT'
+                    ]);
+                    $createdCount++;
+                    
+                    // Create REIMB_SST_IN entry
+                    DB::table('ledger_entries_v2')->insert([
+                        'transaction_id' => $transferFeeMain->transaction_id,
+                        'case_id' => $bill->case_id,
+                        'loan_case_main_bill_id' => $bill->id,
+                        'loan_case_invoice_main_id' => $invoiceId,
+                        'user_id' => auth()->id() ?? $transferFeeMain->transfer_by,
+                        'key_id' => $transferFeeMain->id,
+                        'key_id_2' => $tfd->id,
+                        'transaction_type' => 'D',
+                        'amount' => $tfd->reimbursement_sst_amount,
+                        'bank_id' => $transferFeeMain->transfer_to,
+                        'remark' => $transferFeeMain->purpose ?? '',
+                        'status' => 1,
+                        'is_recon' => 0,
+                        'created_at' => $transferFeeMain->transfer_date ?? now(),
+                        'date' => $transferFeeMain->transfer_date ?? now(),
+                        'type' => 'REIMB_SST_IN'
+                    ]);
+                    $createdCount++;
+                }
+            }
             
             // Update old LedgerEntries table - TRANSFEROUT/IN
             $count = DB::table('ledger_entries')
@@ -928,24 +1165,128 @@ class InvoiceFixController extends Controller
                 ->update(['amount' => $tfd->sst_amount, 'updated_at' => now()]);
             $updatedCount += $count;
             
-            // Update old LedgerEntries table - REIMBOUT/IN
-            $count = DB::table('ledger_entries')
-                ->where('key_id', $tfd->id)
-                ->where('status', '<>', 99)
-                ->whereIn('type', ['REIMBOUT', 'REIMBIN'])
-                ->update(['amount' => $tfd->reimbursement_amount, 'updated_at' => now()]);
-            $updatedCount += $count;
+            // Update or Create old LedgerEntries table - REIMBOUT/IN
+            if ($tfd->reimbursement_amount > 0) {
+                $reimbOutExistsOld = DB::table('ledger_entries')
+                    ->where('key_id', $tfd->id)
+                    ->where('status', '<>', 99)
+                    ->where('type', 'REIMBOUT')
+                    ->exists();
+                
+                $reimbInExistsOld = DB::table('ledger_entries')
+                    ->where('key_id', $tfd->id)
+                    ->where('status', '<>', 99)
+                    ->where('type', 'REIMBIN')
+                    ->exists();
+                
+                if ($reimbOutExistsOld) {
+                    $count = DB::table('ledger_entries')
+                        ->where('key_id', $tfd->id)
+                        ->where('status', '<>', 99)
+                        ->whereIn('type', ['REIMBOUT', 'REIMBIN'])
+                        ->update(['amount' => $tfd->reimbursement_amount, 'updated_at' => now()]);
+                    $updatedCount += $count;
+                } else {
+                    // Create REIMBOUT entry (old system)
+                    DB::table('ledger_entries')->insert([
+                        'transaction_id' => $transferFeeMain->transaction_id,
+                        'case_id' => $bill->case_id,
+                        'loan_case_main_bill_id' => $bill->id,
+                        'user_id' => auth()->id() ?? $transferFeeMain->transfer_by,
+                        'key_id' => $tfd->id,
+                        'transaction_type' => 'C',
+                        'amount' => $tfd->reimbursement_amount,
+                        'bank_id' => $transferFeeMain->transfer_from,
+                        'remark' => $transferFeeMain->purpose ?? '',
+                        'status' => 1,
+                        'created_at' => $transferFeeMain->transfer_date ?? now(),
+                        'date' => $transferFeeMain->transfer_date ?? now(),
+                        'type' => 'REIMBOUT'
+                    ]);
+                    $createdCount++;
+                    
+                    // Create REIMBIN entry (old system)
+                    DB::table('ledger_entries')->insert([
+                        'transaction_id' => $transferFeeMain->transaction_id,
+                        'case_id' => $bill->case_id,
+                        'loan_case_main_bill_id' => $bill->id,
+                        'user_id' => auth()->id() ?? $transferFeeMain->transfer_by,
+                        'key_id' => $tfd->id,
+                        'transaction_type' => 'D',
+                        'amount' => $tfd->reimbursement_amount,
+                        'bank_id' => $transferFeeMain->transfer_to,
+                        'remark' => $transferFeeMain->purpose ?? '',
+                        'status' => 1,
+                        'created_at' => $transferFeeMain->transfer_date ?? now(),
+                        'date' => $transferFeeMain->transfer_date ?? now(),
+                        'type' => 'REIMBIN'
+                    ]);
+                    $createdCount++;
+                }
+            }
             
-            // Update old LedgerEntries table - REIMBSSTOUT/IN
-            $count = DB::table('ledger_entries')
-                ->where('key_id', $tfd->id)
-                ->where('status', '<>', 99)
-                ->whereIn('type', ['REIMBSSTOUT', 'REIMBSSTIN'])
-                ->update(['amount' => $tfd->reimbursement_sst_amount, 'updated_at' => now()]);
-            $updatedCount += $count;
+            // Update or Create old LedgerEntries table - REIMBSSTOUT/IN
+            if ($tfd->reimbursement_sst_amount > 0) {
+                $reimbSstOutExistsOld = DB::table('ledger_entries')
+                    ->where('key_id', $tfd->id)
+                    ->where('status', '<>', 99)
+                    ->where('type', 'REIMBSSTOUT')
+                    ->exists();
+                
+                $reimbSstInExistsOld = DB::table('ledger_entries')
+                    ->where('key_id', $tfd->id)
+                    ->where('status', '<>', 99)
+                    ->where('type', 'REIMBSSTIN')
+                    ->exists();
+                
+                if ($reimbSstOutExistsOld) {
+                    $count = DB::table('ledger_entries')
+                        ->where('key_id', $tfd->id)
+                        ->where('status', '<>', 99)
+                        ->whereIn('type', ['REIMBSSTOUT', 'REIMBSSTIN'])
+                        ->update(['amount' => $tfd->reimbursement_sst_amount, 'updated_at' => now()]);
+                    $updatedCount += $count;
+                } else {
+                    // Create REIMBSSTOUT entry (old system)
+                    DB::table('ledger_entries')->insert([
+                        'transaction_id' => $transferFeeMain->transaction_id,
+                        'case_id' => $bill->case_id,
+                        'loan_case_main_bill_id' => $bill->id,
+                        'user_id' => auth()->id() ?? $transferFeeMain->transfer_by,
+                        'key_id' => $tfd->id,
+                        'transaction_type' => 'C',
+                        'amount' => $tfd->reimbursement_sst_amount,
+                        'bank_id' => $transferFeeMain->transfer_from,
+                        'remark' => $transferFeeMain->purpose ?? '',
+                        'status' => 1,
+                        'created_at' => $transferFeeMain->transfer_date ?? now(),
+                        'date' => $transferFeeMain->transfer_date ?? now(),
+                        'type' => 'REIMBSSTOUT'
+                    ]);
+                    $createdCount++;
+                    
+                    // Create REIMBSSTIN entry (old system)
+                    DB::table('ledger_entries')->insert([
+                        'transaction_id' => $transferFeeMain->transaction_id,
+                        'case_id' => $bill->case_id,
+                        'loan_case_main_bill_id' => $bill->id,
+                        'user_id' => auth()->id() ?? $transferFeeMain->transfer_by,
+                        'key_id' => $tfd->id,
+                        'transaction_type' => 'D',
+                        'amount' => $tfd->reimbursement_sst_amount,
+                        'bank_id' => $transferFeeMain->transfer_to,
+                        'remark' => $transferFeeMain->purpose ?? '',
+                        'status' => 1,
+                        'created_at' => $transferFeeMain->transfer_date ?? now(),
+                        'date' => $transferFeeMain->transfer_date ?? now(),
+                        'type' => 'REIMBSSTIN'
+                    ]);
+                    $createdCount++;
+                }
+            }
         }
         
-        return ['updated_count' => $updatedCount];
+        return ['updated_count' => $updatedCount, 'created_count' => $createdCount];
     }
 
     /**
@@ -1068,6 +1409,178 @@ class InvoiceFixController extends Controller
         }
         
         return $wrongIds;
+    }
+
+    /**
+     * Search bills by case number or bill number
+     */
+    public function searchBills(Request $request)
+    {
+        $search = $request->input('search', '');
+        
+        if (empty($search)) {
+            return response()->json(['bills' => []]);
+        }
+        
+        $bills = DB::table('loan_case_bill_main as lcbm')
+            ->leftJoin('loan_case as lc', 'lcbm.case_id', '=', 'lc.id')
+            ->select(
+                'lcbm.id',
+                'lcbm.bill_no',
+                'lcbm.case_id',
+                'lc.case_ref_no',
+                'lcbm.bln_invoice',
+                'lcbm.status',
+                DB::raw('(SELECT COUNT(*) FROM loan_case_bill_details WHERE loan_case_main_bill_id = lcbm.id AND status <> 99) as detail_count')
+            )
+            ->where(function($query) use ($search) {
+                $query->where('lcbm.bill_no', 'LIKE', '%' . $search . '%')
+                      ->orWhere('lc.case_ref_no', 'LIKE', '%' . $search . '%');
+            })
+            ->where('lcbm.bln_invoice', 0) // Only bills that haven't been invoiced
+            ->where('lcbm.status', '<>', 99)
+            ->orderBy('lcbm.id', 'desc')
+            ->limit(50)
+            ->get();
+        
+        return response()->json(['bills' => $bills]);
+    }
+
+    /**
+     * Get bill details for conversion preview
+     */
+    public function getBillDetailsForConversion($billId)
+    {
+        $billDetails = DB::table('loan_case_bill_details as lcbd')
+            ->leftJoin('account_item as ai', 'lcbd.account_item_id', '=', 'ai.id')
+            ->leftJoin('loan_case_bill_main as lcbm', 'lcbd.loan_case_main_bill_id', '=', 'lcbm.id')
+            ->leftJoin('loan_case as lc', 'lcbm.case_id', '=', 'lc.id')
+            ->select(
+                'lcbd.id',
+                'lcbd.account_item_id as old_account_item_id',
+                'ai.name as account_item_name',
+                'ai.account_cat_id',
+                'lcbd.quo_amount_no_sst',
+                'lcbm.bill_no',
+                'lc.case_ref_no',
+                DB::raw('(SELECT id FROM account_item WHERE name = ai.name AND account_cat_id = 4 LIMIT 1) as new_account_item_id')
+            )
+            ->where('lcbd.loan_case_main_bill_id', $billId)
+            ->where('ai.account_cat_id', 3) // Old disbursement
+            ->where('lcbd.status', '<>', 99)
+            ->get();
+        
+        return response()->json(['bill_details' => $billDetails]);
+    }
+
+    /**
+     * Convert reimbursement from old format (account_cat_id = 3) to new format (account_cat_id = 4)
+     * Follows the SQL logic: UPDATE loan_case_bill_details with JOINs to account_item and loan_case_bill_main
+     */
+    public function convertReimbursement(Request $request)
+    {
+        $billIds = $request->input('bill_ids', []);
+        
+        if (empty($billIds) || !is_array($billIds)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No bills selected for conversion'
+            ]);
+        }
+        
+        DB::beginTransaction();
+        
+        try {
+            // Validate bills first
+            $validBillIds = [];
+            $errors = [];
+            
+            foreach ($billIds as $billId) {
+                $bill = LoanCaseBillMain::find($billId);
+                
+                if (!$bill) {
+                    $errors[] = "Bill ID {$billId} not found";
+                    continue;
+                }
+                
+                if ($bill->bln_invoice != 0) {
+                    $errors[] = "Bill {$bill->bill_no} has already been invoiced (bln_invoice = {$bill->bln_invoice})";
+                    continue;
+                }
+                
+                if ($bill->status == 99) {
+                    $errors[] = "Bill {$bill->bill_no} is deleted (status = 99)";
+                    continue;
+                }
+                
+                $validBillIds[] = $billId;
+            }
+            
+            if (empty($validBillIds)) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No valid bills to convert',
+                    'errors' => $errors
+                ]);
+            }
+            
+            // Execute the UPDATE query following the SQL logic exactly
+            // UPDATE loan_case_bill_details lcbd
+            // JOIN account_item ai_old ON lcbd.account_item_id = ai_old.id
+            // JOIN account_item ai_new ON ai_old.name = ai_new.name
+            // JOIN loan_case_bill_main lcbm ON lcbd.loan_case_main_bill_id = lcbm.id
+            // SET lcbd.account_item_id = ai_new.id
+            // WHERE ai_old.account_cat_id = 3  -- Old disbursement
+            //   AND ai_new.account_cat_id = 4  -- New reimbursement
+            //   AND ai_old.name = ai_new.name
+            //   AND lcbm.bln_invoice = 0
+            //   AND lcbm.status != 99
+            //   AND lcbd.status != 99
+            //   AND lcbm.id IN (bill_ids)
+            
+            $placeholders = implode(',', array_fill(0, count($validBillIds), '?'));
+            
+            $updatedCount = DB::update("
+                UPDATE loan_case_bill_details lcbd
+                INNER JOIN account_item ai_old ON lcbd.account_item_id = ai_old.id
+                INNER JOIN account_item ai_new ON ai_old.name = ai_new.name AND ai_new.account_cat_id = 4
+                INNER JOIN loan_case_bill_main lcbm ON lcbd.loan_case_main_bill_id = lcbm.id
+                SET lcbd.account_item_id = ai_new.id
+                WHERE ai_old.account_cat_id = 3
+                  AND ai_new.account_cat_id = 4
+                  AND lcbm.bln_invoice = 0
+                  AND lcbm.status != 99
+                  AND lcbd.status != 99
+                  AND lcbm.id IN ({$placeholders})
+            ", $validBillIds);
+            
+            // Count how many bills were affected
+            $billsAffected = DB::table('loan_case_bill_main')
+                ->whereIn('id', $validBillIds)
+                ->where('bln_invoice', 0)
+                ->where('status', '<>', 99)
+                ->count();
+            
+            DB::commit();
+            
+            return response()->json([
+                'success' => true,
+                'message' => "Successfully converted {$billsAffected} bill(s) with {$updatedCount} detail(s)",
+                'bills_converted' => $billsAffected,
+                'details_converted' => $updatedCount,
+                'errors' => $errors
+            ]);
+            
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error("Error converting reimbursement: " . $e->getMessage());
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage()
+            ]);
+        }
     }
 }
 

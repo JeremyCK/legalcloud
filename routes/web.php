@@ -1264,8 +1264,12 @@ Route::middleware(['auth'])->group(function () {
     
     // Invoice Fix Routes (protected)
     Route::get('/invoice-fix', [InvoiceFixController::class, 'index'])->name('invoice-fix.index');
+    Route::get('/account-tool', [InvoiceFixController::class, 'index'])->name('account-tool.index');
     Route::get('/invoice-fix/get-wrong-invoices', [InvoiceFixController::class, 'getWrongInvoices'])->name('invoice-fix.get-wrong-invoices');
     Route::post('/invoice-fix/fix-single', [InvoiceFixController::class, 'fixSingleInvoice'])->name('invoice-fix.fix-single');
     Route::post('/invoice-fix/fix-multiple', [InvoiceFixController::class, 'fixMultipleInvoices'])->name('invoice-fix.fix-multiple');
     Route::post('/invoice-fix/fix-all', [InvoiceFixController::class, 'fixAllInvoices'])->name('invoice-fix.fix-all');
+    Route::get('/invoice-fix/search-bills', [InvoiceFixController::class, 'searchBills'])->name('invoice-fix.search-bills');
+    Route::get('/invoice-fix/bill-details/{billId}', [InvoiceFixController::class, 'getBillDetailsForConversion'])->name('invoice-fix.bill-details');
+    Route::post('/invoice-fix/convert-reimbursement', [InvoiceFixController::class, 'convertReimbursement'])->name('invoice-fix.convert-reimbursement');
 });

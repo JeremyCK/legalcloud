@@ -1876,6 +1876,207 @@ class EInvoiceContoller extends Controller
                 'amount' => round($total, 2),
                 'updated_at' => now()
             ]);
+            
+            // Update transfer_fee_details to match corrected invoice amounts (with equal distribution if possible)
+            $totalPfee = $pfee1 + $pfee2;
+            $transferFeeDetails = TransferFeeDetails::where('loan_case_invoice_main_id', $invoice->id)
+                ->where('status', '<>', 99)
+                ->get();
+            
+            if ($transferFeeDetails->count() > 0) {
+                // Check if total can be divided equally across split invoices
+                $canDivideEqually = false;
+                $equalPfee = 0;
+                $equalSst = 0;
+                $equalReimb = 0;
+                $equalReimbSst = 0;
+                
+                if ($isSplitInvoice) {
+                    // Calculate totals across all invoices using the same calculation method
+                    $totalPfeeAllInvoices = 0;
+                    $totalSstAllInvoices = 0;
+                    $totalReimbAllInvoices = 0;
+                    $totalReimbSstAllInvoices = 0;
+                    
+                    foreach ($invoices as $inv) {
+                        // Use the same calculation method
+                        $invDetails = LoanCaseInvoiceDetails::where('invoice_main_id', $inv->id)
+                            ->where('status', '<>', 99)
+                            ->get();
+                        
+                        $invPfee1 = 0;
+                        $invPfee2 = 0;
+                        $invSst = 0;
+                        $invReimb = 0;
+                        $invReimbSst = 0;
+                        
+                        foreach ($invDetails as $invDetail) {
+                            $invAccountItem = DB::table('account_item')->where('id', $invDetail->account_item_id)->first();
+                            if ($invAccountItem) {
+                                if ($invAccountItem->account_cat_id == 1) {
+                                    if ($invAccountItem->pfee1_item == 1) {
+                                        $invPfee1 += $invDetail->amount;
+                                    } else {
+                                        $invPfee2 += $invDetail->amount;
+                                    }
+                                    // Use standard rounding to match invoice display
+                                    $invSst += round($invDetail->amount * $sstRate, 2);
+                                } elseif ($invAccountItem->account_cat_id == 4) {
+                                    $invReimb += $invDetail->amount;
+                                    $invReimbSst += round($invDetail->amount * $sstRate, 2);
+                                }
+                            }
+                        }
+                        
+                        $totalPfeeAllInvoices += round($invPfee1 + $invPfee2, 2);
+                        $totalSstAllInvoices += round($invSst, 2);
+                        $totalReimbAllInvoices += round($invReimb, 2);
+                        $totalReimbSstAllInvoices += round($invReimbSst, 2);
+                    }
+                    
+                    // Check if totals can be divided equally
+                    $equalPfeeTest = round($totalPfeeAllInvoices / $invoices->count(), 2);
+                    $expectedPfeeTotal = $equalPfeeTest * $invoices->count();
+                    $canDivideEqually = abs($totalPfeeAllInvoices - $expectedPfeeTotal) <= 0.01;
+                    
+                    if ($canDivideEqually) {
+                        $equalPfee = $equalPfeeTest;
+                        $equalSst = round($totalSstAllInvoices / $invoices->count(), 2);
+                        $equalReimb = round($totalReimbAllInvoices / $invoices->count(), 2);
+                        $equalReimbSst = round($totalReimbSstAllInvoices / $invoices->count(), 2);
+                    }
+                }
+                
+                // If only one record, update it directly
+                if ($transferFeeDetails->count() == 1) {
+                    $tfd = $transferFeeDetails->first();
+                    
+                    // Use equal amounts if can divide equally, otherwise use calculated amounts
+                    if ($canDivideEqually) {
+                        $tfd->transfer_amount = round($equalPfee, 2);
+                        $tfd->sst_amount = round($equalSst, 2);
+                        $tfd->reimbursement_amount = round($equalReimb, 2);
+                        $tfd->reimbursement_sst_amount = round($equalReimbSst, 2);
+                    } else {
+                        $tfd->transfer_amount = round($totalPfee, 2);
+                        $tfd->sst_amount = round($sst, 2);
+                        $tfd->reimbursement_amount = round($reimbursement_amount, 2);
+                        $tfd->reimbursement_sst_amount = round($reimbursement_sst, 2);
+                    }
+                    $tfd->updated_at = now();
+                    $tfd->save();
+                } else {
+                    // Multiple records: distribute equally if possible, otherwise preserve ratio
+                    if ($canDivideEqually) {
+                        // Distribute equally: Use equal amounts for this invoice
+                        $pfeePerRecord = round($equalPfee / $transferFeeDetails->count(), 2);
+                        $totalDistributedPfee = $pfeePerRecord * ($transferFeeDetails->count() - 1);
+                        $lastPfeeRecord = round($equalPfee - $totalDistributedPfee, 2);
+                        
+                        $sstPerRecord = round($equalSst / $transferFeeDetails->count(), 2);
+                        $totalDistributedSst = $sstPerRecord * ($transferFeeDetails->count() - 1);
+                        $lastSstRecord = round($equalSst - $totalDistributedSst, 2);
+                        
+                        $reimbPerRecord = round($equalReimb / $transferFeeDetails->count(), 2);
+                        $totalDistributedReimb = $reimbPerRecord * ($transferFeeDetails->count() - 1);
+                        $lastReimbRecord = round($equalReimb - $totalDistributedReimb, 2);
+                        
+                        $reimbSstPerRecord = round($equalReimbSst / $transferFeeDetails->count(), 2);
+                        $totalDistributedReimbSst = $reimbSstPerRecord * ($transferFeeDetails->count() - 1);
+                        $lastReimbSstRecord = round($equalReimbSst - $totalDistributedReimbSst, 2);
+                        
+                        foreach ($transferFeeDetails as $index => $tfd) {
+                            if ($index == $transferFeeDetails->count() - 1) {
+                                $tfd->transfer_amount = $lastPfeeRecord;
+                                $tfd->sst_amount = $lastSstRecord;
+                                $tfd->reimbursement_amount = $lastReimbRecord;
+                                $tfd->reimbursement_sst_amount = $lastReimbSstRecord;
+                            } else {
+                                $tfd->transfer_amount = $pfeePerRecord;
+                                $tfd->sst_amount = $sstPerRecord;
+                                $tfd->reimbursement_amount = $reimbPerRecord;
+                                $tfd->reimbursement_sst_amount = $reimbSstPerRecord;
+                            }
+                            
+                            $tfd->updated_at = now();
+                            $tfd->save();
+                        }
+                    } else {
+                        // Preserve original distribution ratio
+                        $totalOriginalPfee = $transferFeeDetails->sum('transfer_amount');
+                        $totalOriginalSst = $transferFeeDetails->sum('sst_amount');
+                        $totalOriginalReimb = $transferFeeDetails->sum('reimbursement_amount');
+                        $totalOriginalReimbSst = $transferFeeDetails->sum('reimbursement_sst_amount');
+                        
+                        $totalDistributedPfee = 0;
+                        $totalDistributedSst = 0;
+                        $totalDistributedReimb = 0;
+                        $totalDistributedReimbSst = 0;
+                        
+                        foreach ($transferFeeDetails as $index => $tfd) {
+                            if ($totalOriginalPfee > 0.01) {
+                                $ratio = $tfd->transfer_amount / $totalOriginalPfee;
+                                $tfd->transfer_amount = round($totalPfee * $ratio, 2);
+                            } else {
+                                $tfd->transfer_amount = round($totalPfee / $transferFeeDetails->count(), 2);
+                            }
+                            $totalDistributedPfee += $tfd->transfer_amount;
+                            
+                            if ($totalOriginalSst > 0.01) {
+                                $ratio = $tfd->sst_amount / $totalOriginalSst;
+                                $tfd->sst_amount = round($sst * $ratio, 2);
+                            } else {
+                                $tfd->sst_amount = round($sst / $transferFeeDetails->count(), 2);
+                            }
+                            $totalDistributedSst += $tfd->sst_amount;
+                            
+                            if ($totalOriginalReimb > 0.01) {
+                                $ratio = $tfd->reimbursement_amount / $totalOriginalReimb;
+                                $tfd->reimbursement_amount = round($reimbursement_amount * $ratio, 2);
+                            } else {
+                                $tfd->reimbursement_amount = round($reimbursement_amount / $transferFeeDetails->count(), 2);
+                            }
+                            $totalDistributedReimb += $tfd->reimbursement_amount;
+                            
+                            if ($totalOriginalReimbSst > 0.01) {
+                                $ratio = $tfd->reimbursement_sst_amount / $totalOriginalReimbSst;
+                                $tfd->reimbursement_sst_amount = round($reimbursement_sst * $ratio, 2);
+                            } else {
+                                $tfd->reimbursement_sst_amount = round($reimbursement_sst / $transferFeeDetails->count(), 2);
+                            }
+                            $totalDistributedReimbSst += $tfd->reimbursement_sst_amount;
+                            
+                            $tfd->updated_at = now();
+                            $tfd->save();
+                        }
+                        
+                        // Ensure last record gets remainder
+                        if ($transferFeeDetails->count() > 1) {
+                            $lastTfd = $transferFeeDetails->last();
+                            $lastTfd->transfer_amount = round($totalPfee - ($totalDistributedPfee - $lastTfd->transfer_amount), 2);
+                            $lastTfd->sst_amount = round($sst - ($totalDistributedSst - $lastTfd->sst_amount), 2);
+                            $lastTfd->reimbursement_amount = round($reimbursement_amount - ($totalDistributedReimb - $lastTfd->reimbursement_amount), 2);
+                            $lastTfd->reimbursement_sst_amount = round($reimbursement_sst - ($totalDistributedReimbSst - $lastTfd->reimbursement_sst_amount), 2);
+                            $lastTfd->save();
+                        }
+                    }
+                }
+                
+                // Recalculate transferred amounts in invoice
+                $invoice->transferred_pfee_amt = TransferFeeDetails::where('loan_case_invoice_main_id', $invoice->id)
+                    ->where('status', '<>', 99)
+                    ->sum('transfer_amount');
+                $invoice->transferred_sst_amt = TransferFeeDetails::where('loan_case_invoice_main_id', $invoice->id)
+                    ->where('status', '<>', 99)
+                    ->sum('sst_amount');
+                $invoice->transferred_reimbursement_amt = TransferFeeDetails::where('loan_case_invoice_main_id', $invoice->id)
+                    ->where('status', '<>', 99)
+                    ->sum('reimbursement_amount');
+                $invoice->transferred_reimbursement_sst_amt = TransferFeeDetails::where('loan_case_invoice_main_id', $invoice->id)
+                    ->where('status', '<>', 99)
+                    ->sum('reimbursement_sst_amount');
+                $invoice->save();
+            }
         }
 
         // Update bill totals

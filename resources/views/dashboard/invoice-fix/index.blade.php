@@ -16,7 +16,7 @@
             <div class="card">
                 <div class="card-header">
                     <h3 class="card-title">
-                        <i class="fas fa-wrench"></i> Fix Invoice pfee2_inv Issue
+                        <i class="fas fa-wrench"></i> Fix Invoice Amounts and Ledger Entries
                     </h3>
                 </div>
                 <div class="card-body">
@@ -32,8 +32,8 @@
                                 <div class="card-body">
                                     <div class="alert alert-info">
                                         <i class="fas fa-info-circle"></i> 
-                                        <strong>What this does:</strong> Fixes invoices where <code>pfee2_inv</code> incorrectly includes reimbursement amounts.
-                                        It will update both invoice amounts and ledger entries automatically.
+                                        <strong>What this does:</strong> Fixes invoice amounts (pfee1, pfee2, SST, reimbursement, reimbursement SST) and ensures ledger entries are correct.
+                                        It will update invoice amounts, transfer fee details, and create/update ledger entries automatically.
                                     </div>
                                     
                                     <div class="row">

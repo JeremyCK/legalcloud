@@ -134,6 +134,10 @@
                      <li class="c-sidebar-nav-item"><a class="c-sidebar-nav-link" href="{{ url('einvoice-list') }}"><span class="c-sidebar-nav-icon"></span> E-Invoice</a></li>
                 @endif
 
+                @if (AccessController::UserAccessPermissionController(PermissionController::AccountToolPermission()) == true)
+                    <li class="c-sidebar-nav-item"><a class="c-sidebar-nav-link" href="{{ url('account-tool') }}"><span class="c-sidebar-nav-icon"></span>Account Tool</a></li>
+                @endif
+
                
             </ul>
         </li>

@@ -353,4 +353,9 @@ class PermissionController extends Controller
         return 'MoveBillPermission';
     }
 
+    public static function AccountToolPermission()
+    {
+        return 'AccountToolPermission';
+    }
+
 }
