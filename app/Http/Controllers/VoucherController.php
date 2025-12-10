@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AccountCategory;
 use App\Models\AccountItem;
 use App\Models\AccountLog;
 use App\Models\Banks;
@@ -82,7 +83,8 @@ class VoucherController extends Controller
             $requestor_list = Users::where('status', '=', '1')->where('branch_id', '=', $current_user->branch_id)->orderBy('name', 'ASC')->get();
         }
 
-
+        // Load account categories for filter
+        $account_categories = AccountCategory::where('status', '=', 1)->orderBy('category', 'ASC')->get();
 
         $branchInfo = BranchController::manageBranchAccess();
 
@@ -119,6 +121,7 @@ class VoucherController extends Controller
             'notification' => $notification,
             'notifications' => $notifications,
             'requestor_list' => $requestor_list,
+            'account_categories' => $account_categories,
             'branchs' => $branchInfo['branch'],
             'notification_puchong' => $notification_puchong,
             'notification_arkadia' => $notification_arkadia,
@@ -972,6 +975,23 @@ class VoucherController extends Controller
                 } else {
                     $voucher_list = $voucher_list->whereIn('v.voucher_type', [1, 2]);
                 }
+
+                // Filter by account category
+                if (!empty($request->input('account_category'))) {
+                    $account_category_id = $request->input('account_category');
+                    if ($account_category_id <> 0) {
+                        // Filter vouchers that have at least one detail with the selected account category
+                        $voucher_list = $voucher_list->whereExists(function($query) use ($account_category_id) {
+                            $query->select(DB::raw(1))
+                                  ->from('voucher_details as vd2')
+                                  ->join('loan_case_bill_details as ld2', 'ld2.id', '=', 'vd2.account_details_id')
+                                  ->join('account_item as ai', 'ai.id', '=', 'ld2.account_item_id')
+                                  ->whereColumn('vd2.voucher_main_id', 'v.id')
+                                  ->where('ai.account_cat_id', '=', $account_category_id)
+                                  ->where('vd2.status', '<>', 99);
+                        });
+                    }
+                }
             }
 
             // $voucher_list = $voucher_list->where('l.branch_id', '=', $branch_id)
@@ -1224,6 +1244,23 @@ class VoucherController extends Controller
                     }
                 } else {
                     $voucher_list = $voucher_list->whereIn('v.voucher_type', [1, 2]);
+                }
+
+                // Filter by account category
+                if (!empty($request->input('account_category'))) {
+                    $account_category_id = $request->input('account_category');
+                    if ($account_category_id <> 0) {
+                        // Filter vouchers that have at least one detail with the selected account category
+                        $voucher_list = $voucher_list->whereExists(function($query) use ($account_category_id) {
+                            $query->select(DB::raw(1))
+                                  ->from('voucher_details as vd2')
+                                  ->join('loan_case_bill_details as ld2', 'ld2.id', '=', 'vd2.account_details_id')
+                                  ->join('account_item as ai', 'ai.id', '=', 'ld2.account_item_id')
+                                  ->whereColumn('vd2.voucher_main_id', 'v.id')
+                                  ->where('ai.account_cat_id', '=', $account_category_id)
+                                  ->where('vd2.status', '<>', 99);
+                        });
+                    }
                 }
             }
 

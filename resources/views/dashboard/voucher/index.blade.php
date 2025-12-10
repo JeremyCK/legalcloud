@@ -389,6 +389,22 @@
                                     </div>
                                 @endif
 
+                                <div class="col-6">
+                                    <div class="form-group row">
+                                        <div class="col">
+                                            <label>Filter by Account Category</label>
+                                            <select class="form-control" id="ddl_account_category" name="ddl_account_category">
+                                                <option value="0">-- All --</option>
+
+                                                @foreach ($account_categories as $index => $category)
+                                                    <option value="{{ $category->id }}">{{ $category->category }}
+                                                    </option>
+                                                @endforeach
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
 
 
                                 <div class="col-sm-12">
@@ -900,6 +916,7 @@
                         "status": $("#ddl_status").val(),
                         "type": $("#ddl_type").val(),
                         "requestor": $("#ddl_requestor").val(),
+                        "account_category": $("#ddl_account_category").val(),
                         "branch_id": {{ $branch->id }},
                         "mode": $("#editMode").val()
                     }

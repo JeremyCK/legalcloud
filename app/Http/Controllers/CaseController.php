@@ -7948,22 +7948,37 @@ class CaseController extends Controller
             ->get();
 
         if (count($LoanCaseInvoiceMain) > 0) {
+            // Group bill details by account_item_id to ensure proper distribution
+            $billDetailsByItem = [];
+            foreach ($LoanCaseBillDetails as $billDetail) {
+                if (!isset($billDetailsByItem[$billDetail->account_item_id])) {
+                    $billDetailsByItem[$billDetail->account_item_id] = [];
+                }
+                $billDetailsByItem[$billDetail->account_item_id][] = $billDetail;
+            }
+            
             for ($j = 0; $j < count($LoanCaseInvoiceMain); $j++) {
-                $LoanCaseBillDetails = LoanCaseBillDetails::where('loan_case_main_bill_id', $id)->get();
-
-                if (count($LoanCaseBillDetails) > 0) {
-                    for ($i = 0; $i < count($LoanCaseBillDetails); $i++) {
-
+                // Process each account item group
+                foreach ($billDetailsByItem as $accountItemId => $details) {
+                    foreach ($details as $billDetail) {
+                        // Use proper distribution to avoid rounding errors
+                        $distributedAmount = $this->distributeAmountForInvoice(
+                            $billDetail->quo_amount_no_sst,
+                            $party_count,
+                            $j,
+                            $billDetail->id
+                        );
+                        
                         $LoanCaseInvoiceDetails = new LoanCaseInvoiceDetails();
 
                         $LoanCaseInvoiceDetails->loan_case_main_bill_id = $id;
-                        $LoanCaseInvoiceDetails->account_item_id = $LoanCaseBillDetails[$i]->account_item_id;
-                        $LoanCaseInvoiceDetails->quotation_item_id = $LoanCaseBillDetails[$i]->id;
+                        $LoanCaseInvoiceDetails->account_item_id = $billDetail->account_item_id;
+                        $LoanCaseInvoiceDetails->quotation_item_id = $billDetail->id;
                         $LoanCaseInvoiceDetails->invoice_main_id = $LoanCaseInvoiceMain[$j]->id;
-                        $LoanCaseInvoiceDetails->amount = $LoanCaseBillDetails[$i]->quo_amount_no_sst / $party_count;
-                        $LoanCaseInvoiceDetails->ori_invoice_amt = $LoanCaseBillDetails[$i]->quo_amount_no_sst;
-                        $LoanCaseInvoiceDetails->quo_amount = $LoanCaseBillDetails[$i]->quo_amount_no_sst;
-                        $LoanCaseInvoiceDetails->remark = $LoanCaseBillDetails[$i]->remark;
+                        $LoanCaseInvoiceDetails->amount = $distributedAmount;
+                        $LoanCaseInvoiceDetails->ori_invoice_amt = $billDetail->quo_amount_no_sst;
+                        $LoanCaseInvoiceDetails->quo_amount = $billDetail->quo_amount_no_sst;
+                        $LoanCaseInvoiceDetails->remark = $billDetail->remark;
                         $LoanCaseInvoiceDetails->created_by = $current_user->id;
                         $LoanCaseInvoiceDetails->status = 1;
                         $LoanCaseInvoiceDetails->created_at = date('Y-m-d H:i:s');
@@ -7975,6 +7990,49 @@ class CaseController extends Controller
         }
 
         $this->updatePfeeDisbAmountINV($id);
+
+        // Verify recalculation worked correctly - ensure pfee2_inv doesn't include reimbursement
+        $invoices = LoanCaseInvoiceMain::where('loan_case_main_bill_id', $id)->get();
+        foreach ($invoices as $invoice) {
+            $calculated = $this->calculateInvoiceAmountsFromDetails($invoice->id, $LoanCaseBillMain->sst_rate);
+            
+            // Check if stored values match calculated
+            $pfee1Diff = abs($invoice->pfee1_inv - $calculated['pfee1']);
+            $pfee2Diff = abs($invoice->pfee2_inv - $calculated['pfee2']);
+            $reimbDiff = abs(($invoice->reimbursement_amount ?? 0) - $calculated['reimbursement_amount']);
+            
+            if ($pfee1Diff > 0.01 || $pfee2Diff > 0.01 || $reimbDiff > 0.01) {
+                // Log the issue
+                Log::warning("Invoice amounts mismatch after recalculation - forcing fix", [
+                    'invoice_id' => $invoice->id,
+                    'invoice_no' => $invoice->invoice_no,
+                    'stored_pfee1' => $invoice->pfee1_inv,
+                    'stored_pfee2' => $invoice->pfee2_inv,
+                    'stored_reimb' => $invoice->reimbursement_amount ?? 0,
+                    'calculated_pfee1' => $calculated['pfee1'],
+                    'calculated_pfee2' => $calculated['pfee2'],
+                    'calculated_reimb' => $calculated['reimbursement_amount'],
+                    'pfee1_diff' => $pfee1Diff,
+                    'pfee2_diff' => $pfee2Diff,
+                    'reimb_diff' => $reimbDiff
+                ]);
+                
+                // Force update with correct values
+                $invoice->pfee1_inv = $calculated['pfee1'];
+                $invoice->pfee2_inv = $calculated['pfee2'];
+                $invoice->sst_inv = $calculated['sst'];
+                $invoice->reimbursement_amount = $calculated['reimbursement_amount'];
+                $invoice->reimbursement_sst = $calculated['reimbursement_sst'];
+                $invoice->amount = $calculated['total'];
+                $invoice->save();
+                
+                Log::info("Fixed invoice amounts", [
+                    'invoice_id' => $invoice->id,
+                    'old_pfee2' => $invoice->pfee2_inv,
+                    'new_pfee2' => $calculated['pfee2']
+                ]);
+            }
+        }
 
         $invoice = array();
         $item_id = array();
@@ -11135,6 +11193,39 @@ class CaseController extends Controller
     }
 
     /**
+     * Distribute amount with proper rounding to avoid total discrepancies
+     * Ensures the sum of all distributed amounts equals the original total
+     * 
+     * @param float $totalAmount The total amount to distribute
+     * @param int $partyCount Number of parties to split between
+     * @param int $currentIndex Current invoice index (0-based)
+     * @param int $itemId Unique identifier for the item (to ensure consistent distribution)
+     * @return float The distributed amount for the current index
+     */
+    private function distributeAmountForInvoice($totalAmount, $partyCount, $currentIndex, $itemId = 0)
+    {
+        if ($partyCount <= 1) {
+            return round($totalAmount, 2);
+        }
+        
+        $baseAmount = $totalAmount / $partyCount;
+        $distributedAmounts = [];
+        $totalDistributed = 0;
+        
+        // Distribute amounts with proper rounding for first N-1 invoices
+        for ($i = 0; $i < $partyCount - 1; $i++) {
+            $amount = round($baseAmount, 2);
+            $distributedAmounts[] = $amount;
+            $totalDistributed += $amount;
+        }
+        
+        // Last amount ensures total matches original (absorbs any rounding difference)
+        $distributedAmounts[] = round($totalAmount - $totalDistributed, 2);
+        
+        return $distributedAmounts[$currentIndex];
+    }
+
+    /**
      * Calculate invoice amounts from details using the same logic as our SQL script
      */
     private function calculateInvoiceAmountsFromDetails($invoiceId, $sstRate)
@@ -11153,6 +11244,7 @@ class CaseController extends Controller
         $reimbursement_sst = 0;
         $total = 0;
 
+        // Calculate using the same method as invoice display: from each detail item, then sum
         foreach ($details as $detail) {
             if ($detail->account_cat_id == 1) {
                 // Calculate pfee1 and pfee2 for professional fees
@@ -11161,15 +11253,36 @@ class CaseController extends Controller
                 } else {
                     $pfee2 += $detail->amount;
                 }
-
-                // Calculate SST and total for account_cat_id == 1 (base amount + SST)
-                $sst += $detail->amount * ($sstRate / 100);
-                $total += $detail->amount * (($sstRate / 100) + 1);
+                
+                // Apply special rounding rule for SST: round DOWN if 3rd decimal is 5
+                // This matches the invoice display calculation exactly
+                $sst_calculation = $detail->amount * ($sstRate / 100);
+                $sst_string = number_format($sst_calculation, 3, '.', '');
+                
+                if (substr($sst_string, -1) == '5') {
+                    $row_sst = floor($sst_calculation * 100) / 100; // Round down
+                } else {
+                    $row_sst = round($sst_calculation, 2); // Normal rounding
+                }
+                
+                $sst += $row_sst;
+                $total += $detail->amount + $row_sst;
             } elseif ($detail->account_cat_id == 4) {
                 // Calculate reimbursement amounts for account_cat_id == 4
                 $reimbursement_amount += $detail->amount;
-                $reimbursement_sst += $detail->amount * ($sstRate / 100);
-                $total += $detail->amount * (($sstRate / 100) + 1);
+                
+                // Apply special rounding rule for reimbursement SST too
+                $sst_calculation = $detail->amount * ($sstRate / 100);
+                $sst_string = number_format($sst_calculation, 3, '.', '');
+                
+                if (substr($sst_string, -1) == '5') {
+                    $row_sst = floor($sst_calculation * 100) / 100; // Round down
+                } else {
+                    $row_sst = round($sst_calculation, 2); // Normal rounding
+                }
+                
+                $reimbursement_sst += $row_sst;
+                $total += $detail->amount + $row_sst;
             } else {
                 // For other account categories, add amount directly to total
                 $total += $detail->amount;

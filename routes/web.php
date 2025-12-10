@@ -35,6 +35,7 @@ use App\Http\Controllers\EInvoiceController;
 use App\Http\Controllers\TransferFeeV2Controller;
 use App\Http\Controllers\TransferFeeV3Controller;
 use App\Http\Controllers\DataRepairController;
+use App\Http\Controllers\InvoiceFixController;
 use App\Http\Controllers\FileController;
 use App\Http\Controllers\LandOfficeController;
 use App\Http\Controllers\LogsController;
@@ -1260,4 +1261,11 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/data-repair/get-missing-entries', [DataRepairController::class, 'getMissingEntries'])->name('data-repair.get-missing-entries');
     Route::post('/data-repair/fix-single-entry', [DataRepairController::class, 'fixSingleEntry'])->name('data-repair.fix-single-entry');
     Route::post('/data-repair/fix-all-entries', [DataRepairController::class, 'fixAllEntries'])->name('data-repair.fix-all-entries');
+    
+    // Invoice Fix Routes (protected)
+    Route::get('/invoice-fix', [InvoiceFixController::class, 'index'])->name('invoice-fix.index');
+    Route::get('/invoice-fix/get-wrong-invoices', [InvoiceFixController::class, 'getWrongInvoices'])->name('invoice-fix.get-wrong-invoices');
+    Route::post('/invoice-fix/fix-single', [InvoiceFixController::class, 'fixSingleInvoice'])->name('invoice-fix.fix-single');
+    Route::post('/invoice-fix/fix-multiple', [InvoiceFixController::class, 'fixMultipleInvoices'])->name('invoice-fix.fix-multiple');
+    Route::post('/invoice-fix/fix-all', [InvoiceFixController::class, 'fixAllInvoices'])->name('invoice-fix.fix-all');
 });

@@ -1261,50 +1261,61 @@ class EInvoiceContoller extends Controller
                 ->where('status', '<>', 99)
                 ->get();
             
+            // Get all invoices for this bill to know their indices for proper distribution
+            $allInvoices = LoanCaseInvoiceMain::where('loan_case_main_bill_id', $bill_main_id)
+                ->where('status', '<>', 99)
+                ->orderBy('id')
+                ->get();
+            
             // Group details by account_item_id to redistribute
             $detailsByItem = $allDetails->groupBy('account_item_id');
             
             foreach ($detailsByItem as $accountItemId => $details) {
                 // Get the original total amount for this account item
                 $originalTotalAmount = $details->first()->ori_invoice_amt;
-                $newAmount = $this->distributeAmount($originalTotalAmount, $party_count, 0);
                 
-                // Update all details for this account item with the new divided amount
-                foreach ($details as $detail) {
-                    $detail->amount = $newAmount;
-                    $detail->save();
-                }
-                
-                // Create new detail for the new invoice if it doesn't exist
-                if ($invoice_main_id_new != "") {
-                    \Log::info("Creating detail for new invoice {$invoice_main_id_new}, account_item_id: {$accountItemId}");
+                // Distribute amounts properly - each invoice gets its correct share
+                foreach ($allInvoices as $invoiceIndex => $invoice) {
+                    // Get the distributed amount for this invoice index
+                    $distributedAmount = $this->distributeAmount($originalTotalAmount, $party_count, $invoiceIndex);
                     
-                    $existingNewDetail = LoanCaseInvoiceDetails::where('invoice_main_id', $invoice_main_id_new)
-                        ->where('account_item_id', $accountItemId)
-                        ->first();
-                    
-                    if (!$existingNewDetail) {
-                        $originalDetail = $details->first();
-                        $LoanCaseInvoiceDetailsNew = new LoanCaseInvoiceDetails();
-                        $LoanCaseInvoiceDetailsNew->loan_case_main_bill_id = $bill_main_id;
-                        $LoanCaseInvoiceDetailsNew->account_item_id = $originalDetail->account_item_id;
-                        $LoanCaseInvoiceDetailsNew->quotation_item_id = $originalDetail->quotation_item_id;
-                        $LoanCaseInvoiceDetailsNew->invoice_main_id = $invoice_main_id_new;
-                        $LoanCaseInvoiceDetailsNew->amount = $newAmount;
-                        $LoanCaseInvoiceDetailsNew->ori_invoice_amt = $originalDetail->ori_invoice_amt;
-                        $LoanCaseInvoiceDetailsNew->quo_amount = $originalDetail->quo_amount;
-                        $LoanCaseInvoiceDetailsNew->remark = $originalDetail->remark;
-                        $LoanCaseInvoiceDetailsNew->created_by = $current_user->id;
-                        $LoanCaseInvoiceDetailsNew->status = 1;
-                        $LoanCaseInvoiceDetailsNew->created_at = date('Y-m-d H:i:s');
-                        $LoanCaseInvoiceDetailsNew->save();
-                        
-                        \Log::info("Detail created successfully for invoice {$invoice_main_id_new}");
-                    } else {
-                        \Log::info("Detail already exists for invoice {$invoice_main_id_new}, account_item_id: {$accountItemId}");
+                    // Update details for this specific invoice
+                    foreach ($details as $detail) {
+                        if ($detail->invoice_main_id == $invoice->id) {
+                            $detail->amount = $distributedAmount;
+                            $detail->save();
+                        }
                     }
-                } else {
-                    \Log::info("invoice_main_id_new is empty, not creating detail");
+                    
+                    // Create new detail for the new invoice if it doesn't exist
+                    if ($invoice_main_id_new != "" && $invoice->id == $invoice_main_id_new) {
+                        \Log::info("Creating detail for new invoice {$invoice_main_id_new}, account_item_id: {$accountItemId}");
+                        
+                        $existingNewDetail = LoanCaseInvoiceDetails::where('invoice_main_id', $invoice_main_id_new)
+                            ->where('account_item_id', $accountItemId)
+                            ->first();
+                        
+                        if (!$existingNewDetail) {
+                            $originalDetail = $details->first();
+                            $LoanCaseInvoiceDetailsNew = new LoanCaseInvoiceDetails();
+                            $LoanCaseInvoiceDetailsNew->loan_case_main_bill_id = $bill_main_id;
+                            $LoanCaseInvoiceDetailsNew->account_item_id = $originalDetail->account_item_id;
+                            $LoanCaseInvoiceDetailsNew->quotation_item_id = $originalDetail->quotation_item_id;
+                            $LoanCaseInvoiceDetailsNew->invoice_main_id = $invoice_main_id_new;
+                            $LoanCaseInvoiceDetailsNew->amount = $distributedAmount; // Use the correct distributed amount for this invoice
+                            $LoanCaseInvoiceDetailsNew->ori_invoice_amt = $originalDetail->ori_invoice_amt;
+                            $LoanCaseInvoiceDetailsNew->quo_amount = $originalDetail->quo_amount;
+                            $LoanCaseInvoiceDetailsNew->remark = $originalDetail->remark;
+                            $LoanCaseInvoiceDetailsNew->created_by = $current_user->id;
+                            $LoanCaseInvoiceDetailsNew->status = 1;
+                            $LoanCaseInvoiceDetailsNew->created_at = date('Y-m-d H:i:s');
+                            $LoanCaseInvoiceDetailsNew->save();
+                            
+                            \Log::info("Detail created successfully for invoice {$invoice_main_id_new} with amount {$distributedAmount}");
+                        } else {
+                            \Log::info("Detail already exists for invoice {$invoice_main_id_new}, account_item_id: {$accountItemId}");
+                        }
+                    }
                 }
             }
 
@@ -1428,18 +1439,31 @@ class EInvoiceContoller extends Controller
                 ->where('status', '<>', 99)
                 ->get();
             
+            // Get all invoices for this bill to know their indices
+            $allInvoices = LoanCaseInvoiceMain::where('loan_case_main_bill_id', $bill_main_id)
+                ->where('status', '<>', 99)
+                ->orderBy('id')
+                ->get();
+            
             // Group details by account_item_id to redistribute
             $detailsByItem = $allDetails->groupBy('account_item_id');
             
             foreach ($detailsByItem as $accountItemId => $details) {
                 // Get the original total amount for this account item
                 $originalTotalAmount = $details->first()->ori_invoice_amt;
-                $newAmount = $this->distributeAmount($originalTotalAmount, $party_count, 0);
                 
-                // Update all details for this account item with the new divided amount
-                foreach ($details as $detail) {
-                    $detail->amount = $newAmount;
-                    $detail->save();
+                // Distribute amounts properly - each invoice gets its correct share
+                foreach ($allInvoices as $invoiceIndex => $invoice) {
+                    // Get the distributed amount for this invoice index
+                    $distributedAmount = $this->distributeAmount($originalTotalAmount, $party_count, $invoiceIndex);
+                    
+                    // Update details for this specific invoice
+                    foreach ($details as $detail) {
+                        if ($detail->invoice_main_id == $invoice->id) {
+                            $detail->amount = $distributedAmount;
+                            $detail->save();
+                        }
+                    }
                 }
             }
 
@@ -1596,9 +1620,11 @@ class EInvoiceContoller extends Controller
         // Get all invoices for this bill
         $invoices = LoanCaseInvoiceMain::where('loan_case_main_bill_id', $bill_main_id)->get();
         \Log::info("Found " . $invoices->count() . " invoices for bill {$bill_main_id}: " . $invoices->pluck('id')->implode(', '));
+        
+        $isSplitInvoice = $invoices->count() > 1;
 
         // Update each invoice by summing its existing details
-        foreach ($invoices as $invoice) {
+        foreach ($invoices as $invoiceIndex => $invoice) {
             \Log::info("Processing invoice {$invoice->id} in updateInvoiceDetailsAmt");
             $details = LoanCaseInvoiceDetails::where('invoice_main_id', $invoice->id)
                 ->where('status', '<>', 99)
@@ -1620,7 +1646,7 @@ class EInvoiceContoller extends Controller
             $reimbursement_sst = 0;
             $total = 0;
 
-            // Sum up the existing details
+            // Calculate pfee1 and pfee2 first
             foreach ($details as $detail) {
                 // Get account item info to categorize
                 $accountItem = DB::table('account_item')->where('id', $detail->account_item_id)->first();
@@ -1632,33 +1658,218 @@ class EInvoiceContoller extends Controller
                         } else {
                             $pfee2 += $detail->amount;
                         }
-                        // For account_cat_id 1: add base amount + SST to total
-                        $total += $detail->amount * (1 + $sstRate);
-                    } elseif ($accountItem->account_cat_id == 4) {
+                    }
+                    // Note: reimbursement_amount will be calculated separately for split invoices
+                    // For single invoices, it's calculated here
+                    if (!$isSplitInvoice && $accountItem->account_cat_id == 4) {
                         \Log::info("Found reimbursement detail for invoice {$invoice->id}: amount={$detail->amount}, adding to reimbursement_amount");
                         $reimbursement_amount += $detail->amount;
-                        // For account_cat_id 4: add base amount + SST to total
-                        $total += $detail->amount * (1 + $sstRate);
-                    } else {
-                        // For other categories: add amount directly to total
-                        $total += $detail->amount;
                     }
+                }
+            }
+            
+            $pfee1 = round($pfee1, 2);
+            $pfee2 = round($pfee2, 2);
+            $totalPfee = $pfee1 + $pfee2;
+            
+            // For SST calculation:
+            // - If split invoice: calculate from total pfee of ALL invoices, then distribute proportionally
+            //   This ensures correct SST distribution (e.g., 628.22 and 628.21)
+            // - If single invoice: calculate from individual detail items (matches invoice display)
+            if ($isSplitInvoice) {
+                // Calculate total pfee across all invoices for this bill
+                $totalPfeeAllInvoices = 0;
+                $invoicePfees = [];
+                foreach ($invoices as $inv) {
+                    $invDetails = LoanCaseInvoiceDetails::where('invoice_main_id', $inv->id)
+                        ->where('status', '<>', 99)
+                        ->get();
+                    $invPfee1 = 0;
+                    $invPfee2 = 0;
+                    foreach ($invDetails as $invDetail) {
+                        $invAccountItem = DB::table('account_item')->where('id', $invDetail->account_item_id)->first();
+                        if ($invAccountItem && $invAccountItem->account_cat_id == 1) {
+                            if ($invAccountItem->pfee1_item == 1) {
+                                $invPfee1 += $invDetail->amount;
+                            } else {
+                                $invPfee2 += $invDetail->amount;
+                            }
+                        }
+                    }
+                    $invTotalPfee = round($invPfee1 + $invPfee2, 2);
+                    $invoicePfees[$inv->id] = $invTotalPfee;
+                    $totalPfeeAllInvoices += $invTotalPfee;
+                }
+                
+                // Calculate total SST from total pfee (applying special rounding rule)
+                $totalSstRaw = $totalPfeeAllInvoices * $sstRate;
+                $totalSstString = number_format($totalSstRaw, 3, '.', '');
+                if (substr($totalSstString, -1) == '5') {
+                    $totalSstAllInvoices = floor($totalSstRaw * 100) / 100; // Round down
                 } else {
-                    // If no account item info, add amount directly
+                    $totalSstAllInvoices = round($totalSstRaw, 2); // Normal rounding
+                }
+                
+                // Distribute SST: Calculate from each invoice's total pfee individually
+                // Then adjust to ensure total matches exactly
+                // Sort invoices by pfee (descending) so higher pfee gets processed first
+                $sortedInvoices = $invoices->sortByDesc(function($inv) use ($invoicePfees) {
+                    return $invoicePfees[$inv->id];
+                })->values();
+                
+                $calculatedSsts = [];
+                $totalCalculatedSst = 0;
+                
+                // Calculate SST for each invoice from its own pfee
+                foreach ($sortedInvoices as $inv) {
+                    $invPfee = $invoicePfees[$inv->id];
+                    $invSstRaw = $invPfee * $sstRate;
+                    $invSstString = number_format($invSstRaw, 3, '.', '');
+                    
+                    if (substr($invSstString, -1) == '5') {
+                        $invSst = floor($invSstRaw * 100) / 100;
+                    } else {
+                        $invSst = round($invSstRaw, 2);
+                    }
+                    
+                    $calculatedSsts[$inv->id] = $invSst;
+                    $totalCalculatedSst += $invSst;
+                }
+                
+                // Adjust to match total SST exactly
+                $difference = $totalSstAllInvoices - $totalCalculatedSst;
+                if (abs($difference) > 0.001) {
+                    // Add difference to invoice with highest pfee (first in sorted list)
+                    $highestPfeeInvoice = $sortedInvoices->first();
+                    $calculatedSsts[$highestPfeeInvoice->id] = round($calculatedSsts[$highestPfeeInvoice->id] + $difference, 2);
+                }
+                
+                // Get SST for current invoice
+                $sst = $calculatedSsts[$invoice->id];
+            } else {
+                // For single invoice: calculate SST from individual detail items (matches invoice display)
+                foreach ($details as $detail) {
+                    $accountItem = DB::table('account_item')->where('id', $detail->account_item_id)->first();
+                    
+                    if ($accountItem && $accountItem->account_cat_id == 1) {
+                        // Apply special rounding rule for SST: round DOWN if 3rd decimal is 5
+                        $sst_calculation = $detail->amount * $sstRate;
+                        $sst_string = number_format($sst_calculation, 3, '.', '');
+                        
+                        if (substr($sst_string, -1) == '5') {
+                            $row_sst = floor($sst_calculation * 100) / 100; // Round down
+                        } else {
+                            $row_sst = round($sst_calculation, 2); // Normal rounding
+                        }
+                        
+                        $sst += $row_sst;
+                    }
+                }
+            }
+            
+            // Calculate reimbursement amount and SST based on whether it's a split invoice
+            if ($isSplitInvoice) {
+                // For split invoices: Calculate total reimbursement across all invoices, then distribute equally
+                $totalReimbAllInvoices = 0;
+                foreach ($invoices as $inv) {
+                    $invDetails = LoanCaseInvoiceDetails::where('invoice_main_id', $inv->id)
+                        ->where('status', '<>', 99)
+                        ->get();
+                    $invReimb = 0;
+                    foreach ($invDetails as $invDetail) {
+                        $invAccountItem = DB::table('account_item')->where('id', $invDetail->account_item_id)->first();
+                        if ($invAccountItem && $invAccountItem->account_cat_id == 4) {
+                            $invReimb += $invDetail->amount;
+                        }
+                    }
+                    $totalReimbAllInvoices += round($invReimb, 2);
+                }
+                
+                // Distribute reimbursement equally across invoices
+                $invoiceCount = $invoices->count();
+                $reimbPerInvoice = round($totalReimbAllInvoices / $invoiceCount, 2);
+                $totalDistributedReimb = $reimbPerInvoice * ($invoiceCount - 1);
+                $lastReimb = round($totalReimbAllInvoices - $totalDistributedReimb, 2);
+                
+                // Find current invoice index
+                $sortedInvoices = $invoices->sortBy('id')->values();
+                $currentIndex = 0;
+                foreach ($sortedInvoices as $idx => $inv) {
+                    if ($inv->id == $invoice->id) {
+                        $currentIndex = $idx;
+                        break;
+                    }
+                }
+                
+                // Last invoice gets remainder, others get equal share
+                if ($currentIndex == $invoiceCount - 1) {
+                    $reimbursement_amount = $lastReimb;
+                } else {
+                    $reimbursement_amount = $reimbPerInvoice;
+                }
+                
+                // Calculate total reimbursement SST from total reimbursement (applying special rounding rule)
+                $totalReimbSstRaw = $totalReimbAllInvoices * $sstRate;
+                $totalReimbSstString = number_format($totalReimbSstRaw, 3, '.', '');
+                if (substr($totalReimbSstString, -1) == '5') {
+                    $totalReimbSstAllInvoices = floor($totalReimbSstRaw * 100) / 100; // Round down
+                } else {
+                    $totalReimbSstAllInvoices = round($totalReimbSstRaw, 2); // Normal rounding
+                }
+                
+                // Distribute reimbursement SST equally across invoices
+                $reimbSstPerInvoice = round($totalReimbSstAllInvoices / $invoiceCount, 2);
+                $totalDistributedReimbSst = $reimbSstPerInvoice * ($invoiceCount - 1);
+                $lastReimbSst = round($totalReimbSstAllInvoices - $totalDistributedReimbSst, 2);
+                
+                // Use the same currentIndex from above
+                if ($currentIndex == $invoiceCount - 1) {
+                    $reimbursement_sst = $lastReimbSst;
+                } else {
+                    $reimbursement_sst = $reimbSstPerInvoice;
+                }
+            } else {
+                // For single invoice: calculate reimbursement amount and SST from individual detail items
+                foreach ($details as $detail) {
+                    $accountItem = DB::table('account_item')->where('id', $detail->account_item_id)->first();
+                    
+                    if ($accountItem && $accountItem->account_cat_id == 4) {
+                        $reimbursement_amount += $detail->amount;
+                        
+                        // Apply special rounding rule for reimbursement SST
+                        $sst_calculation = $detail->amount * $sstRate;
+                        $sst_string = number_format($sst_calculation, 3, '.', '');
+                        
+                        if (substr($sst_string, -1) == '5') {
+                            $row_sst = floor($sst_calculation * 100) / 100; // Round down
+                        } else {
+                            $row_sst = round($sst_calculation, 2); // Normal rounding
+                        }
+                        
+                        $reimbursement_sst += $row_sst;
+                    }
+                }
+                $reimbursement_amount = round($reimbursement_amount, 2);
+                $reimbursement_sst = round($reimbursement_sst, 2);
+            }
+            
+            // Calculate total
+            $total = $pfee1 + $pfee2 + $sst + $reimbursement_amount + $reimbursement_sst;
+            
+            // Add non-pfee, non-reimbursement amounts
+            foreach ($details as $detail) {
+                $accountItem = DB::table('account_item')->where('id', $detail->account_item_id)->first();
+                if (!$accountItem || ($accountItem->account_cat_id != 1 && $accountItem->account_cat_id != 4)) {
                     $total += $detail->amount;
                 }
             }
-
-            // Calculate SST: (pfee1 + pfee2) * sst_rate
-            $sst = ($pfee1 + $pfee2) * $sstRate;
-            $reimbursement_sst = $reimbursement_amount * $sstRate;
             
             \Log::info("Final calculation for invoice {$invoice->id}: pfee1={$pfee1}, pfee2={$pfee2}, sst={$sst}, reimbursement_amount={$reimbursement_amount}, reimbursement_sst={$reimbursement_sst}, total={$total}");
 
             // Update the invoice record
             $invoice->update([
-                'pfee1_inv' => round($pfee1, 2),
-                'pfee2_inv' => round($pfee2, 2),
+                'pfee1_inv' => $pfee1,
+                'pfee2_inv' => $pfee2,
                 'sst_inv' => round($sst, 2),
                 'reimbursement_amount' => round($reimbursement_amount, 2),
                 'reimbursement_sst' => round($reimbursement_sst, 2),
