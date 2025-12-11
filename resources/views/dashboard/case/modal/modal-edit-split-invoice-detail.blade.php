@@ -62,7 +62,7 @@
 <script>
 function editSplitInvoiceDetail(invoiceId) {
     if (!invoiceId) {
-        Swal.fire('Error', 'Invalid invoice ID', 'error');
+        toastController('Invalid invoice ID', 'warning');
         return;
     }
     
@@ -105,12 +105,12 @@ function editSplitInvoiceDetail(invoiceId) {
                 // Show modal
                 $("#modalEditSplitInvoiceDetail").modal('show');
             } else {
-                Swal.fire('Error', response.message || 'Failed to load invoice details', 'error');
+                toastController(response.message || 'Failed to load invoice details', 'warning');
             }
         },
         error: function(xhr, status, error) {
             $("#div_full_screen_loading").hide();
-            Swal.fire('Error', 'Failed to load invoice details', 'error');
+            toastController('Failed to load invoice details', 'warning');
         }
     });
 }
@@ -291,7 +291,7 @@ function saveSplitInvoiceDetails() {
     var invoiceId = $("#modalEditSplitInvoiceDetail #invoice_id").val();
     
     if (!invoiceId) {
-        Swal.fire('Error', 'Invalid invoice ID', 'error');
+        toastController('Invalid invoice ID', 'warning');
         return;
     }
     
@@ -313,7 +313,7 @@ function saveSplitInvoiceDetails() {
     });
     
     if (details.length === 0) {
-        Swal.fire('Info', 'No changes detected', 'info');
+        toastController('No changes detected', 'warning');
         return;
     }
     
@@ -345,12 +345,24 @@ function saveSplitInvoiceDetails() {
             $('.btn-success .overlay').hide();
             
             if (response.status == 1) {
-                Swal.fire('Success!', response.message || 'Invoice details updated successfully', 'success').then(() => {
-                    $("#modalEditSplitInvoiceDetail").modal('hide');
-                    location.reload();
-                });
+                // Close modal using system function
+                closeUniversalModal();
+                
+                // Show success notification using system function
+                toastController(response.message || 'Invoice details updated successfully', 'success');
+                
+                // Refresh invoice section without reloading whole page
+                if (response.bill_id && typeof loadCaseBill === 'function') {
+                    loadCaseBill(response.bill_id);
+                } else {
+                    // Fallback: reload page if loadCaseBill is not available
+                    console.warn('loadCaseBill function not found or bill_id missing, reloading page');
+                    setTimeout(function() {
+                        location.reload();
+                    }, 2000);
+                }
             } else {
-                Swal.fire('Error', response.message || 'Failed to update invoice details', 'error');
+                toastController(response.message || 'Failed to update invoice details', 'warning');
             }
         },
         error: function(xhr, status, error) {
@@ -362,7 +374,7 @@ function saveSplitInvoiceDetails() {
             if (xhr.responseJSON && xhr.responseJSON.message) {
                 errorMsg = xhr.responseJSON.message;
             }
-            Swal.fire('Error', errorMsg + ' (Check browser console for details)', 'error');
+            toastController(errorMsg, 'warning');
         }
     });
 }

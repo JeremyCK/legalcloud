@@ -6512,6 +6512,67 @@
 
         }
 
+        function removeInvoice(invoiceId) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'Remove this invoice?',
+                text: 'This action cannot be undone. The invoice will be permanently removed.',
+                showCancelButton: true,
+                confirmButtonText: 'Yes, remove it',
+                confirmButtonColor: '#d33',
+                cancelButtonColor: '#3085d6',
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    $("#div_full_screen_loading").show();
+                    
+                    $.ajaxSetup({
+                        headers: {
+                            'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                        }
+                    });
+                    
+                    $.ajax({
+                        type: 'POST',
+                        url: '/removeInvoice/' + invoiceId,
+                        data: null,
+                        processData: false,
+                        contentType: false,
+                        success: function(response) {
+                            console.log(response);
+                            $("#div_full_screen_loading").hide();
+                            
+                            if (response.status == 1) {
+                                // Show success notification using system function
+                                toastController(response.message || 'Invoice removed successfully', 'success');
+                                
+                                // Refresh invoice section without reloading whole page
+                                if (response.bill_id && typeof loadCaseBill === 'function') {
+                                    loadCaseBill(response.bill_id);
+                                } else {
+                                    // Fallback: reload page if loadCaseBill is not available
+                                    console.warn('loadCaseBill function not found or bill_id missing, reloading page');
+                                    setTimeout(function() {
+                                        location.reload();
+                                    }, 2000);
+                                }
+                            } else {
+                                toastController(response.message || 'Failed to remove invoice', 'warning');
+                            }
+                        },
+                        error: function(xhr, status, error) {
+                            console.error("AJAX error:", xhr, status, error);
+                            $("#div_full_screen_loading").hide();
+                            var errorMsg = 'Failed to remove invoice';
+                            if (xhr.responseJSON && xhr.responseJSON.message) {
+                                errorMsg = xhr.responseJSON.message;
+                            }
+                            toastController(errorMsg, 'warning');
+                        }
+                    });
+                }
+            });
+        }
+
         function submitBonusReview(bonus_type) {
 
             $msg = 'Submit this case for bonus review?';

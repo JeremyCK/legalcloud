@@ -586,11 +586,33 @@
             success: function(data) {
                 console.log(data);
                 if (data.status == 1) {
-                    toastController('Saved');
-                    $("#lbl_bill_to_party").html(data.view);
-                    location.reload();
+                    // Close modal using system function
+                    closeUniversalModal();
+                    
+                    // Show success notification using system function
+                    toastController(data.message || 'Billing party information updated successfully', 'success');
+                    
+                    // Refresh invoice section without reloading whole page
+                    if (data.bill_id && typeof loadCaseBill === 'function') {
+                        loadCaseBill(data.bill_id);
+                    } else {
+                        // Fallback: reload page if loadCaseBill is not available
+                        console.warn('loadCaseBill function not found or bill_id missing, reloading page');
+                        setTimeout(function() {
+                            location.reload();
+                        }, 2000);
+                    }
+                } else {
+                    toastController(data.message || 'Failed to update billing party information', 'warning');
                 }
-
+            },
+            error: function(xhr, status, error) {
+                console.error("AJAX error:", xhr, status, error);
+                var errorMsg = 'Failed to update billing party information';
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                    errorMsg = xhr.responseJSON.message;
+                }
+                toastController(errorMsg, 'warning');
             }
 
         });

@@ -782,8 +782,15 @@ class EInvoiceContoller extends Controller
 
         // $billList = view('dashboard.case.section.d-invoice-billto', compact('InvoiceBillingParty'))->render();
 
+        // Recalculate bill totals after adding invoice recipient
+        $caseController = new \App\Http\Controllers\CaseController();
+        $caseController->updatePfeeDisbAmountINV($bill_id);
 
-        return response()->json(['status' => 1, 'message' => 'Added party into list']);
+        return response()->json([
+            'status' => 1, 
+            'message' => 'Added party into list',
+            'bill_id' => $bill_id
+        ]);
     }
 
 
@@ -968,12 +975,11 @@ class EInvoiceContoller extends Controller
             $InvoiceBillingParty = InvoiceBillingParty::where('loan_case_main_bill_id', $billingParty->loan_case_main_bill_id)->get();
             $billList = view('dashboard.case.section.d-invoice-billto', compact('InvoiceBillingParty'))->render();
 
-
-
             return response()->json([
                 'status' => 1,
                 'message' => 'Billing party information updated successfully',
-                'view' => $billList
+                'view' => $billList,
+                'bill_id' => $billingParty->loan_case_main_bill_id
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -1133,8 +1139,16 @@ class EInvoiceContoller extends Controller
         }
         
         $this->generateNewInvNo($loan_case_main_bill_id, $delete_invoice_id, true);
+        
+        // Recalculate bill totals after removing invoice
+        $caseController = new \App\Http\Controllers\CaseController();
+        $caseController->updatePfeeDisbAmountINV($loan_case_main_bill_id);
 
-        return response()->json(['status' => 1, 'message' => 'Invoice removed successfully']);
+        return response()->json([
+            'status' => 1, 
+            'message' => 'Invoice removed successfully',
+            'bill_id' => $loan_case_main_bill_id
+        ]);
     }
 
 
@@ -1339,8 +1353,15 @@ class EInvoiceContoller extends Controller
             \Log::info("FINAL VERIFICATION - New invoice {$invoice_main_id_new}: reimbursement_amount={$finalInvoice->reimbursement_amount}, reimbursement_sst={$finalInvoice->reimbursement_sst}");
         }
 
+        // Recalculate bill totals after splitting invoice
+        $caseController = new \App\Http\Controllers\CaseController();
+        $caseController->updatePfeeDisbAmountINV($bill_main_id);
         
-        return response()->json(['status' => 1, 'message' => 'Invoice split successfully']);
+        return response()->json([
+            'status' => 1, 
+            'message' => 'Invoice split successfully',
+            'bill_id' => $bill_main_id
+        ]);
 
         // $loanCaseInvoiceDetails = LoanCaseInvoiceDetails::where('invoice_main_id', $invoice_main_id)->get();
 
@@ -1634,6 +1655,7 @@ class EInvoiceContoller extends Controller
         return response()->json([
             'status' => 1, 
             'message' => 'Invoice details updated successfully.',
+            'bill_id' => $bill->id,
             'bill_totals' => [
                 'pfee1_inv' => $updatedBill->pfee1_inv,
                 'pfee2_inv' => $updatedBill->pfee2_inv,

@@ -366,16 +366,30 @@ function confirmSplitInvoice() {
                 success: function(data) {
                     $("#div_full_screen_loading").hide();
                     if (data.status == 1) {
-                        Swal.fire('Success!', data.message, 'success').then(() => {
-                            location.reload();
-                        });
+                        // Show success notification using system function
+                        toastController(data.message || 'Invoice split successfully', 'success');
+                        
+                        // Refresh invoice section without reloading whole page
+                        if (data.bill_id && typeof loadCaseBill === 'function') {
+                            loadCaseBill(data.bill_id);
+                        } else {
+                            // Fallback: reload page if loadCaseBill is not available
+                            console.warn('loadCaseBill function not found or bill_id missing, reloading page');
+                            setTimeout(function() {
+                                location.reload();
+                            }, 2000);
+                        }
                     } else {
-                        Swal.fire('Error!', data.message, 'error');
+                        toastController(data.message || 'Failed to split invoice', 'warning');
                     }
                 },
                 error: function(xhr, status, error) {
                     $("#div_full_screen_loading").hide();
-                    Swal.fire('Error!', 'An error occurred while splitting the invoice.', 'error');
+                    var errorMsg = 'An error occurred while splitting the invoice';
+                    if (xhr.responseJSON && xhr.responseJSON.message) {
+                        errorMsg = xhr.responseJSON.message;
+                    }
+                    toastController(errorMsg, 'warning');
                 }
             });
         }

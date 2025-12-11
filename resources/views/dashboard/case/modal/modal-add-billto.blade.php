@@ -778,14 +778,33 @@
                         console.log(data);
                         $("#div_full_screen_loading").hide();
                         if (data.status == 1) {
-                            toastController(data.message);
-                            location.reload();
+                            // Close modal using system function
+                            closeUniversalModal();
+                            
+                            // Show success notification using system function
+                            toastController(data.message || 'Invoice split successfully', 'success');
+                            
+                            // Refresh invoice section without reloading whole page
+                            if (data.bill_id && typeof loadCaseBill === 'function') {
+                                loadCaseBill(data.bill_id);
+                            } else {
+                                // Fallback: reload page if loadCaseBill is not available
+                                console.warn('loadCaseBill function not found or bill_id missing, reloading page');
+                                setTimeout(function() {
+                                    location.reload();
+                                }, 2000);
+                            }
                         } else {
-                            toastController(data.message, 'warning');
+                            toastController(data.message || 'Failed to split invoice', 'warning');
                         }
                     },
                     error: function(file, response) {
                         $("#div_full_screen_loading").hide();
+                        var errorMsg = 'An error occurred while splitting the invoice';
+                        if (response && response.responseJSON && response.responseJSON.message) {
+                            errorMsg = response.responseJSON.message;
+                        }
+                        toastController(errorMsg, 'warning');
                     }
                 });
             }
@@ -794,7 +813,7 @@
 
     function AddBilltoInvoice() {
         if (!selectedParty) {
-            Swal.fire('Error', 'No party selected', 'error');
+            toastController('No party selected', 'warning');
             return;
         }
 
@@ -819,12 +838,33 @@
             success: function(data) {
                 console.log(data);
                 if (data.status == 1) {
-                    toastController(data.message);
+                    // Close modal using system function
                     closeUniversalModal();
-                    location.reload();
+                    
+                    // Show success notification using system function
+                    toastController(data.message || 'Added party into list', 'success');
+                    
+                    // Refresh invoice section without reloading whole page
+                    if (data.bill_id && typeof loadCaseBill === 'function') {
+                        loadCaseBill(data.bill_id);
+                    } else {
+                        // Fallback: reload page if loadCaseBill is not available
+                        console.warn('loadCaseBill function not found or bill_id missing, reloading page');
+                        setTimeout(function() {
+                            location.reload();
+                        }, 2000);
+                    }
                 } else {
-                    toastController(data.message, 'warning');
+                    toastController(data.message || 'Failed to add invoice recipient', 'warning');
                 }
+            },
+            error: function(xhr, status, error) {
+                console.error("AJAX error:", xhr, status, error);
+                var errorMsg = 'Failed to add invoice recipient';
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                    errorMsg = xhr.responseJSON.message;
+                }
+                toastController(errorMsg, 'warning');
             }
         });
     }
