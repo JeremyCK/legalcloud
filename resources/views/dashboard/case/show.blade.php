@@ -627,6 +627,8 @@
             @include('dashboard.case.modal.modal-client')
             @include('dashboard.case.modal.modal-account-summary-input')
             @include('dashboard.case.modal.modal-referral', ['newcase' => 0])
+            @include('dashboard.case.modal.modal-edit-split-invoice-detail')
+            @include('dashboard.case.modal.modal-update-invoice-date')
 
             @include('dashboard.case.modal.modal-move-disb')
             @include('dashboard.case.modal.modal-trust')
@@ -1695,7 +1697,8 @@
 
         function invoicePrintMode(party_id) {
             $("#dBillList").hide();
-            $("#dInvoice-p").show();
+            // First, clear the container
+            $('#div-print-inv').empty(); // Clear existing content
 
             if(party_id == null)
             {
@@ -1713,7 +1716,10 @@
                     if (data.status == 1) {
                         $(".party_invoice_info").html(data.view);
                         $("#inv_no_print").html(data.inv_no);
-                        
+                        // Update the invoice print content with fresh data from database
+                        $('#div-print-inv').html(data.invoicePrint); // Insert the new HTML with updated amounts
+                        // Show the print container after inserting content
+                        $("#dInvoice-p").show(); // This will show the dInvoice-p div inside div-print-inv
                     }
 
                 },

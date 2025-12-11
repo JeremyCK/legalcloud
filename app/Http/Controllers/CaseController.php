@@ -11125,6 +11125,7 @@ class CaseController extends Controller
     public function updatePfeeDisbAmountINV($id)
     {
         // Updated function that calculates from details and updates both invoices and bills
+        // This is called after invoice details are updated to recalculate bill totals
         $this->updatePfeeDisbAmountINVFromDetails($id);
     }
 
@@ -11157,6 +11158,7 @@ class CaseController extends Controller
 
         // Update each invoice from its details
         foreach ($invoices as $invoice) {
+            // IMPORTANT: Read fresh data from database to ensure we get the latest redistributed amounts
             $invoiceCalculations = $this->calculateInvoiceAmountsFromDetails($invoice->id, $LoanCaseBillMain->sst_rate);
 
             // Update the invoice record
@@ -11181,15 +11183,18 @@ class CaseController extends Controller
             $total_amount += $invoiceCalculations['total'];
         }
 
-        // Update the bill record
-        $LoanCaseBillMain->pfee1_inv = $total_pfee1;
-        $LoanCaseBillMain->pfee2_inv = $total_pfee2;
-        $LoanCaseBillMain->sst_inv = $total_sst;
-        $LoanCaseBillMain->reimbursement_amount = $total_reimbursement_amount;
-        $LoanCaseBillMain->reimbursement_sst = $total_reimbursement_sst;
-        $LoanCaseBillMain->total_amt_inv = $total_amount;
-        //$LoanCaseBillMain->total_amt = $total_amount;  // Update main total amount field
-        $LoanCaseBillMain->save();
+        // Update the bill record - use direct DB update to ensure it's saved
+        DB::table('loan_case_bill_main')
+            ->where('id', $id)
+            ->update([
+                'pfee1_inv' => $total_pfee1,
+                'pfee2_inv' => $total_pfee2,
+                'sst_inv' => $total_sst,
+                'reimbursement_amount' => $total_reimbursement_amount,
+                'reimbursement_sst' => $total_reimbursement_sst,
+                'total_amt_inv' => $total_amount,
+                'updated_at' => now()
+            ]);
     }
 
     /**
@@ -11234,7 +11239,7 @@ class CaseController extends Controller
             ->leftJoin('account_item as ai', 'ild.account_item_id', '=', 'ai.id')
             ->where('ild.invoice_main_id', $invoiceId)
             ->where('ild.status', '<>', 99)
-            ->select('ild.amount', 'ai.account_cat_id', 'ai.pfee1_item')
+            ->select('ild.amount', 'ild.id as detail_id', 'ai.account_cat_id', 'ai.pfee1_item')
             ->get();
 
         $pfee1 = 0;
@@ -13310,24 +13315,72 @@ class CaseController extends Controller
 
     public function updateInvoiceValue(Request $request)
     {
+        \Log::info("=== updateInvoiceValue START ===");
+        \Log::info("Request data: " . json_encode($request->all()));
+        
         if ($request->input('NewAmount') != null) {
             $LoanCaseInvoiceDetails = LoanCaseInvoiceDetails::where('id', '=', $request->input('details_id'))->first();
 
             if ($LoanCaseInvoiceDetails) {
-                // $LoanCaseInvoiceDetails->amount = $request->input('NewAmount');
-                $LoanCaseInvoiceDetails->ori_invoice_amt = $request->input('NewAmount');
-                $LoanCaseInvoiceDetails->save();
+                $newAmount = $request->input('NewAmount');
+                $account_item_id = $LoanCaseInvoiceDetails->account_item_id;
+                $bill_main_id = $LoanCaseInvoiceDetails->loan_case_main_bill_id;
+                
+                \Log::info("Editing detail ID {$LoanCaseInvoiceDetails->id}, account_item_id={$account_item_id}, bill_main_id={$bill_main_id}, new_amount={$newAmount}");
 
-                $party_count = EInvoiceContoller::getPartyCount($LoanCaseInvoiceDetails->loan_case_main_bill_id);
+                // Get party count for calculating divided amounts
+                $party_count = EInvoiceContoller::getPartyCount($bill_main_id);
+                \Log::info("Party count for bill {$bill_main_id}: {$party_count}");
 
-                // FIXED: Only update the specific item that was changed, not all items in the bill
-                $LoanCaseInvoiceDetails->amount = $request->input('NewAmount') / $party_count;
-                $LoanCaseInvoiceDetails->save();
+                // Get all invoices for this bill to know their indices
+                $allInvoices = LoanCaseInvoiceMain::where('loan_case_main_bill_id', $bill_main_id)
+                    ->where('status', '<>', 99)
+                    ->orderBy('id') // Ensure consistent order for distribution
+                    ->get();
+
+                \Log::info("Found {$allInvoices->count()} invoices for bill {$bill_main_id}");
+                foreach ($allInvoices as $inv) {
+                    \Log::info("  Invoice {$inv->id} (invoice_no: {$inv->invoice_no})");
+                }
+
+                // Update ori_invoice_amt for ALL split invoices with the same account_item_id
+                // This ensures all split invoices have the same base amount
+                LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $bill_main_id)
+                    ->where('account_item_id', $account_item_id)
+                    ->where('status', '<>', 99)
+                    ->update(['ori_invoice_amt' => $newAmount]);
+                
+                \Log::info("Updated ori_invoice_amt for account_item_id {$account_item_id} to {$newAmount} across all invoices in bill {$bill_main_id}");
+
+                // Recalculate amount (divided amount) for ALL split invoices with the same account_item_id
+                // Use ->values() to ensure array indices are sequential (0, 1, 2...)
+                $allInvoicesArray = $allInvoices->values()->all();
+                
+                foreach ($allInvoicesArray as $invoiceIndex => $invoice) {
+                    $detail = LoanCaseInvoiceDetails::where('invoice_main_id', $invoice->id)
+                        ->where('account_item_id', $account_item_id)
+                        ->where('status', '<>', 99)
+                        ->first();
+
+                    if ($detail) {
+                        // Use the distributeAmount method from EInvoiceContoller for smart distribution
+                        // This handles rounding correctly (e.g., 4200.01 splits to 2100.01 and 2100.00)
+                        $distributedAmount = EInvoiceContoller::distributeAmount($newAmount, $party_count, $invoiceIndex);
+                        
+                        $detail->amount = $distributedAmount;
+                        $detail->save();
+                        
+                        \Log::info("Redistributed: Invoice {$invoice->id} (invoice_main_id: {$invoice->id}) gets amount={$distributedAmount} from total={$newAmount}");
+                    } else {
+                        \Log::error("Detail not found for Invoice {$invoice->id}, account_item_id={$account_item_id}. Cannot update 'amount'.");
+                    }
+                }
 
                 // Use the new calculation method that properly handles all account categories and SST
-                $this->updatePfeeDisbAmountINV($LoanCaseInvoiceDetails->loan_case_main_bill_id);
-
-                // EInvoiceContoller::updateInvoiceDetailsAmt(0, $LoanCaseInvoiceDetails->loan_case_main_bill_id, 0);
+                // This will recalculate pfee1_inv, pfee2_inv, sst_inv for all invoices and bill main
+                $this->updatePfeeDisbAmountINV($bill_main_id);
+                
+                \Log::info("=== updateInvoiceValue END - SUCCESS ===");
             }
 
             return response()->json(['status' => 1, 'message' => 'yes']);

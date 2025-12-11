@@ -63,6 +63,18 @@
                  data-keyboard="false"                  onclick="window.pendingPartyId = {{ $details->id }};" data-toggle="modal" data-target="#modalAddBilltoInfo" style="color:white;margin:0"><i
                      style="margin-right: 10px;" class="cil-calendar"></i>Update information</a>
              <div class="dropdown-divider" style="margin:0"></div>
+             
+             @if ($details->invoice_id != null)
+                 <a class="dropdown-item btn-info" href="javascript:void(0)" data-backdrop="static" data-keyboard="false"
+                     data-toggle="modal" data-target="#modalEditSplitInvoiceDetail" onclick="editSplitInvoiceDetail({{ $details->invoice_id }});" style="color:white;margin:0"><i
+                         style="margin-right: 10px;" class="cil-pencil"></i>Edit Split Invoice Detail</a>
+                 <div class="dropdown-divider" style="margin:0"></div>
+                 
+                 <a class="dropdown-item btn-primary" href="javascript:void(0)" data-backdrop="static" data-keyboard="false"
+                     data-toggle="modal" data-target="#modalUpdateInvoiceDate" onclick="loadInvoiceDate({{ $details->invoice_id }}, '{{ $details->invoice_no }}');" style="color:white;margin:0"><i
+                         style="margin-right: 10px;" class="cil-calendar"></i>Update Invoice Date</a>
+                 <div class="dropdown-divider" style="margin:0"></div>
+             @endif
              @endif
 
              

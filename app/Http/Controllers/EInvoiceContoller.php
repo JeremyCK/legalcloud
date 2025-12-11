@@ -1169,7 +1169,7 @@ class EInvoiceContoller extends Controller
      * @param int $currentIndex Current invoice index (0-based)
      * @return float The distributed amount for the current index
      */
-    private function distributeAmount($totalAmount, $partyCount, $currentIndex = 0)
+    public static function distributeAmount($totalAmount, $partyCount, $currentIndex = 0)
     {
         $baseAmount = $totalAmount / $partyCount;
         $distributedAmounts = [];
@@ -1372,6 +1372,401 @@ class EInvoiceContoller extends Controller
         //         $loanCaseInvoiceDetails[$i]->save();
         //     }
         // }
+    }
+
+    public function getSplitInvoiceDetails($invoice_id)
+    {
+        $current_user = auth()->user();
+        
+        $invoice = LoanCaseInvoiceMain::where('id', $invoice_id)->first();
+        
+        if (!$invoice) {
+            return response()->json(['status' => 0, 'message' => 'Invoice not found.']);
+        }
+        
+        // Check if user has permission to view invoice
+        $bill = LoanCaseBillMain::where('id', $invoice->loan_case_main_bill_id)->first();
+        if (!$bill) {
+            return response()->json(['status' => 0, 'message' => 'Bill not found.']);
+        }
+        
+        // Get account categories
+        $category = AccountCategory::where('status', '=', 1)->orderBy('order', 'ASC')->get();
+        
+        // Get invoice details grouped by category
+        // Use the 'amount' column (not ori_invoice_amt) for display
+        $invoice_details = [];
+        foreach ($category as $cat) {
+            // Get details for this specific invoice
+            $details = DB::table('loan_case_invoice_details AS qd')
+                ->leftJoin('account_item AS a', 'a.id', '=', 'qd.account_item_id')
+                ->select('qd.id', 'qd.account_item_id', 'qd.quo_amount', 'qd.amount', 
+                    'qd.ori_invoice_amt', 'qd.remark as item_remark', 'qd.quotation_item_id',
+                    'a.name as account_name', 'a.name_cn as account_name_cn', 
+                    'a.account_cat_id', 'a.pfee1_item', 'a.remark as item_desc')
+                ->where('qd.invoice_main_id', '=', $invoice_id)
+                ->where('qd.status', '=', 1)
+                ->where('a.account_cat_id', '=', $cat->id)
+                ->get();
+            
+            if ($details->count() > 0) {
+                $invoice_details[] = [
+                    'category' => [
+                        'id' => $cat->id,
+                        'category' => $cat->category,
+                        'code' => $cat->code
+                    ],
+                    'account_details' => $details
+                ];
+            }
+        }
+        
+        return response()->json([
+            'status' => 1,
+            'data' => [
+                'id' => $invoice->id,
+                'invoice_no' => $invoice->invoice_no,
+                'sst_rate' => $bill->sst_rate ?? 0,
+                'invoice_details' => $invoice_details
+            ]
+        ]);
+    }
+
+    public function updateSplitInvoiceDetail(Request $request)
+    {
+        // Force write to log immediately
+        error_log("=== updateSplitInvoiceDetail CALLED ===");
+        error_log("Request method: " . $request->method());
+        error_log("Request URL: " . $request->fullUrl());
+        error_log("Request data: " . json_encode($request->all()));
+        
+        $current_user = auth()->user();
+        
+        \Log::info("=== updateSplitInvoiceDetail START ===");
+        \Log::info("Request data: " . json_encode($request->all()));
+        
+        try {
+            // Validate input
+            $request->validate([
+                'invoice_id' => 'required|integer',
+                'details' => 'required|array',
+                'details.*.id' => 'required|integer',
+                'details.*.ori_invoice_amt' => 'required|numeric|min:0', // Field name is ori_invoice_amt but we update 'amount' column
+            ]);
+            
+            $invoice = LoanCaseInvoiceMain::where('id', $request->invoice_id)->first();
+            
+            if (!$invoice) {
+                \Log::error("Invoice {$request->invoice_id} not found!");
+                error_log("Invoice {$request->invoice_id} not found!");
+                return response()->json(['status' => 0, 'message' => 'Invoice not found.']);
+            }
+            
+            \Log::info("Processing invoice {$invoice->id} (invoice_no: {$invoice->invoice_no})");
+            error_log("Processing invoice {$invoice->id} (invoice_no: {$invoice->invoice_no})");
+        
+        // Check if invoice has been sent to SQL accounting system (this should prevent editing)
+        // The relationship is: loan_case_invoice_main.bill_party_id -> invoice_billing_party.id
+        // Note: 'completed' status only means billing party info is complete, not that invoice is finalized
+        // So we allow editing even if completed, but prevent if sent to SQL
+        if ($invoice->bill_party_id) {
+            $billingParty = InvoiceBillingParty::where('id', $invoice->bill_party_id)->first();
+            if ($billingParty && $billingParty->sent_to_sql == 1) {
+                return response()->json(['status' => 0, 'message' => 'Cannot edit invoice that has been sent to SQL accounting system.']);
+            }
+        }
+        
+        // Get bill for party count calculation
+        $bill = LoanCaseBillMain::where('id', $invoice->loan_case_main_bill_id)->first();
+        if (!$bill) {
+            return response()->json(['status' => 0, 'message' => 'Bill not found.']);
+        }
+        
+        $party_count = self::getPartyCount($bill->id);
+        
+        // Group details by account_item_id to handle split invoices
+        $detailsByItem = [];
+        foreach ($request->details as $detailData) {
+            $detail = LoanCaseInvoiceDetails::where('id', $detailData['id'])
+                ->where('invoice_main_id', $invoice->id)
+                ->first();
+            
+            if ($detail) {
+                $account_item_id = $detail->account_item_id;
+                if (!isset($detailsByItem[$account_item_id])) {
+                    $detailsByItem[$account_item_id] = [];
+                }
+                $detailsByItem[$account_item_id][] = [
+                    'detail' => $detail,
+                    'new_amount' => $detailData['ori_invoice_amt'],
+                    'old_amount' => $detailData['old_amount'] ?? $detail->amount // Get old amount from request or current value
+                ];
+            }
+        }
+        
+        // For each account_item_id, update the edited invoice's amount and recalculate total
+        foreach ($detailsByItem as $account_item_id => $itemDetails) {
+            \Log::info("Processing account_item_id: {$account_item_id}");
+            
+            // Get all split invoice details for this account_item_id
+            $allDetailsForItem = LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $bill->id)
+                ->where('account_item_id', $account_item_id)
+                ->where('status', '<>', 99)
+                ->orderBy('invoice_main_id', 'ASC')
+                ->get();
+            
+            \Log::info("Found " . $allDetailsForItem->count() . " details for account_item_id {$account_item_id}");
+            foreach ($allDetailsForItem as $d) {
+                \Log::info("  Detail ID {$d->id}: invoice_main_id={$d->invoice_main_id}, amount={$d->amount}, ori_invoice_amt={$d->ori_invoice_amt}");
+            }
+            
+            // Find the detail that was edited (from current invoice)
+            $editedDetail = null;
+            $newSplitAmount = null;
+            $oldSplitAmount = null;
+            foreach ($itemDetails as $itemDetail) {
+                if ($itemDetail['detail']->invoice_main_id == $invoice->id) {
+                    $editedDetail = $itemDetail['detail'];
+                    $newSplitAmount = $itemDetail['new_amount']; // This is the NEW split amount for this invoice
+                    $oldSplitAmount = $itemDetail['old_amount'] ?? $editedDetail->amount; // Old amount for logging
+                    break;
+                }
+            }
+            
+            if ($editedDetail && $newSplitAmount !== null) {
+                \Log::info("Found edited detail: ID={$editedDetail->id}, invoice_main_id={$editedDetail->invoice_main_id}, old_split_amount={$oldSplitAmount}, new_split_amount={$newSplitAmount}");
+                \Log::info("BEFORE UPDATE - Invoice Detail ID {$editedDetail->id}: invoice_main_id={$editedDetail->invoice_main_id}, account_item_id={$account_item_id}, current amount={$editedDetail->amount}, new split amount={$newSplitAmount}");
+                
+                // Get account item name for logging
+                $accountItem = \App\Models\AccountItem::where('id', $account_item_id)->first();
+                $itemName = $accountItem ? ($accountItem->name ?? 'N/A') : 'N/A';
+                
+                // Step 1: Update the edited invoice's amount directly
+                $oldAmount = $editedDetail->amount; // Store old amount before update
+                $editedDetail->amount = $newSplitAmount;
+                $editedDetail->save();
+                \Log::info("Updated invoice {$invoice->id}'s amount from {$oldAmount} to {$newSplitAmount}");
+                
+                // Step 1.5: Create AccountLog entry for this change
+                $AccountLog = new AccountLog();
+                $AccountLog->user_id = $current_user->id;
+                $AccountLog->case_id = $bill->case_id;
+                $AccountLog->bill_id = $bill->id;
+                $AccountLog->object_id = $editedDetail->id;
+                $AccountLog->ori_amt = $oldAmount;
+                $AccountLog->new_amt = $newSplitAmount;
+                $AccountLog->action = 'Update';
+                $AccountLog->desc = $current_user->name . ' update invoice detail item (' . $itemName . ') for invoice ' . $invoice->invoice_no . ' from ' . number_format($oldAmount, 2) . ' to ' . number_format($newSplitAmount, 2);
+                $AccountLog->status = 1;
+                $AccountLog->created_at = date('Y-m-d H:i:s');
+                $AccountLog->save();
+                \Log::info("AccountLog created: {$AccountLog->desc}");
+                
+                // Step 2: Calculate new total by summing ALL split invoice amounts for this account_item_id
+                $newTotalAmount = LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $bill->id)
+                    ->where('account_item_id', $account_item_id)
+                    ->where('status', '<>', 99)
+                    ->sum('amount');
+                
+                \Log::info("Calculated new total amount: {$newTotalAmount} (sum of all split amounts)");
+                
+                // Step 3: Update ori_invoice_amt for ALL split invoices with this account_item_id to the new total
+                LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $bill->id)
+                    ->where('account_item_id', $account_item_id)
+                    ->where('status', '<>', 99)
+                    ->update(['ori_invoice_amt' => $newTotalAmount]);
+                
+                \Log::info("Updated ori_invoice_amt for all invoices to {$newTotalAmount}");
+                
+                // Step 4: Verify all amounts are correct
+                $allDetailsAfterUpdate = LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $bill->id)
+                    ->where('account_item_id', $account_item_id)
+                    ->where('status', '<>', 99)
+                    ->orderBy('invoice_main_id', 'ASC')
+                    ->get();
+                
+                foreach ($allDetailsAfterUpdate as $d) {
+                    \Log::info("  AFTER UPDATE - Detail ID {$d->id}: invoice_main_id={$d->invoice_main_id}, amount={$d->amount}, ori_invoice_amt={$d->ori_invoice_amt}");
+                }
+            }
+        }
+        
+        // IMPORTANT: Update bill main totals (pfee1_inv, pfee2_inv, etc.)
+        // This method will:
+        // 1. Recalculate invoice totals from details for ALL invoices
+        // 2. Sum them up to update bill main totals
+        // This ensures the Prof Fee summary card shows the correct total
+        // Use CaseController's method which properly sums all invoices
+        $caseController = new \App\Http\Controllers\CaseController();
+        $caseController->updatePfeeDisbAmountINV($bill->id);
+        
+        // Note: We don't need to call updateInvoiceDetailsAmt separately because
+        // updatePfeeDisbAmountINVFromDetails already recalculates all invoice totals from details
+        
+        // IMPORTANT: Fetch fresh bill data from database to ensure we have the latest values
+        // The updatePfeeDisbAmountINVFromDetails method saves the bill, so we need to reload it
+        $updatedBill = LoanCaseBillMain::where('id', $bill->id)->first();
+        
+        // Debug: Log all invoice details to verify calculation
+        $allInvoiceDetails = LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $bill->id)
+            ->where('status', '<>', 99)
+            ->get();
+        foreach ($allInvoiceDetails as $detail) {
+            $accountItem = DB::table('account_item')->where('id', $detail->account_item_id)->first();
+            if ($accountItem && $accountItem->account_cat_id == 1) {
+                \Log::info("Invoice Detail - Invoice {$detail->invoice_main_id}: account_item_id={$detail->account_item_id}, amount={$detail->amount}, pfee1_item={$accountItem->pfee1_item}");
+            }
+        }
+        
+        // Debug: Log all invoice totals
+        $allInvoices = LoanCaseInvoiceMain::where('loan_case_main_bill_id', $bill->id)
+            ->where('status', '<>', 99)
+            ->get();
+        foreach ($allInvoices as $inv) {
+            \Log::info("Invoice {$inv->id}: pfee1_inv={$inv->pfee1_inv}, pfee2_inv={$inv->pfee2_inv}, sst_inv={$inv->sst_inv}");
+        }
+        
+        \Log::info("After updateSplitInvoiceDetail - Bill {$bill->id}: pfee1_inv={$updatedBill->pfee1_inv}, pfee2_inv={$updatedBill->pfee2_inv}, sst_inv={$updatedBill->sst_inv}, total_prof_fee=" . ($updatedBill->pfee1_inv + $updatedBill->pfee2_inv));
+        
+        \Log::info("=== updateSplitInvoiceDetail END - SUCCESS ===");
+        error_log("=== updateSplitInvoiceDetail END - SUCCESS ===");
+        
+        return response()->json([
+            'status' => 1, 
+            'message' => 'Invoice details updated successfully.',
+            'bill_totals' => [
+                'pfee1_inv' => $updatedBill->pfee1_inv,
+                'pfee2_inv' => $updatedBill->pfee2_inv,
+                'sst_inv' => $updatedBill->sst_inv,
+                'total_prof_fee' => $updatedBill->pfee1_inv + $updatedBill->pfee2_inv
+            ]
+        ]);
+        } catch (\Exception $e) {
+            \Log::error("ERROR in updateSplitInvoiceDetail: " . $e->getMessage());
+            \Log::error("Stack trace: " . $e->getTraceAsString());
+            error_log("ERROR in updateSplitInvoiceDetail: " . $e->getMessage());
+            return response()->json(['status' => 0, 'message' => 'Error: ' . $e->getMessage()]);
+        }
+    }
+
+    public function getInvoiceDate($invoice_id)
+    {
+        $current_user = auth()->user();
+
+        $invoice = LoanCaseInvoiceMain::where('id', $invoice_id)->first();
+
+        if (!$invoice) {
+            return response()->json(['status' => 0, 'message' => 'Invoice not found.']);
+        }
+
+        // Format date as YYYY-MM-DD for consistent handling
+        $invoiceDate = null;
+        if ($invoice->Invoice_date) {
+            // Convert to YYYY-MM-DD format
+            $invoiceDate = date('Y-m-d', strtotime($invoice->Invoice_date));
+        }
+
+        return response()->json([
+            'status' => 1,
+            'invoice_date' => $invoiceDate,
+            'invoice_no' => $invoice->invoice_no
+        ]);
+    }
+
+    public function updateInvoiceDate(Request $request)
+    {
+        $current_user = auth()->user();
+
+        $request->validate([
+            'invoice_id' => 'required|integer',
+            'invoice_date' => 'required|date',
+        ]);
+
+        $invoice = LoanCaseInvoiceMain::where('id', $request->invoice_id)->first();
+
+        if (!$invoice) {
+            return response()->json(['status' => 0, 'message' => 'Invoice not found.']);
+        }
+
+        // Check if invoice has been sent to SQL accounting system
+        if ($invoice->bill_party_id) {
+            $billingParty = InvoiceBillingParty::where('id', $invoice->bill_party_id)->first();
+            if ($billingParty && $billingParty->sent_to_sql == 1) {
+                return response()->json(['status' => 0, 'message' => 'Cannot edit invoice that has been sent to SQL accounting system.']);
+            }
+        }
+
+        // Get bill main for case_id
+        $bill = LoanCaseBillMain::where('id', $invoice->loan_case_main_bill_id)->first();
+        if (!$bill) {
+            return response()->json(['status' => 0, 'message' => 'Bill not found.']);
+        }
+
+        // Store old date for logging
+        $oldDate = $invoice->Invoice_date;
+        
+        \Log::info("=== UPDATE INVOICE DATE DEBUG ===");
+        \Log::info("Invoice ID: {$invoice->id}");
+        \Log::info("Old Date: {$oldDate}");
+        \Log::info("Request invoice_date: {$request->invoice_date}");
+        \Log::info("Request all data: " . json_encode($request->all()));
+        
+        // Validate and format the date
+        $newDate = $request->invoice_date;
+        if (!$newDate || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $newDate)) {
+            \Log::error("Invalid date format received: {$newDate}");
+            return response()->json(['status' => 0, 'message' => 'Invalid date format.']);
+        }
+        
+        \Log::info("Formatted new date: {$newDate}");
+        
+        // Update invoice date - ensure it's saved as date format
+        // Use direct DB update to ensure the date is saved correctly
+        $updated = DB::table('loan_case_invoice_main')
+            ->where('id', $invoice->id)
+            ->update([
+                'Invoice_date' => $newDate,
+                'updated_by' => $current_user->id,
+                'updated_at' => date('Y-m-d H:i:s')
+            ]);
+
+        \Log::info("DB update result - rows affected: {$updated}");
+
+        // Reload invoice to get the updated date from database
+        $invoice->refresh();
+        
+        \Log::info("After refresh - Invoice ID: {$invoice->id}, Invoice_date: {$invoice->Invoice_date}");
+        
+        // Verify the date was saved correctly
+        $verifyDate = DB::table('loan_case_invoice_main')
+            ->where('id', $invoice->id)
+            ->value('Invoice_date');
+        \Log::info("Verified date from DB: {$verifyDate}");
+
+        // Create AccountLog entry
+        $AccountLog = new AccountLog();
+        $AccountLog->user_id = $current_user->id;
+        $AccountLog->case_id = $bill->case_id;
+        $AccountLog->bill_id = $bill->id;
+        $AccountLog->object_id = $invoice->id;
+        $AccountLog->ori_amt = 0;
+        $AccountLog->new_amt = 0;
+        $AccountLog->action = 'Update';
+        $AccountLog->desc = $current_user->name . ' update invoice date for invoice ' . $invoice->invoice_no . ' from ' . ($oldDate ? date('d-m-Y', strtotime($oldDate)) : 'N/A') . ' to ' . date('d-m-Y', strtotime($request->invoice_date));
+        $AccountLog->status = 1;
+        $AccountLog->created_at = date('Y-m-d H:i:s');
+        $AccountLog->save();
+
+        // Format the updated date for response
+        $updatedDate = $invoice->Invoice_date ? date('Y-m-d', strtotime($invoice->Invoice_date)) : null;
+
+        return response()->json([
+            'status' => 1,
+            'message' => 'Invoice date updated successfully.',
+            'invoice_date' => $updatedDate,
+            'invoice_no' => $invoice->invoice_no,
+            'bill_id' => $bill->id // Return bill_id for refreshing invoice section
+        ]);
     }
 
     public function splitInvoiceBak(Request $request, $bill_main_id)

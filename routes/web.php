@@ -1010,6 +1010,10 @@ Route::get('transfer-fee-create', [AccountController::class, 'transferFeeCreate'
             Route::post('AddBilltoInvoice/{parameter1}', [EInvoiceContoller::class, 'AddBilltoInvoice']);
             Route::post('loadBillToInv/{parameter1}', [EInvoiceContoller::class, 'loadBillToInv']);
             Route::post('UpdateBillToInfo/{parameter1}', [EInvoiceContoller::class, 'updateBillToInfo']);
+            Route::get('getSplitInvoiceDetails/{invoice_id}', [EInvoiceContoller::class, 'getSplitInvoiceDetails']);
+            Route::post('updateSplitInvoiceDetail', [EInvoiceContoller::class, 'updateSplitInvoiceDetail']);
+            Route::get('getInvoiceDate/{invoice_id}', [EInvoiceContoller::class, 'getInvoiceDate']);
+            Route::post('updateInvoiceDate', [EInvoiceContoller::class, 'updateInvoiceDate']);
             Route::post('removeBillto/{parameter1}', [EInvoiceContoller::class, 'removeBillto']);
             Route::post('loadBillToInvWIthInvoice/{parameter1}', [EInvoiceContoller::class, 'loadBillToInvWIthInvoice']);
 
