@@ -1661,9 +1661,17 @@ class EInvoiceContoller extends Controller
 
         // Format date as YYYY-MM-DD for consistent handling
         $invoiceDate = null;
+        
+        // First, try to get date from invoice main
         if ($invoice->Invoice_date) {
             // Convert to YYYY-MM-DD format
             $invoiceDate = date('Y-m-d', strtotime($invoice->Invoice_date));
+        } else {
+            // If invoice date is empty, retrieve from loan_case_bill_main
+            $bill = LoanCaseBillMain::where('id', $invoice->loan_case_main_bill_id)->first();
+            if ($bill && $bill->invoice_date) {
+                $invoiceDate = date('Y-m-d', strtotime($bill->invoice_date));
+            }
         }
 
         return response()->json([
