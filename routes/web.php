@@ -393,7 +393,14 @@ Route::group(['middleware' => ['get.menu']], function () {
             Route::resource('genfile',        'DocTemplateFileController');
             Route::resource('document-file',        'DocTemplateFilev2Controller'); 
             Route::resource('portfolio',        'PortfolioController');
-            Route::resource('dashboard',        'DashboardController');
+            // Main dashboard route now uses V2 (optimized version)
+            Route::get('dashboard', [DashboardV2Controller::class, 'index'])->name('dashboard.index');
+            
+            // Keep original dashboard accessible at dashboard-original for backup
+            Route::get('dashboard-original', [DashboardController::class, 'index'])->name('dashboard.original');
+            
+            // Keep other dashboard routes for compatibility
+            Route::post('dashboard/{action}', [DashboardController::class, '{action}'])->where('action', 'create|store|update|destroy');
             Route::resource('users',        'UsersController');
             Route::post('filter',        'UsersController@filter');
             Route::resource('office-bank-account',        'OfficeBankAccountController');
@@ -792,10 +799,22 @@ Route::get('transfer-fee-create', [AccountController::class, 'transferFeeCreate'
             Route::post('getDashboardCaseChartBySales', [DashboardController::class, 'getDashboardCaseChartBySales']);
             Route::post('getDashboardReport', [DashboardController::class, 'getDashboardReport']);
 
+            // Dashboard V2 - Optimized AJAX endpoints for lazy loading
+            Route::post('dashboard/load-counts', [DashboardController::class, 'loadDashboardCounts']);
+            Route::post('dashboard/load-notes', [DashboardController::class, 'loadNotesData']);
+            Route::post('dashboard/load-case-files', [DashboardController::class, 'loadCaseFiles']);
+            Route::post('dashboard/load-b2022-cases', [DashboardController::class, 'loadB2022Cases']);
+
             // Dashboard V2 Routes
             Route::get('dashboard-v2', [DashboardV2Controller::class, 'index'])->name('dashboard.v2');
             Route::post('dashboard-v2/chart-data', [DashboardV2Controller::class, 'getChartData']);
             Route::post('dashboard-v2/clear-cache', [DashboardV2Controller::class, 'clearCache']);
+            
+            // Dashboard V2 - Lazy Loading AJAX Endpoints
+            Route::post('dashboard-v2/load-all-notes', [DashboardV2Controller::class, 'loadAllNotes']);
+            Route::post('dashboard-v2/load-summary', [DashboardV2Controller::class, 'loadDashboardSummary']);
+            Route::post('dashboard-v2/load-activities', [DashboardV2Controller::class, 'loadRecentActivities']);
+            Route::post('dashboard-v2/load-metrics', [DashboardV2Controller::class, 'loadPerformanceMetrics']);
             
             // Dashboard V2 - Original Dashboard Methods
             Route::post('dashboard-v2/getDashboardCaseCount', [DashboardV2Controller::class, 'getDashboardCaseCount']);

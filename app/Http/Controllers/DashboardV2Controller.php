@@ -14,6 +14,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Auth;
+use App\Http\Controllers\AccessController;
+use App\Http\Controllers\BranchController;
+use App\Http\Controllers\CaseController;
 
 class DashboardV2Controller extends Controller
 {
@@ -24,47 +27,111 @@ class DashboardV2Controller extends Controller
     {
         $current_user = auth()->user();
         $currentYear = Carbon::now()->year;
+        $currentMonth = Carbon::now()->month; // Current month (December = 12)
         
         // Get branches with caching for better performance
         $branches = Cache::remember('active_branches', 3600, function () {
             return Branch::where('status', 1)->get();
         });
 
-        // Get dashboard summary data with caching
-        $dashboardSummary = $this->getDashboardSummary($current_user, $currentYear);
+        // Load dashboard summary with case counts for current month and year
+        // Default to current month (December) and current year (2025)
+        $dashboardSummary = $this->getDashboardSummary($current_user, $currentYear, $currentMonth);
         
-        // Get recent activities
-        $recentActivities = $this->getRecentActivities($current_user);
-        
-        // Get performance metrics
-        $performanceMetrics = $this->getPerformanceMetrics($current_user, $currentYear);
+        // Defer other heavy data loading - load via AJAX for better initial page load
+        $recentActivities = [];
+        $performanceMetrics = [];
 
-        // Get notes data (KIV, Marketing, PNC)
-        $notesData = $this->getNotesData($current_user);
+        // Lazy load notes data - only load minimal data initially, rest via AJAX
+        // Limit initial load to 10 items for faster page load
+        $notesData = $this->getNotesData($current_user, 10);
+        $kiv_note = $notesData['kiv_note'] ?? collect([]);
+        $pnc_note = $notesData['pnc_note'] ?? collect([]);
+        $LoanMarketingNotes = $notesData['LoanMarketingNotes'] ?? collect([]);
         
-        // Get today's message count
-        $todayMessageCount = $this->getTodayMessageCount($current_user);
+        // Get today's message count - cached
+        $today_message_count = Cache::remember("today_message_count_{$current_user->id}", 300, function () use ($current_user) {
+            return $this->getTodayMessageCount($current_user);
+        });
+
+        // Get B2022 cases data (for admin/account roles)
+        $b2022Cases = $this->getB2022Cases($current_user);
+        
+        // Extract B2022 variables to match original dashboard structure
+        $B2022AllCases = $b2022Cases['B2022AllCases'] ?? 0;
+        $B2022ClosedCases = $b2022Cases['B2022ClosedCases'] ?? 0;
+        $B2022ActiveCases = $b2022Cases['B2022ActiveCases'] ?? 0;
+        $B2022PendingCloseCases = $b2022Cases['B2022PendingCloseCases'] ?? 0;
+        $totalAcount = $b2022Cases['totalAcount'] ?? 0;
+        $totalAssigned = $b2022Cases['totalAssigned'] ?? 0;
+        $totalUpdated = $b2022Cases['totalUpdated'] ?? 0;
+
+        // Additional variables that might be needed by the view
+        $case_file = collect([]);
+        $case_path = '';
+        $LoanCaseChecklistDetails = [];
+        $BonusRequestList = [];
+        $cases = [];
+        $OverdueCaseCount = 0;
+        
+        // Get case path parameter
+        $parameter = Cache::remember('case_file_path_parameter', 3600, function () {
+            return \App\Models\Parameter::where('parameter_type', '=', 'case_file_path')->first();
+        });
+        if ($parameter) {
+            $case_path = $parameter->parameter_value_1;
+        }
+        
+        // Use $branches as $Branch to match view expectations
+        $Branch = $branches;
 
         return view('dashboard.v2.index', compact(
             'current_user',
             'branches',
+            'Branch',
             'dashboardSummary',
             'recentActivities',
             'performanceMetrics',
             'currentYear',
+            'currentMonth',
             'notesData',
-            'todayMessageCount'
+            'kiv_note',
+            'pnc_note',
+            'LoanMarketingNotes',
+            'today_message_count',
+            'B2022AllCases',
+            'B2022ClosedCases',
+            'B2022ActiveCases',
+            'B2022PendingCloseCases',
+            'totalAcount',
+            'totalAssigned',
+            'totalUpdated',
+            'case_file',
+            'case_path',
+            'LoanCaseChecklistDetails',
+            'BonusRequestList',
+            'cases',
+            'OverdueCaseCount'
         ));
     }
 
     /**
      * Get enhanced dashboard summary with better performance
+     * @param int|null $year Year filter (defaults to current year)
+     * @param int|null $month Month filter (defaults to current month, 0 = all months)
      */
-    private function getDashboardSummary($user, $year)
+    private function getDashboardSummary($user, $year = null, $month = null)
     {
-        $cacheKey = "dashboard_summary_{$user->id}_{$year}";
+        if ($year === null) {
+            $year = Carbon::now()->year;
+        }
+        if ($month === null) {
+            $month = Carbon::now()->month;
+        }
         
-        return Cache::remember($cacheKey, 300, function () use ($user, $year) {
+        $cacheKey = "dashboard_summary_{$user->id}_{$year}_{$month}";
+        
+        return Cache::remember($cacheKey, 300, function () use ($user, $year, $month) {
             $summary = [];
             
             // Get case counts with optimized queries
@@ -76,13 +143,18 @@ class DashboardV2Controller extends Controller
                     SUM(CASE WHEN status = 4 THEN 1 ELSE 0 END) as overdue_cases,
                     SUM(CASE WHEN status = 99 THEN 1 ELSE 0 END) as aborted_cases
                 ')
-                ->whereYear('created_at', $year)
-                ->where('status', '<>', 99);
+                ->where('status', '<>', 99)
+                ->whereYear('created_at', $year);
+            
+            // Apply month filter if specified (0 means all months)
+            if ($month > 0) {
+                $caseCounts = $caseCounts->whereMonth('created_at', $month);
+            }
 
-            // Apply user access restrictions
+            // Apply user access restrictions with permission control
             if (!in_array($user->menuroles, ['admin', 'management', 'account'])) {
-                $accessibleBranches = $this->getUserAccessibleBranches($user);
-                $caseCounts = $caseCounts->whereIn('branch_id', $accessibleBranches);
+                $accessCaseList = CaseController::caseManagementEngine();
+                $caseCounts = $caseCounts->whereIn('id', $accessCaseList);
             }
 
             $caseData = $caseCounts->first();
@@ -94,10 +166,10 @@ class DashboardV2Controller extends Controller
             $summary['aborted_cases'] = $caseData->aborted_cases ?? 0;
             $summary['open_cases'] = $summary['total_cases'] - $summary['closed_cases'] - $summary['aborted_cases'];
             
-            // Get monthly case trends
+            // Get monthly case trends (for current year)
             $summary['monthly_trends'] = $this->getMonthlyCaseTrends($user, $year);
             
-            // Get branch performance
+            // Get branch performance (for current year)
             $summary['branch_performance'] = $this->getBranchPerformance($user, $year);
             
             return $summary;
@@ -280,71 +352,115 @@ class DashboardV2Controller extends Controller
     }
 
     /**
-     * Get notes data for dashboard
+     * Get notes data for dashboard - matching original dashboard logic
+     * @param int $limit Limit number of records to load (for lazy loading)
      */
-    private function getNotesData($user)
+    private function getNotesData($user, $limit = null)
     {
-        $cacheKey = "notes_data_{$user->id}";
+        $cacheKey = "notes_data_{$user->id}" . ($limit ? "_limit_{$limit}" : "");
         
-        return Cache::remember($cacheKey, 300, function () use ($user) {
+        return Cache::remember($cacheKey, 180, function () use ($user, $limit) {
             $notesData = [];
             
-            // Get KIV notes
+            $date = Carbon::now()->subDays(4);
+            if($user->id == 22) {
+                $date = Carbon::now()->subDays(30);
+            }
+            
+            $accessInfo = Cache::remember("access_info_{$user->id}", 300, function () {
+                return AccessController::manageAccess();
+            });
+            
+            // Get KIV notes - matching original dashboard logic
             $kivNotes = DB::table('loan_case_kiv_notes as n')
-                ->leftJoin('loan_case as l', 'n.case_id', '=', 'l.id')
-                ->leftJoin('users as u', 'n.created_by', '=', 'u.id')
-                ->select('n.*', 'l.case_ref_no', 'l.branch_id', 'l.sales_user_id', 'u.name as user_name')
-                ->where('n.status', '<>', 99)
-                ->where('l.status', '<>', 99);
+                ->join('loan_case as l', 'l.id', '=', 'n.case_id')
+                ->join('users as u', 'u.id', '=', 'n.created_by')
+                ->where('n.status', '=', 1)
+                ->where('l.status', '<>', 99)
+                ->select('n.*', 'l.case_ref_no', 'u.name as name', 'u.name as user_name', 'u.menuroles')
+                ->where('n.created_at', '>=', $date);
 
-            // Apply user access restrictions
-            if (in_array($user->menuroles, ['sales'])) {
-                if (in_array($user->id, [144, 127])) {
-                    $kivNotes = $kivNotes->whereIn('l.sales_user_id', [32, 51, 127]);
-                } elseif (in_array($user->id, [32])) {
+            if (in_array($user->menuroles, ['clerk', 'lawyer', 'chambering'])) {
+                $kivNotes = $kivNotes->where(function ($q) use ($user) {
+                    $q->where('l.lawyer_id', $user->id)
+                        ->orWhere('l.clerk_id', $user->id);
+                });
+            } elseif (in_array($user->menuroles, ['sales'])) {
+                if (in_array($user->id, [51,127])) {
+                    $kivNotes = $kivNotes->whereIn('l.sales_user_id', [32, 51,127]);
+                } else if (in_array($user->id, [144])) {
                     $kivNotes = $kivNotes->whereIn('l.sales_user_id', [$user->id, 29]);
                 } else {
-                    $kivNotes = $kivNotes->where('l.sales_user_id', $user->id);
+                    $kivNotes = $kivNotes->where('l.sales_user_id', '=', $user->id);
                 }
             }
 
-            $notesData['kiv_note'] = $kivNotes->orderBy('n.created_at', 'DESC')->get();
+            $kivNotes = $kivNotes->where(function ($q) use ($accessInfo) {
+                $q->whereIn('l.branch_id',  $accessInfo['brancAccessList'])
+                    ->orWhereIn('sales_user_id', $accessInfo['user_list'])
+                    ->orWhereIn('clerk_id', $accessInfo['user_list'])
+                    ->orWhereIn('lawyer_id', $accessInfo['user_list']);
+            });
 
-            // Get Marketing notes
-            $marketingNotes = DB::table('loan_case_kiv_notes as n')
-                ->leftJoin('loan_case as l', 'n.case_id', '=', 'l.id')
-                ->leftJoin('users as u', 'n.created_by', '=', 'u.id')
-                ->select('n.*', 'l.case_ref_no', 'l.branch_id', 'l.sales_user_id', 'u.name as user_name')
-                ->where('n.status', '<>', 99)
+            $kivNotes = $kivNotes->orderBy('n.created_at', 'DESC');
+            if ($limit) {
+                $kivNotes = $kivNotes->limit($limit);
+            }
+            $notesData['kiv_note'] = $kivNotes->get();
+
+            // Get PNC notes
+            $pncNotes = DB::table('loan_case_pnc_notes as n')
+                ->join('loan_case as l', 'l.id', '=', 'n.case_id')
+                ->join('users as u', 'u.id', '=', 'n.created_by')
+                ->where('n.status', '=', 1)
                 ->where('l.status', '<>', 99)
-                ->where('n.label', 'operation|marketing');
-
-            if (in_array($user->menuroles, ['sales'])) {
-                if (in_array($user->id, [144, 127])) {
-                    $marketingNotes = $marketingNotes->whereIn('l.sales_user_id', [32, 51, 127]);
-                } elseif (in_array($user->id, [32])) {
-                    $marketingNotes = $marketingNotes->whereIn('l.sales_user_id', [$user->id, 29]);
-                } else {
-                    $marketingNotes = $marketingNotes->where('l.sales_user_id', $user->id);
-                }
+                ->select('n.*', 'l.case_ref_no', 'u.name as name', 'u.name as user_name', 'u.menuroles')
+                ->where('n.created_at', '>=', $date)
+                ->orderBy('n.created_at', 'DESC');
+            
+            if ($limit) {
+                $pncNotes = $pncNotes->limit($limit);
             }
+            
+            $notesData['pnc_note'] = $pncNotes->get();
 
-            $notesData['LoanMarketingNotes'] = $marketingNotes->orderBy('n.created_at', 'DESC')->get();
-
-            // Get PNC notes (for management users)
-            if ($user->management == 1) {
-                $pncNotes = DB::table('loan_case_kiv_notes as n')
-                    ->leftJoin('loan_case as l', 'n.case_id', '=', 'l.id')
-                    ->leftJoin('users as u', 'n.created_by', '=', 'u.id')
-                    ->select('n.*', 'l.case_ref_no', 'l.branch_id', 'l.sales_user_id', 'u.name as user_name')
-                    ->where('n.status', '<>', 99)
+            // Get Marketing notes - matching original dashboard logic
+            $LoanMarketingNotes = collect([]);
+            if (in_array($user->menuroles, ['account', 'admin', 'sales', 'maker'])) {
+                $Last7Days = Carbon::now()->subDays(14);
+                $marketingNotes = DB::table('loan_case_notes AS n')
+                    ->join('loan_case as l', 'l.id', '=', 'n.case_id')
+                    ->leftJoin('users AS u', 'u.id', '=', 'n.created_by')
                     ->where('l.status', '<>', 99)
-                    ->where('n.label', 'operation|pnc');
+                    ->where('n.status', '<>', 99)
+                    ->where('n.created_at', '>=', $Last7Days)
+                    ->select('n.*',  'l.case_ref_no', 'u.name as user_name', 'u.menuroles');
 
-                $notesData['pnc_note'] = $pncNotes->orderBy('n.created_at', 'DESC')->get();
-            } else {
-                $notesData['pnc_note'] = collect([]);
+                if (in_array($user->menuroles, ['sales'])) {
+                    if (in_array($user->id, [51,127])) {
+                        $marketingNotes = $marketingNotes->whereIn('l.sales_user_id', [32, 51,127]);
+                    } else if (in_array($user->id, [144])) {
+                        $marketingNotes = $marketingNotes->whereIn('l.sales_user_id', [$user->id, 29]);
+                    } else {
+                        $marketingNotes = $marketingNotes->whereIn('l.sales_user_id', [$user->id]);
+                    }
+                } else if (in_array($user->menuroles, ['maker'])) {
+                    $marketingNotes = $marketingNotes->where(function ($q) use ($accessInfo) {
+                        $q->whereIn('l.branch_id',  $accessInfo['brancAccessList'])
+                            ->orWhereIn('sales_user_id', $accessInfo['user_list'])
+                            ->orWhereIn('clerk_id', $accessInfo['user_list'])
+                            ->orWhereIn('lawyer_id', $accessInfo['user_list']);
+                    });
+                }
+
+                $marketingNotes = $marketingNotes->orderBy('n.created_at', 'DESC');
+                if ($limit) {
+                    $marketingNotes = $marketingNotes->limit($limit);
+                }
+                $LoanMarketingNotes = $marketingNotes->get();
             }
+            
+            $notesData['LoanMarketingNotes'] = $LoanMarketingNotes;
 
             return $notesData;
         });
@@ -511,12 +627,73 @@ class DashboardV2Controller extends Controller
     }
 
     /**
-     * Get dashboard case count (for legal cases section)
+     * Get dashboard case count (for legal cases section) - matching original dashboard logic
      */
     public function getDashboardCaseCount(Request $request)
     {
-        // Implementation for legal case count
-        return response()->json(['status' => 1, 'message' => 'Not implemented yet']);
+        $current_user = auth()->user();
+        $userRoles = $current_user->menuroles;
+        
+        // Get access info with caching
+        $accessInfo = Cache::remember("access_info_{$current_user->id}", 300, function () {
+            return AccessController::manageAccess();
+        });
+        
+        $branchInfo = Cache::remember("branch_access_{$current_user->id}", 3600, function () {
+            return BranchController::manageBranchAccess();
+        });
+
+        $openCaseCount = DB::table('loan_case');
+        $abortCaseCount = DB::table('loan_case')->whereIn('status', [99]);
+        $InProgressCaseCount = DB::table('loan_case')->whereIn('status', [1, 2, 3]);
+        $closedCaseCount = DB::table('loan_case')->where('status', '=', 0);
+        $OverdueCaseCount = DB::table('loan_case')->where('status', '=', 4);
+
+        // Apply permission controls - matching original dashboard logic
+        if (!in_array($userRoles, ['admin', 'management', 'account'])) {
+            $accessCaseList = CaseController::caseManagementEngine();
+
+            $openCaseCount = $openCaseCount->whereIn('id', $accessCaseList);
+            $InProgressCaseCount = $InProgressCaseCount->whereIn('id', $accessCaseList);
+            $OverdueCaseCount = $OverdueCaseCount->whereIn('id', $accessCaseList);
+            $closedCaseCount = $closedCaseCount->whereIn('id', $accessCaseList);
+            $abortCaseCount = $abortCaseCount->whereIn('id', $accessCaseList);
+        }
+
+        // Apply filters
+        if ($request->input("month") != 0) {
+            $openCaseCount = $openCaseCount->whereMonth('created_at', $request->input("month"));
+            $InProgressCaseCount = $InProgressCaseCount->whereMonth('created_at', $request->input("month"));
+            $closedCaseCount = $closedCaseCount->whereMonth('created_at', $request->input("month"));
+            $OverdueCaseCount = $OverdueCaseCount->whereMonth('created_at', $request->input("month"));
+            $abortCaseCount = $abortCaseCount->whereMonth('created_at', $request->input("month"));
+        }
+
+        if ($request->input("year") != 0) {
+            $openCaseCount = $openCaseCount->whereYear('created_at', $request->input("year"));
+            $InProgressCaseCount = $InProgressCaseCount->whereYear('created_at', $request->input("year"));
+            $closedCaseCount = $closedCaseCount->whereYear('created_at', $request->input("year"));
+            $OverdueCaseCount = $OverdueCaseCount->whereYear('created_at', $request->input("year"));
+            $abortCaseCount = $abortCaseCount->whereYear('created_at', $request->input("year"));
+        }
+
+        if ($request->input("branch") != 0) {
+            $openCaseCount = $openCaseCount->where('branch_id', $request->input("branch"));
+            $InProgressCaseCount = $InProgressCaseCount->where('branch_id', $request->input("branch"));
+            $closedCaseCount = $closedCaseCount->where('branch_id', $request->input("branch"));
+            $OverdueCaseCount = $OverdueCaseCount->where('branch_id', $request->input("branch"));
+            $abortCaseCount = $abortCaseCount->where('branch_id', $request->input("branch"));
+        }
+
+        $openCaseCount = $openCaseCount->count();
+        $InProgressCaseCount = $InProgressCaseCount->whereIn('status', [1, 2, 3])->count();
+        $closedCaseCount = $closedCaseCount->where('status', '=', 0)->count();
+        $OverdueCaseCount = $OverdueCaseCount->where('status', '=', 4)->count();
+        $abortCaseCount = $abortCaseCount->whereIn('status', [99])->count();
+
+        return response()->json([
+            'view' => view('dashboard.dashboard.dashboard-legal-case', compact('abortCaseCount','openCaseCount','InProgressCaseCount','closedCaseCount','OverdueCaseCount', 'current_user'))->render()
+        ]);
     }
 
     /**
@@ -669,4 +846,102 @@ class DashboardV2Controller extends Controller
             'caseCount' => $caseCount,
         ]);
     }
+
+    /**
+     * Get B2022 cases data with permission control
+     */
+    private function getB2022Cases($user)
+    {
+        $data = [
+            'B2022AllCases' => 0,
+            'B2022ClosedCases' => 0,
+            'B2022ActiveCases' => 0,
+            'B2022PendingCloseCases' => 0,
+            'totalAcount' => 0,
+            'totalAssigned' => 0,
+            'totalUpdated' => 0,
+        ];
+
+        if ($user->menuroles == 'manager' || $user->menuroles == 'admin' || $user->menuroles == 'account') {
+            $cacheKey = "b2022_cases_admin_{$user->id}";
+            
+            $casesData = Cache::remember($cacheKey, 300, function () {
+                return [
+                    'B2022PendingCloseCases' => DB::table('cases_outside_system')->where('status', '=', 3)->count(),
+                    'B2022AllCases' => DB::table('cases_outside_system')->count(),
+                    'B2022ClosedCases' => DB::table('cases_outside_system')->where('status', '=', 2)->count(),
+                    'B2022ActiveCases' => DB::table('cases_outside_system')->where('status', '=', 1)->count(),
+                ];
+            });
+
+            $data = array_merge($data, $casesData);
+        } else {
+            $cacheKey = "b2022_cases_user_{$user->id}";
+            
+            $casesData = Cache::remember($cacheKey, 300, function () use ($user) {
+                return [
+                    'totalAcount' => DB::table('cases_outside_system')->where('status', '=', 1)->where('old_pic_id', '=', $user->id)->count(),
+                    'totalAssigned' => DB::table('cases_outside_system')->where('new_pic_id', '<>', 0)->where('old_pic_id', '=', $user->id)->count(),
+                    'totalUpdated' => DB::table('cases_outside_system')->where('old_pic_id', '=', $user->id)->where('remarks', '<>', '')->count(),
+                ];
+            });
+
+            $data = array_merge($data, $casesData);
+        }
+
+        return $data;
+    }
+
+    /**
+     * AJAX endpoint to load all notes data (for lazy loading)
+     */
+    public function loadAllNotes(Request $request)
+    {
+        $current_user = auth()->user();
+        $notesData = $this->getNotesData($current_user); // Load all without limit
+        
+        return response()->json([
+            'kiv_note' => $notesData['kiv_note'],
+            'pnc_note' => $notesData['pnc_note'],
+            'LoanMarketingNotes' => $notesData['LoanMarketingNotes'],
+        ]);
+    }
+
+    /**
+     * AJAX endpoint to load dashboard summary
+     */
+    public function loadDashboardSummary(Request $request)
+    {
+        $current_user = auth()->user();
+        $currentYear = $request->input('year', Carbon::now()->year);
+        
+        $dashboardSummary = $this->getDashboardSummary($current_user, $currentYear);
+        
+        return response()->json($dashboardSummary);
+    }
+
+    /**
+     * AJAX endpoint to load recent activities
+     */
+    public function loadRecentActivities(Request $request)
+    {
+        $current_user = auth()->user();
+        $recentActivities = $this->getRecentActivities($current_user);
+        
+        return response()->json(['activities' => $recentActivities]);
+    }
+
+    /**
+     * AJAX endpoint to load performance metrics
+     */
+    public function loadPerformanceMetrics(Request $request)
+    {
+        $current_user = auth()->user();
+        $currentYear = $request->input('year', Carbon::now()->year);
+        
+        $performanceMetrics = $this->getPerformanceMetrics($current_user, $currentYear);
+        
+        return response()->json($performanceMetrics);
+    }
 }
+

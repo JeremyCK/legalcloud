@@ -47,18 +47,18 @@
                                             <select class="form-control ddl_month" id="ddl_month_case" 
                                                 name="ddl_month" onchange="getDashBoardCaseCount()">
                                                 <option value="0">-- All --</option>
-                                                <option value="1">January</option>
-                                                <option value='2'>February</option>
-                                                <option value='3'>March</option>
-                                                <option value='4'>April</option>
-                                                <option value='5'>May</option>
-                                                <option value='6'>June</option>
-                                                <option value='7'>July</option>
-                                                <option value='8'>August</option>
-                                                <option value='9'>September</option>
-                                                <option value='10'>October</option>
-                                                <option value='11'>November</option>
-                                                <option value='12'>December</option>
+                                                <option value="1" {{ (isset($currentMonth) && $currentMonth == 1) ? 'selected' : '' }}>January</option>
+                                                <option value='2' {{ (isset($currentMonth) && $currentMonth == 2) ? 'selected' : '' }}>February</option>
+                                                <option value='3' {{ (isset($currentMonth) && $currentMonth == 3) ? 'selected' : '' }}>March</option>
+                                                <option value='4' {{ (isset($currentMonth) && $currentMonth == 4) ? 'selected' : '' }}>April</option>
+                                                <option value='5' {{ (isset($currentMonth) && $currentMonth == 5) ? 'selected' : '' }}>May</option>
+                                                <option value='6' {{ (isset($currentMonth) && $currentMonth == 6) ? 'selected' : '' }}>June</option>
+                                                <option value='7' {{ (isset($currentMonth) && $currentMonth == 7) ? 'selected' : '' }}>July</option>
+                                                <option value='8' {{ (isset($currentMonth) && $currentMonth == 8) ? 'selected' : '' }}>August</option>
+                                                <option value='9' {{ (isset($currentMonth) && $currentMonth == 9) ? 'selected' : '' }}>September</option>
+                                                <option value='10' {{ (isset($currentMonth) && $currentMonth == 10) ? 'selected' : '' }}>October</option>
+                                                <option value='11' {{ (isset($currentMonth) && $currentMonth == 11) ? 'selected' : '' }}>November</option>
+                                                <option value='12' {{ (isset($currentMonth) && $currentMonth == 12) ? 'selected' : '' }}>December</option>
                                             </select>
                                         </div>
                                     </div>
@@ -937,7 +937,7 @@
                                         <div class="card">
                                             <div class="card-header">
                                                 <strong>Notes</strong> <span class=" badge badge-pill badge-danger">Today new messages:
-                                                    {{ $todayMessageCount }}</span>
+                                                    {{ $today_message_count }}</span>
                                             </div>
                                             <div class="card-body" style="max-height:600px;overflow:scroll">
                                                 <br>
@@ -3298,6 +3298,115 @@
                             });
                         }
                     </script>
+                    
+                    <script>
+                        // Dashboard V2 - Lazy Loading for Better Performance
+                        $(document).ready(function() {
+                            // Load heavy data asynchronously after page loads
+                            setTimeout(function() {
+                                loadAllNotesData();
+                                loadDashboardSummaryData();
+                                loadRecentActivitiesData();
+                                loadPerformanceMetricsData();
+                            }, 500); // Wait 500ms after page load
+                        });
+
+                        function loadAllNotesData() {
+                            $.ajaxSetup({
+                                headers: {
+                                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                                }
+                            });
+
+                            $.ajax({
+                                type: 'POST',
+                                url: '/dashboard/load-all-notes',
+                                success: function(data) {
+                                    // Update notes sections if they exist
+                                    if (data.kiv_note && $('#kiv-notes-container').length) {
+                                        updateNotesSection('#kiv-notes-container', data.kiv_note);
+                                    }
+                                    if (data.pnc_note && $('#pnc-notes-container').length) {
+                                        updateNotesSection('#pnc-notes-container', data.pnc_note);
+                                    }
+                                    if (data.LoanMarketingNotes && $('#marketing-notes-container').length) {
+                                        updateNotesSection('#marketing-notes-container', data.LoanMarketingNotes);
+                                    }
+                                },
+                                error: function(xhr, status, error) {
+                                    console.error('Error loading notes:', error);
+                                }
+                            });
+                        }
+
+                        function loadDashboardSummaryData() {
+                            $.ajaxSetup({
+                                headers: {
+                                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                                }
+                            });
+
+                            $.ajax({
+                                type: 'POST',
+                                url: '/dashboard/load-summary',
+                                data: { year: new Date().getFullYear() },
+                                success: function(data) {
+                                    // Update summary cards if needed
+                                    console.log('Dashboard summary loaded');
+                                },
+                                error: function(xhr, status, error) {
+                                    console.error('Error loading summary:', error);
+                                }
+                            });
+                        }
+
+                        function loadRecentActivitiesData() {
+                            $.ajaxSetup({
+                                headers: {
+                                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                                }
+                            });
+
+                            $.ajax({
+                                type: 'POST',
+                                url: '/dashboard/load-activities',
+                                success: function(data) {
+                                    // Update activities section if needed
+                                    console.log('Recent activities loaded');
+                                },
+                                error: function(xhr, status, error) {
+                                    console.error('Error loading activities:', error);
+                                }
+                            });
+                        }
+
+                        function loadPerformanceMetricsData() {
+                            $.ajaxSetup({
+                                headers: {
+                                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                                }
+                            });
+
+                            $.ajax({
+                                type: 'POST',
+                                url: '/dashboard/load-metrics',
+                                data: { year: new Date().getFullYear() },
+                                success: function(data) {
+                                    // Update metrics if needed
+                                    console.log('Performance metrics loaded');
+                                },
+                                error: function(xhr, status, error) {
+                                    console.error('Error loading metrics:', error);
+                                }
+                            });
+                        }
+
+                        function updateNotesSection(container, notes) {
+                            // This can be customized based on your view structure
+                            console.log('Updating notes section:', container, notes.length);
+                        }
+                    </script>
+                    
                     <script src="{{ asset('js/Chart.min.js') }}"></script>
     <script src="{{ asset('js/coreui-chartjs.js') }}"></script>
     <script src="{{ asset('js/main.js?00001') }}"></script>

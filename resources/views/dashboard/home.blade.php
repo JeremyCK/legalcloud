@@ -3,6 +3,26 @@
 @section('css')
     <link href="{{ asset('css/coreui-chartjs.css') }}" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.4/Chart.js"></script>
+    <style>
+        .loading-skeleton {
+            background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+            background-size: 200% 100%;
+            animation: loading 1.5s ease-in-out infinite;
+            border-radius: 4px;
+            min-height: 20px;
+        }
+        @keyframes loading {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+        .lazy-load-section {
+            min-height: 100px;
+        }
+        .card-loading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+    </style>
 @endsection
 
 @section('content')
@@ -100,21 +120,22 @@
             @endif
 
             @if (in_array($current_user->menuroles, ['admin', 'account']))
-            <div class="row">
+            <div class="row" id="b2022-cases-section">
                 <div class="col-xl-12">
                     <div class="card">
                         <div class="card-header">
                             <strong>Case Before 2022</strong>
                         </div>
-                        <div class="card-body">
-
+                        <div class="card-body lazy-load-section">
                             <div class="row" id="div-case-count">
                                 <div class="col-sm-6 col-lg-3">
                                     <div class="card text-white bg-primary">
                                         <div class="card-body pb-0" style="padding-bottom:30px !important;">
                                             <div class="btn-group float-right">
                                             </div>
-                                            <div class="text-value-lg">{{ $B2022AllCases }}</div>
+                                            <div class="text-value-lg" id="b2022-all-cases">
+                                                <span class="loading-skeleton" style="display:inline-block;width:50px;height:30px;"></span>
+                                            </div>
                                             <div>Total Cases</div>
                                         </div>
                                     </div>
@@ -124,7 +145,9 @@
                                     <div class="card text-white bg-success">
                                         <div class="card-body pb-0" style="padding-bottom:30px !important;">
             
-                                            <div class="text-value-lg">{{ $B2022ClosedCases }}</div>
+                                            <div class="text-value-lg" id="b2022-closed-cases">
+                                                <span class="loading-skeleton" style="display:inline-block;width:50px;height:30px;"></span>
+                                            </div>
                                             <div>Total Closed Cases</div>
                                         </div>
                                     </div>
@@ -134,7 +157,9 @@
                                     <div class="card text-white bg-warning">
                                         <div class="card-body pb-0" style="padding-bottom:30px !important;">
             
-                                            <div class="text-value-lg">{{ $B2022ActiveCases }}</div>
+                                            <div class="text-value-lg" id="b2022-active-cases">
+                                                <span class="loading-skeleton" style="display:inline-block;width:50px;height:30px;"></span>
+                                            </div>
                                             <div>Total Active Cases</div>
                                         </div>
                                     </div>
@@ -144,7 +169,9 @@
                                     <div class="card text-white bg-purple">
                                         <div class="card-body pb-0" style="padding-bottom:30px !important;">
             
-                                            <div class="text-value-lg">{{ $B2022PendingCloseCases }}</div>
+                                            <div class="text-value-lg" id="b2022-pending-close-cases">
+                                                <span class="loading-skeleton" style="display:inline-block;width:50px;height:30px;"></span>
+                                            </div>
                                             <div>Total Pending Close Cases</div>
                                         </div>
                                     </div>
@@ -2592,6 +2619,88 @@
 
         function clearForm() {
             document.getElementById("form_search").reset();
+        }
+
+        // Dashboard V2 - Lazy loading functions for better performance
+        $(document).ready(function() {
+            // Load dashboard counts asynchronously
+            loadDashboardCounts();
+            
+            // Load B2022 cases asynchronously (if section exists)
+            if ($('#b2022-cases-section').length) {
+                loadB2022Cases();
+            }
+        });
+
+        function loadDashboardCounts() {
+            $.ajaxSetup({
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                }
+            });
+
+            $.ajax({
+                type: 'POST',
+                url: '/dashboard/load-counts',
+                success: function(data) {
+                    // Update case count cards if they exist
+                    if (data.InProgressCaseCount !== undefined && $('#in-progress-count').length) {
+                        $('#in-progress-count').text(data.InProgressCaseCount);
+                    }
+                    if (data.openCaseCount !== undefined && $('#open-case-count').length) {
+                        $('#open-case-count').text(data.openCaseCount);
+                    }
+                    if (data.closedCaseCount !== undefined && $('#closed-case-count').length) {
+                        $('#closed-case-count').text(data.closedCaseCount);
+                    }
+                    if (data.OverdueCaseCount !== undefined && $('#overdue-case-count').length) {
+                        $('#overdue-case-count').text(data.OverdueCaseCount);
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('Error loading dashboard counts:', error);
+                }
+            });
+        }
+
+        function loadB2022Cases() {
+            $.ajaxSetup({
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                }
+            });
+
+            $.ajax({
+                type: 'POST',
+                url: '/dashboard/load-b2022-cases',
+                success: function(data) {
+                    // Update B2022 cases section
+                    if (data.B2022AllCases !== undefined && $('#b2022-all-cases').length) {
+                        $('#b2022-all-cases').html(data.B2022AllCases);
+                    }
+                    if (data.B2022ClosedCases !== undefined && $('#b2022-closed-cases').length) {
+                        $('#b2022-closed-cases').html(data.B2022ClosedCases);
+                    }
+                    if (data.B2022ActiveCases !== undefined && $('#b2022-active-cases').length) {
+                        $('#b2022-active-cases').html(data.B2022ActiveCases);
+                    }
+                    if (data.B2022PendingCloseCases !== undefined && $('#b2022-pending-close-cases').length) {
+                        $('#b2022-pending-close-cases').html(data.B2022PendingCloseCases);
+                    }
+                    if (data.totalAcount !== undefined && $('#total-account').length) {
+                        $('#total-account').text(data.totalAcount);
+                    }
+                    if (data.totalAssigned !== undefined && $('#total-assigned').length) {
+                        $('#total-assigned').text(data.totalAssigned);
+                    }
+                    if (data.totalUpdated !== undefined && $('#total-updated').length) {
+                        $('#total-updated').text(data.totalUpdated);
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('Error loading B2022 cases:', error);
+                }
+            });
         }
     </script>
     <script src="{{ asset('js/Chart.min.js') }}"></script>

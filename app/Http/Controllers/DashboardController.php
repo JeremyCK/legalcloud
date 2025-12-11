@@ -23,6 +23,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Yajra\DataTables\Facades\DataTables;
 
 class DashboardController extends Controller
@@ -35,41 +36,22 @@ class DashboardController extends Controller
     public function index()
     {
         $current_user = auth()->user();
-        $cases = [];
+        
+        // Cache branch info for 1 hour
+        $branchInfo = Cache::remember("branch_access_{$current_user->id}", 3600, function () {
+            return BranchController::manageBranchAccess();
+        });
 
-        $InProgressCaseCount = 0;
-        $openCaseCount = 0;
-        $closedCaseCount = 0;
-        $OverdueCaseCount = 0;
+        // Cache parameter for 1 hour
+        $parameter = Cache::remember('case_file_path_parameter', 3600, function () {
+            return Parameter::where('parameter_type', '=', 'case_file_path')->first();
+        });
+        $case_path = $parameter ? $parameter->parameter_value_1 : '';
 
-        $B2022AllCases = 0;
-        $B2022ClosedCases = 0;
-        $B2022ActiveCases = 0;
-        $B2022PendingCloseCases = 0;
-
-        $totalAcount = 0;
-        $totalAssigned = 0;
-        $totalUpdated = 0;
-
-        $B2022AllCases = 0;
-        $B2022ClosedCases = 0;
-        $B2022ActiveCases = 0;
-        $B2022PendingCloseCases = 0;
-
-        $current_user = auth()->user();
-        $lawyer_list = [];
-        $clerk_list = [];
-        $LoanCaseChecklistDetails = [];
-        $kiv_note = [];
-        $case_file = [];
-        $BonusRequestList = [];
-        $today_message_count =  0;
-        $LoanMarketingNotes = [];
-
-        $branchInfo = BranchController::manageBranchAccess();
-
-        $parameter = Parameter::where('parameter_type', '=', 'case_file_path')->first();
-        $case_path = $parameter->parameter_value_1;
+        // Cache branches for 1 hour
+        $Branch = Cache::remember('active_branches', 3600, function () {
+            return Branch::where('status', 1)->get();
+        });
 
         Carbon::setWeekStartsAt(Carbon::SUNDAY);
         Carbon::setWeekEndsAt(Carbon::SATURDAY);
@@ -82,8 +64,81 @@ class DashboardController extends Controller
             $date = Carbon::now()->subDays(30);
         }
 
-        //get notes
-        $kiv_note = DB::table('loan_case_kiv_notes as n')
+        // Cache access info for 5 minutes
+        $accessInfo = Cache::remember("access_info_{$current_user->id}", 300, function () {
+            return AccessController::manageAccess();
+        });
+
+        // Limit initial data load - load notes via AJAX for better performance
+        // Only load last 10 notes initially, rest will load via AJAX
+        $kiv_note = $this->getKivNotes($current_user, $date, $accessInfo, 10);
+
+        // Limit initial data load - load notes via AJAX
+        $pnc_note = $this->getPncNotes($current_user, $date, 10);
+        
+        // Limit marketing notes initial load
+        $LoanMarketingNotes = [];
+        if (in_array($current_user->menuroles, ['account', 'admin', 'sales', 'maker'])) {
+            $LoanMarketingNotes = $this->getMarketingNotes($current_user, $Last7Days, $accessInfo, 10);
+        }
+
+        // Load case files via AJAX for better performance - limit initial load
+        $LoanAttachmentFrame = $this->getCaseFiles($current_user, $date, $branchInfo, 20);
+
+        // Case counts will be loaded via AJAX for better performance
+        // Initial load with minimal data
+        $InProgressCaseCount = 0;
+        $openCaseCount = 0;
+        $closedCaseCount = 0;
+        $OverdueCaseCount = 0;
+
+        // Load these via AJAX for better performance
+        $B2022PendingCloseCases = 0;
+        $B2022AllCases = 0;
+        $B2022ClosedCases = 0;
+        $B2022ActiveCases = 0;
+        $totalAcount = 0;
+        $totalAssigned = 0;
+        $totalUpdated = 0;
+        $BonusRequestList = [];
+        $LoanCaseChecklistDetails = [];
+        $cases = [];
+
+        // Cache today message count for 5 minutes
+        $today_message_count = Cache::remember("today_message_count_{$current_user->id}", 300, function () use ($current_user) {
+            return $this->getTodayMessageCount($current_user);
+        });
+
+
+        return view('dashboard.home', [
+            'current_user' => $current_user,
+            'cases' => $cases,
+            'Branch' => $Branch,
+            'kiv_note' => $kiv_note,
+            'pnc_note' => $pnc_note,
+            'LoanMarketingNotes' => $LoanMarketingNotes,
+            'today_message_count' => $today_message_count,
+            'case_file' => $LoanAttachmentFrame,
+            'case_path' => $case_path,
+            'LoanCaseChecklistDetails' => $LoanCaseChecklistDetails,
+            'OverdueCaseCount' => $OverdueCaseCount,
+            'totalAssigned' => $totalAssigned,
+            'totalAcount' => $totalAcount,
+            'totalUpdated' => $totalUpdated,
+            'B2022AllCases' => $B2022AllCases,
+            'B2022ClosedCases' => $B2022ClosedCases,
+            'B2022ActiveCases' => $B2022ActiveCases,
+            'BonusRequestList' => $BonusRequestList,
+            'B2022PendingCloseCases' => $B2022PendingCloseCases
+        ]);
+    }
+
+    /**
+     * Get KIV notes with permission control
+     */
+    private function getKivNotes($current_user, $date, $accessInfo, $limit = null)
+    {
+        $query = DB::table('loan_case_kiv_notes as n')
             ->join('loan_case as l', 'l.id', '=', 'n.case_id')
             ->join('users as u', 'u.id', '=', 'n.created_by')
             ->where('n.status', '=', 1)
@@ -92,85 +147,101 @@ class DashboardController extends Controller
             ->where('n.created_at', '>=', $date);
 
         if (in_array($current_user->menuroles, ['clerk', 'lawyer', 'chambering'])) {
-            $kiv_note = $kiv_note->where(function ($q) use ($current_user) {
+            $query = $query->where(function ($q) use ($current_user) {
                 $q->where('l.lawyer_id', $current_user->id)
                     ->orWhere('l.clerk_id', $current_user->id);
             });
         } elseif (in_array($current_user->menuroles, ['sales'])) {
             if (in_array($current_user->id, [51,127])) {
-                $kiv_note = $kiv_note->whereIn('l.sales_user_id', [32, 51,127]);
-            }else if (in_array($current_user->id, [144])) {
-                $kiv_note = $kiv_note->whereIn('l.sales_user_id', [$current_user->id, 29]);
+                $query = $query->whereIn('l.sales_user_id', [32, 51,127]);
+            } else if (in_array($current_user->id, [144])) {
+                $query = $query->whereIn('l.sales_user_id', [$current_user->id, 29]);
             } else {
-                $kiv_note = $kiv_note->where('l.sales_user_id', '=', $current_user->id);
+                $query = $query->where('l.sales_user_id', '=', $current_user->id);
             }
         }
 
-        $accessInfo = AccessController::manageAccess();
-
-        $kiv_note = $kiv_note->where(function ($q) use ($accessInfo) {
+        $query = $query->where(function ($q) use ($accessInfo) {
             $q->whereIn('l.branch_id',  $accessInfo['brancAccessList'])
                 ->orWhereIn('sales_user_id', $accessInfo['user_list'])
                 ->orWhereIn('clerk_id', $accessInfo['user_list'])
                 ->orWhereIn('lawyer_id', $accessInfo['user_list']);
         });
 
-        // if ($current_user->branch_id == 3) {
-        //     $kiv_note = $kiv_note->where('l.branch_id', '=', $current_user->branch_id);
-        // } else if ($current_user->branch_id == 5) {
-        //     $kiv_note = $kiv_note->where('l.branch_id', '=', $current_user->branch_id);
-        // }
+        $query = $query->orderBy('n.created_at', 'DESC');
+        
+        if ($limit) {
+            $query = $query->limit($limit);
+        }
+        
+        return $query->get();
+    }
 
-        $kiv_note = $kiv_note->orderBy('n.created_at', 'DESC')->get();
-
-        //get notes
-        $pnc_note = DB::table('loan_case_pnc_notes as n')
+    /**
+     * Get PNC notes with permission control
+     */
+    private function getPncNotes($current_user, $date, $limit = null)
+    {
+        $query = DB::table('loan_case_pnc_notes as n')
             ->join('loan_case as l', 'l.id', '=', 'n.case_id')
             ->join('users as u', 'u.id', '=', 'n.created_by')
             ->where('n.status', '=', 1)
             ->where('l.status', '<>', 99)
             ->select('n.*', 'l.case_ref_no', 'u.name as name', 'u.name as user_name', 'u.menuroles')
-            ->where('n.created_at', '>=', $date)->orderBy('n.created_at', 'DESC')->get();
+            ->where('n.created_at', '>=', $date)
+            ->orderBy('n.created_at', 'DESC');
+            
+        if ($limit) {
+            $query = $query->limit($limit);
+        }
+        
+        return $query->get();
+    }
 
+    /**
+     * Get marketing notes with permission control
+     */
+    private function getMarketingNotes($current_user, $Last7Days, $accessInfo, $limit = null)
+    {
+        $query = DB::table('loan_case_notes AS n')
+            ->join('loan_case as l', 'l.id', '=', 'n.case_id')
+            ->leftJoin('users AS u', 'u.id', '=', 'n.created_by')
+            ->where('l.status', '<>', 99)
+            ->where('n.status', '<>', 99)
+            ->where('n.created_at', '>=', $Last7Days)
+            ->select('n.*',  'l.case_ref_no', 'u.name as user_name', 'u.menuroles');
 
-        if (in_array($current_user->menuroles, ['account', 'admin', 'sales', 'maker'])) {
-            $LoanMarketingNotes = DB::table('loan_case_notes AS n')
-                ->join('loan_case as l', 'l.id', '=', 'n.case_id')
-                ->leftJoin('users AS u', 'u.id', '=', 'n.created_by')
-                ->where('l.status', '<>', 99)
-                ->where('n.status', '<>', 99)
-                ->where('n.created_at', '>=', $Last7Days)
-                ->select('n.*',  'l.case_ref_no', 'u.name as user_name', 'u.menuroles');
-
-            if (in_array($current_user->menuroles, ['sales'])) {
-                if (in_array($current_user->id, [51,127])) {
-                    $LoanMarketingNotes = $LoanMarketingNotes->whereIn('l.sales_user_id', [32, 51,127]);
-                }
-                else if (in_array($current_user->id, [144])) {
-                    $LoanMarketingNotes = $LoanMarketingNotes->whereIn('l.sales_user_id', [$current_user->id, 29]);
-                }
-                 else {
-                    $LoanMarketingNotes = $LoanMarketingNotes->whereIn('l.sales_user_id', [$current_user->id]);
-                }
-            } else if (in_array($current_user->menuroles, ['maker'])) {
-                // $LoanMarketingNotes = $LoanMarketingNotes->whereIn('l.branch_id', [$current_user->branch_id]);
-
-                $LoanMarketingNotes = $LoanMarketingNotes->where(function ($q) use ($accessInfo) {
-                    $q->whereIn('l.branch_id',  $accessInfo['brancAccessList'])
-                        ->orWhereIn('sales_user_id', $accessInfo['user_list'])
-                        ->orWhereIn('clerk_id', $accessInfo['user_list'])
-                        ->orWhereIn('lawyer_id', $accessInfo['user_list']);
-                });
+        if (in_array($current_user->menuroles, ['sales'])) {
+            if (in_array($current_user->id, [51,127])) {
+                $query = $query->whereIn('l.sales_user_id', [32, 51,127]);
+            } else if (in_array($current_user->id, [144])) {
+                $query = $query->whereIn('l.sales_user_id', [$current_user->id, 29]);
+            } else {
+                $query = $query->whereIn('l.sales_user_id', [$current_user->id]);
             }
-
-            $LoanMarketingNotes = $LoanMarketingNotes->orderBy('n.created_at', 'DESC')->get();
+        } else if (in_array($current_user->menuroles, ['maker'])) {
+            $query = $query->where(function ($q) use ($accessInfo) {
+                $q->whereIn('l.branch_id',  $accessInfo['brancAccessList'])
+                    ->orWhereIn('sales_user_id', $accessInfo['user_list'])
+                    ->orWhereIn('clerk_id', $accessInfo['user_list'])
+                    ->orWhereIn('lawyer_id', $accessInfo['user_list']);
+            });
         }
 
-        $InProgressCaseCount = DB::table('loan_case')->whereIn('status', [1, 2, 3]);
-        $openCaseCount = DB::table('loan_case');
-        $closedCaseCount = DB::table('loan_case')->where('status', '=', 0);
-        $OverdueCaseCount = DB::table('loan_case')->where('status', '=', 4);
+        $query = $query->orderBy('n.created_at', 'DESC');
+        
+        if ($limit) {
+            $query = $query->limit($limit);
+        }
+        
+        return $query->get();
+    }
 
+    /**
+     * Get case files with permission control
+     */
+    private function getCaseFiles($current_user, $date, $branchInfo, $limit = null)
+    {
         $case_file = DB::table('loan_attachment as a')
             ->join('loan_case as l', 'l.id', '=', 'a.case_id')
             ->join('users as u', 'u.id', '=', 'a.user_id')
@@ -211,162 +282,81 @@ class DashboardController extends Controller
             $case_file2 = $case_file2->where('l.branch_id', '=', $current_user->branch_id);
         }
 
-
         if ($current_user->menuroles == 'lawyer' || $current_user->menuroles == 'chambering') {
-            $case_file = $case_file->where('l.lawyer_id', '=', $current_user->id);
-            
-            $case_file = $case_file->whereNotIn('a.attachment_type', [5]);
+            $case_file = $case_file->where('l.lawyer_id', '=', $current_user->id)
+                ->whereNotIn('a.attachment_type', [5]);
             $case_file2 = $case_file2->where('l.lawyer_id', '=', $current_user->id);
-
-            $InProgressCaseCount = $InProgressCaseCount->where('lawyer_id', '=', $current_user->id);
-            $openCaseCount = $openCaseCount->where('lawyer_id', '=', $current_user->id);
-            $closedCaseCount = $closedCaseCount->where('lawyer_id', '=', $current_user->id);
-            $OverdueCaseCount = $OverdueCaseCount->where('lawyer_id', '=', $current_user->id);
         } else if ($current_user->menuroles == 'clerk') {
-            $case_file = $case_file->where('l.clerk_id', '=', $current_user->id);
-            $case_file = $case_file->whereNotIn('a.attachment_type', [5]);
+            $case_file = $case_file->where('l.clerk_id', '=', $current_user->id)
+                ->whereNotIn('a.attachment_type', [5]);
             $case_file2 = $case_file2->where('l.clerk_id', '=', $current_user->id);
-
-            $InProgressCaseCount = $InProgressCaseCount->where('clerk_id', '=', $current_user->id);
-            $openCaseCount = $openCaseCount->where('clerk_id', '=', $current_user->id);
-            $closedCaseCount = $closedCaseCount->where('clerk_id', '=', $current_user->id);
-            $OverdueCaseCount = $OverdueCaseCount->where('clerk_id', '=', $current_user->id);
         } else if ($current_user->menuroles == 'sales') {
-
             if (in_array($current_user->id, [51,127])) {
-                $case_file = $case_file->whereIn('l.sales_user_id', [32, 51,127]);
-                $case_file = $case_file->whereNotIn('a.attachment_type', [5]);
+                $case_file = $case_file->whereIn('l.sales_user_id', [32, 51,127])
+                    ->whereNotIn('a.attachment_type', [5]);
                 $case_file2 = $case_file2->whereIn('l.sales_user_id', [32, 51,127]);
-            }
-            else if (in_array($current_user->id, [144])) {
-                // $LoanMarketingNotes = $LoanMarketingNotes->whereIn('l.sales_user_id', [$current_user->id, 29,105,64,3,4]);
-                
-                $case_file = $case_file->whereIn('l.sales_user_id', [$current_user->id, 29]);
-                $case_file = $case_file->whereNotIn('a.attachment_type', [5]);
+            } else if (in_array($current_user->id, [144])) {
+                $case_file = $case_file->whereIn('l.sales_user_id', [$current_user->id, 29])
+                    ->whereNotIn('a.attachment_type', [5]);
                 $case_file2 = $case_file2->whereIn('l.sales_user_id', [$current_user->id, 29]);
             } else {
-                $case_file = $case_file->where('l.sales_user_id', '=', $current_user->id);
-                $case_file = $case_file->whereNotIn('a.attachment_type', [5]);
+                $case_file = $case_file->where('l.sales_user_id', '=', $current_user->id)
+                    ->whereNotIn('a.attachment_type', [5]);
                 $case_file2 = $case_file2->where('l.sales_user_id', '=', $current_user->id);
             }
-
-
-            if (in_array($current_user->id, [51,127])) {
-                $InProgressCaseCount = $InProgressCaseCount->where('sales_user_id', '=', 32);
-                $openCaseCount = $openCaseCount->where('sales_user_id', '=', 32);
-                $closedCaseCount = $closedCaseCount->where('sales_user_id', '=', 32);
-                $OverdueCaseCount = $OverdueCaseCount->where('sales_user_id', '=', 32);
-            } else if ($current_user->id == 80) {
-                $InProgressCaseCount = $InProgressCaseCount->where('branch_id', '=', 3)->where('sales_user_id', '<>', 1);
-                $openCaseCount = $openCaseCount->where('branch_id', '=', 3)->where('sales_user_id', '<>', 1);
-                $closedCaseCount = $closedCaseCount->where('branch_id', '=', 3)->where('sales_user_id', '<>', 1);
-                $OverdueCaseCount = $OverdueCaseCount->where('branch_id', '=', 3)->where('sales_user_id', '<>', 1);
-            } else {
-                $InProgressCaseCount = $InProgressCaseCount->where('sales_user_id', '=', $current_user->id);
-                $openCaseCount = $openCaseCount->where('sales_user_id', '=', $current_user->id);
-                $closedCaseCount = $closedCaseCount->where('sales_user_id', '=', $current_user->id);
-                $OverdueCaseCount = $OverdueCaseCount->where('sales_user_id', '=', $current_user->id);
-            }
         } else if ($current_user->menuroles == 'maker') {
-
-            if (in_array($current_user->branch_id, [2])) 
-            {
+            if (in_array($current_user->branch_id, [2])) {
                 $case_file = $case_file->where('l.sales_user_id', 13);
                 $case_file2 = $case_file2->where('l.sales_user_id', 13);
-            }
-            else
-            {
-                
-            // $case_file = $case_file->where('l.branch_id', '=', $current_user->branch_id);
+            } else {
                 $case_file = $case_file->Where(function ($q) use ($branchInfo) {
                     $q->whereIn('l.branch_id', $branchInfo['brancAccessList'])->where('a.status', '<>','99');
                 });
-
                 $case_file2 = $case_file2->Where(function ($q) use ($branchInfo) {
                     $q->whereIn('l.branch_id', $branchInfo['brancAccessList'])->where('a.status', '<>','99');
                 });
             }
-
-            $InProgressCaseCount = $InProgressCaseCount->where('branch_id', '=', $current_user->branch_id);
-            $openCaseCount = $openCaseCount->where('branch_id', '=', $current_user->branch_id);
-            $closedCaseCount = $closedCaseCount->where('branch_id', '=', $current_user->branch_id);
-            $OverdueCaseCount = $OverdueCaseCount->where('branch_id', '=', $current_user->branch_id);
         }
 
-
-        $case_file = $case_file->orderBy('a.created_at', 'DESC')->get();
-        $case_file2 = $case_file2->orderBy('a.created_at', 'DESC')->get();
-
-        $LoanAttachmentFrame = $case_file->merge($case_file2)->sortByDesc('created_at');;
-
-        $InProgressCaseCount = $InProgressCaseCount->count();
-        $openCaseCount = $openCaseCount->count();
-        $closedCaseCount = $closedCaseCount->count();
-        $OverdueCaseCount = $OverdueCaseCount->count();
-
-        if ($current_user->menuroles == 'manager' || $current_user->menuroles == 'admin' || $current_user->menuroles == 'account') {
-            $B2022PendingCloseCases = DB::table('cases_outside_system')->where('status', '=', 3)->count();
-            $B2022AllCases = DB::table('cases_outside_system')->count();
-            $B2022ClosedCases = DB::table('cases_outside_system')->where('status', '=', 2)->count();
-            $B2022ActiveCases = DB::table('cases_outside_system')->where('status', '=', 1)->count();
-        } else {
-            $paidCount = DB::table('adjudication')->where('stamp_duty_paid', '=', 1)->count();
-            $totalAcount = DB::table('cases_outside_system')->where('status', '=', 1)->where('old_pic_id', '=', $current_user->id)->count();
-            $totalAssigned = DB::table('cases_outside_system')->where('new_pic_id', '<>', 0)->where('old_pic_id', '=', $current_user->id)->count();
-            $totalUpdated = DB::table('cases_outside_system')->where('old_pic_id', '=', $current_user->id)->where('remarks', '<>', '')->count();
-            $pendingCount = DB::table('adjudication')->where('stamp_duty_paid', '=', 0)->count();
+        $case_file = $case_file->orderBy('a.created_at', 'DESC');
+        $case_file2 = $case_file2->orderBy('a.created_at', 'DESC');
+        
+        if ($limit) {
+            $case_file = $case_file->limit($limit);
+            $case_file2 = $case_file2->limit($limit);
         }
+        
+        $case_file = $case_file->get();
+        $case_file2 = $case_file2->get();
 
-        $today_message_count = DB::table('loan_case_kiv_notes as n')
+        return $case_file->merge($case_file2)->sortByDesc('created_at');
+    }
+
+    /**
+     * Get today's message count with permission control
+     */
+    private function getTodayMessageCount($current_user)
+    {
+        $query = DB::table('loan_case_kiv_notes as n')
             ->join('loan_case as l', 'l.id', '=', 'n.case_id')
             ->where('n.status', '=', 1)
             ->where('n.created_at', '>=', Carbon::today());
 
         if (in_array($current_user->menuroles,  ['lawyer', 'clerk', 'chambering','sales'])) {
-            $today_message_count = $today_message_count->where(function ($q) use ($current_user) {
+            $query = $query->where(function ($q) use ($current_user) {
                 $q->where('l.lawyer_id', $current_user->id)
                     ->orWhere('l.clerk_id', $current_user->id)
                     ->orWhere('l.sales_user_id', $current_user->id);
             });
         }
 
-
         if (in_array($current_user->menuroles, ['maker'])) {
-            $today_message_count = $today_message_count->where(function ($q) use ($current_user) {
+            $query = $query->where(function ($q) use ($current_user) {
                 $q->where('l.branch_id', '=', $current_user->branch_id);
             });
         }
 
-        $today_message_count =  $today_message_count->get()->count();
-
-        $Branch = Branch::where('status', 1)->get();
-
-
-        return view('dashboard.home', [
-            'current_user' => $current_user,
-            // 'InProgressCaseCount' => $InProgressCaseCount,
-            // 'openCaseCount' => $openCaseCount,
-            // 'closedCaseCount' => $closedCaseCount,
-            'cases' => $cases,
-            'Branch' => $Branch,
-            'kiv_note' => $kiv_note,
-            'pnc_note' => $pnc_note,
-            'LoanMarketingNotes' => $LoanMarketingNotes,
-            'today_message_count' => $today_message_count,
-            'case_file' => $LoanAttachmentFrame,
-            'case_path' => $case_path,
-            'case_path' => $case_path,
-            'LoanCaseChecklistDetails' => $LoanCaseChecklistDetails,
-            'OverdueCaseCount' => $OverdueCaseCount,
-            'totalAssigned' => $totalAssigned,
-            'totalAcount' => $totalAcount,
-            'totalUpdated' => $totalUpdated,
-            'B2022AllCases' => $B2022AllCases,
-            'B2022ClosedCases' => $B2022ClosedCases,
-            'B2022ActiveCases' => $B2022ActiveCases,
-            'BonusRequestList' => $BonusRequestList,
-            'B2022PendingCloseCases' => $B2022PendingCloseCases
-        ]);
+        return $query->count();
     }
 
     public function getTodoList(Request $request)
@@ -1236,6 +1226,148 @@ class DashboardController extends Controller
         return response()->json(['status' => 1, 'data' => $result]);
 
         // return $RptCase;
+    }
+
+    /**
+     * AJAX endpoint to load dashboard case counts
+     */
+    public function loadDashboardCounts(Request $request)
+    {
+        $current_user = auth()->user();
+        
+        $cacheKey = "dashboard_counts_{$current_user->id}";
+        
+        $data = Cache::remember($cacheKey, 300, function () use ($current_user) {
+            $InProgressCaseCount = DB::table('loan_case')->whereIn('status', [1, 2, 3]);
+            $openCaseCount = DB::table('loan_case');
+            $closedCaseCount = DB::table('loan_case')->where('status', '=', 0);
+            $OverdueCaseCount = DB::table('loan_case')->where('status', '=', 4);
+
+            // Apply permission filters
+            if ($current_user->menuroles == 'lawyer' || $current_user->menuroles == 'chambering') {
+                $InProgressCaseCount = $InProgressCaseCount->where('lawyer_id', '=', $current_user->id);
+                $openCaseCount = $openCaseCount->where('lawyer_id', '=', $current_user->id);
+                $closedCaseCount = $closedCaseCount->where('lawyer_id', '=', $current_user->id);
+                $OverdueCaseCount = $OverdueCaseCount->where('lawyer_id', '=', $current_user->id);
+            } else if ($current_user->menuroles == 'clerk') {
+                $InProgressCaseCount = $InProgressCaseCount->where('clerk_id', '=', $current_user->id);
+                $openCaseCount = $openCaseCount->where('clerk_id', '=', $current_user->id);
+                $closedCaseCount = $closedCaseCount->where('clerk_id', '=', $current_user->id);
+                $OverdueCaseCount = $OverdueCaseCount->where('clerk_id', '=', $current_user->id);
+            } else if ($current_user->menuroles == 'sales') {
+                if (in_array($current_user->id, [51,127])) {
+                    $InProgressCaseCount = $InProgressCaseCount->where('sales_user_id', '=', 32);
+                    $openCaseCount = $openCaseCount->where('sales_user_id', '=', 32);
+                    $closedCaseCount = $closedCaseCount->where('sales_user_id', '=', 32);
+                    $OverdueCaseCount = $OverdueCaseCount->where('sales_user_id', '=', 32);
+                } else if ($current_user->id == 80) {
+                    $InProgressCaseCount = $InProgressCaseCount->where('branch_id', '=', 3)->where('sales_user_id', '<>', 1);
+                    $openCaseCount = $openCaseCount->where('branch_id', '=', 3)->where('sales_user_id', '<>', 1);
+                    $closedCaseCount = $closedCaseCount->where('branch_id', '=', 3)->where('sales_user_id', '<>', 1);
+                    $OverdueCaseCount = $OverdueCaseCount->where('branch_id', '=', 3)->where('sales_user_id', '<>', 1);
+                } else {
+                    $InProgressCaseCount = $InProgressCaseCount->where('sales_user_id', '=', $current_user->id);
+                    $openCaseCount = $openCaseCount->where('sales_user_id', '=', $current_user->id);
+                    $closedCaseCount = $closedCaseCount->where('sales_user_id', '=', $current_user->id);
+                    $OverdueCaseCount = $OverdueCaseCount->where('sales_user_id', '=', $current_user->id);
+                }
+            } else if ($current_user->menuroles == 'maker') {
+                $InProgressCaseCount = $InProgressCaseCount->where('branch_id', '=', $current_user->branch_id);
+                $openCaseCount = $openCaseCount->where('branch_id', '=', $current_user->branch_id);
+                $closedCaseCount = $closedCaseCount->where('branch_id', '=', $current_user->branch_id);
+                $OverdueCaseCount = $OverdueCaseCount->where('branch_id', '=', $current_user->branch_id);
+            }
+
+            return [
+                'InProgressCaseCount' => $InProgressCaseCount->count(),
+                'openCaseCount' => $openCaseCount->count(),
+                'closedCaseCount' => $closedCaseCount->count(),
+                'OverdueCaseCount' => $OverdueCaseCount->count(),
+            ];
+        });
+
+        return response()->json($data);
+    }
+
+    /**
+     * AJAX endpoint to load all notes data
+     */
+    public function loadNotesData(Request $request)
+    {
+        $current_user = auth()->user();
+        $date = Carbon::now()->subDays(4);
+        $Last7Days = Carbon::now()->subDays(14);
+        
+        if($current_user->id == 22) {
+            $date = Carbon::now()->subDays(30);
+        }
+
+        $accessInfo = Cache::remember("access_info_{$current_user->id}", 300, function () {
+            return AccessController::manageAccess();
+        });
+
+        $kiv_note = $this->getKivNotes($current_user, $date, $accessInfo);
+        $pnc_note = $this->getPncNotes($current_user, $date);
+        
+        $LoanMarketingNotes = [];
+        if (in_array($current_user->menuroles, ['account', 'admin', 'sales', 'maker'])) {
+            $LoanMarketingNotes = $this->getMarketingNotes($current_user, $Last7Days, $accessInfo);
+        }
+
+        return response()->json([
+            'kiv_note' => $kiv_note,
+            'pnc_note' => $pnc_note,
+            'LoanMarketingNotes' => $LoanMarketingNotes,
+        ]);
+    }
+
+    /**
+     * AJAX endpoint to load case files
+     */
+    public function loadCaseFiles(Request $request)
+    {
+        $current_user = auth()->user();
+        $date = Carbon::now()->subDays(4);
+        
+        if($current_user->id == 22) {
+            $date = Carbon::now()->subDays(30);
+        }
+
+        $branchInfo = Cache::remember("branch_access_{$current_user->id}", 3600, function () {
+            return BranchController::manageBranchAccess();
+        });
+
+        $limit = $request->input('limit', 50);
+        $case_files = $this->getCaseFiles($current_user, $date, $branchInfo, $limit);
+
+        return response()->json([
+            'case_files' => $case_files,
+        ]);
+    }
+
+    /**
+     * AJAX endpoint to load B2022 cases data
+     */
+    public function loadB2022Cases(Request $request)
+    {
+        $current_user = auth()->user();
+        
+        if ($current_user->menuroles == 'manager' || $current_user->menuroles == 'admin' || $current_user->menuroles == 'account') {
+            $data = [
+                'B2022PendingCloseCases' => DB::table('cases_outside_system')->where('status', '=', 3)->count(),
+                'B2022AllCases' => DB::table('cases_outside_system')->count(),
+                'B2022ClosedCases' => DB::table('cases_outside_system')->where('status', '=', 2)->count(),
+                'B2022ActiveCases' => DB::table('cases_outside_system')->where('status', '=', 1)->count(),
+            ];
+        } else {
+            $data = [
+                'totalAcount' => DB::table('cases_outside_system')->where('status', '=', 1)->where('old_pic_id', '=', $current_user->id)->count(),
+                'totalAssigned' => DB::table('cases_outside_system')->where('new_pic_id', '<>', 0)->where('old_pic_id', '=', $current_user->id)->count(),
+                'totalUpdated' => DB::table('cases_outside_system')->where('old_pic_id', '=', $current_user->id)->where('remarks', '<>', '')->count(),
+            ];
+        }
+
+        return response()->json($data);
     }
 
     function searchCase(Request $request)
