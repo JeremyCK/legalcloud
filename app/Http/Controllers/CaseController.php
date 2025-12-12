@@ -18654,4 +18654,223 @@ class CaseController extends Controller
         }
         return $words;
     }
+
+    /**
+     * Display invoice list page
+     */
+    public function invoiceList()
+    {
+        $current_user = auth()->user();
+        $Branch = Branch::where('status', 1)->get();
+        
+        return view('dashboard.invoice.list', [
+            'current_user' => $current_user,
+            'Branch' => $Branch
+        ]);
+    }
+
+    /**
+     * Get invoice list with search functionality (AJAX)
+     */
+    public function getInvoiceList(Request $request)
+    {
+        $current_user = auth()->user();
+        
+        // Get search parameters
+        $searchInvoiceNo = $request->input('search_invoice_no', '');
+        $searchCaseRef = $request->input('search_case_ref', '');
+        $searchBillNo = $request->input('search_bill_no', '');
+
+        // Build query
+        $query = DB::table('loan_case_invoice_main as im')
+            ->leftJoin('loan_case_bill_main as bm', 'im.loan_case_main_bill_id', '=', 'bm.id')
+            ->leftJoin('loan_case as l', 'bm.case_id', '=', 'l.id')
+            ->leftJoin('client as c', 'l.customer_id', '=', 'c.id')
+            ->leftJoin('branch as b', 'l.branch_id', '=', 'b.id')
+            ->select(
+                'im.id',
+                'im.invoice_no',
+                'im.Invoice_date',
+                'im.amount',
+                'im.status as invoice_status',
+                'im.bln_sst as sst_paid_status',
+                'bm.id as bill_id',
+                'bm.invoice_no as bill_invoice_no',
+                'bm.payment_receipt_date',
+                'l.id as case_id',
+                'l.case_ref_no',
+                'c.name as client_name',
+                'b.name as branch_name'
+            )
+            ->where('im.status', '<>', 99);
+
+        // Apply access control
+        if (!in_array($current_user->menuroles, ['admin', 'management', 'account'])) {
+            $accessCaseList = $this->caseManagementEngine();
+            $query->whereIn('l.id', $accessCaseList);
+        }
+
+        // Apply search filters
+        if (!empty($searchInvoiceNo)) {
+            $invoiceNumbers = array_filter(array_map('trim', preg_split('/[,\n\r]+/', $searchInvoiceNo)));
+            if (!empty($invoiceNumbers)) {
+                $query->where(function($q) use ($invoiceNumbers) {
+                    foreach ($invoiceNumbers as $index => $invoiceNo) {
+                        if ($index === 0) {
+                            $q->where('im.invoice_no', 'LIKE', '%' . $invoiceNo . '%');
+                        } else {
+                            $q->orWhere('im.invoice_no', 'LIKE', '%' . $invoiceNo . '%');
+                        }
+                    }
+                });
+            }
+        }
+
+        if (!empty($searchCaseRef)) {
+            $query->where('l.case_ref_no', 'LIKE', '%' . $searchCaseRef . '%');
+        }
+
+        if (!empty($searchBillNo)) {
+            $query->where(function($q) use ($searchBillNo) {
+                $q->where('bm.invoice_no', 'LIKE', '%' . $searchBillNo . '%')
+                  ->orWhere('bm.id', 'LIKE', '%' . $searchBillNo . '%');
+            });
+        }
+
+        $perPage = $request->input('per_page', 50);
+        $page = $request->input('page', 1);
+        
+        $total = $query->count();
+        $invoices = $query->orderBy('im.Invoice_date', 'DESC')
+            ->orderBy('im.id', 'DESC')
+            ->skip(($page - 1) * $perPage)
+            ->take($perPage)
+            ->get();
+
+        $lastPage = ceil($total / $perPage);
+
+        return response()->json([
+            'status' => 1,
+            'data' => $invoices,
+            'pagination' => [
+                'current_page' => (int)$page,
+                'last_page' => $lastPage,
+                'per_page' => $perPage,
+                'total' => $total
+            ]
+        ]);
+    }
+
+    /**
+     * Get invoice details for editing
+     */
+    public function getInvoiceDetails($invoiceId)
+    {
+        $current_user = auth()->user();
+        
+        $invoice = LoanCaseInvoiceMain::with(['loanCaseBillMain.loanCase'])
+            ->where('id', $invoiceId)
+            ->where('status', '<>', 99)
+            ->first();
+
+        if (!$invoice) {
+            return response()->json(['status' => 0, 'message' => 'Invoice not found'], 404);
+        }
+
+        // Verify case access
+        if (!in_array($current_user->menuroles, ['admin', 'management', 'account'])) {
+            $accessCaseList = $this->caseManagementEngine();
+            if (!in_array($invoice->loanCaseBillMain->case_id, $accessCaseList)) {
+                return response()->json(['status' => 0, 'message' => 'Access denied'], 403);
+            }
+        }
+
+        // Get invoice details
+        $invoiceDetails = DB::table('loan_case_invoice_details as id')
+            ->leftJoin('account_item as ai', 'id.account_item_id', '=', 'ai.id')
+            ->leftJoin('account_category as ac', 'ai.account_cat_id', '=', 'ac.id')
+            ->select(
+                'id.id',
+                'id.account_item_id',
+                'id.amount',
+                'id.quo_amount',
+                'id.ori_invoice_amt',
+                'id.remark',
+                'ai.name as account_name',
+                'ai.name_cn as account_name_cn',
+                'ac.category as category_name',
+                'ac.id as category_id'
+            )
+            ->where('id.invoice_main_id', '=', $invoiceId)
+            ->where('id.status', '<>', 99)
+            ->orderBy('ac.order', 'ASC')
+            ->orderBy('ai.name', 'ASC')
+            ->get();
+
+        return response()->json([
+            'status' => 1,
+            'invoice' => $invoice,
+            'details' => $invoiceDetails
+        ]);
+    }
+
+    /**
+     * Update invoice
+     */
+    public function updateInvoice(Request $request, $invoiceId)
+    {
+        $current_user = auth()->user();
+        
+        $invoice = LoanCaseInvoiceMain::where('id', $invoiceId)
+            ->where('status', '<>', 99)
+            ->first();
+
+        if (!$invoice) {
+            return response()->json(['status' => 0, 'message' => 'Invoice not found'], 404);
+        }
+
+        // Verify case access
+        if (!in_array($current_user->menuroles, ['admin', 'management', 'account'])) {
+            $accessCaseList = $this->caseManagementEngine();
+            $bill = LoanCaseBillMain::where('id', $invoice->loan_case_main_bill_id)->first();
+            if (!$bill || !in_array($bill->case_id, $accessCaseList)) {
+                return response()->json(['status' => 0, 'message' => 'Access denied'], 403);
+            }
+        }
+
+        // Update invoice fields
+        if ($request->has('invoice_no')) {
+            $invoice->invoice_no = $request->input('invoice_no');
+        }
+        if ($request->has('Invoice_date')) {
+            $invoice->Invoice_date = $request->input('Invoice_date');
+        }
+        if ($request->has('amount')) {
+            $invoice->amount = $request->input('amount');
+        }
+
+        $invoice->save();
+
+        // Update invoice details if provided
+        if ($request->has('details')) {
+            $details = $request->input('details');
+            foreach ($details as $detail) {
+                if (isset($detail['id']) && isset($detail['amount'])) {
+                    DB::table('loan_case_invoice_details')
+                        ->where('id', $detail['id'])
+                        ->where('invoice_main_id', $invoiceId)
+                        ->update([
+                            'amount' => $detail['amount'],
+                            'updated_at' => now()
+                        ]);
+                }
+            }
+        }
+
+        return response()->json([
+            'status' => 1,
+            'message' => 'Invoice updated successfully',
+            'invoice' => $invoice
+        ]);
+    }
 }

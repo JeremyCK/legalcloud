@@ -238,7 +238,7 @@ $sst_percentage = $sst_rate * 0.01;
                          @if ($current_user->branch_id == 1)
                               <input onchange="updateQuotation({{ $details->id }}, {{ $details->account_cat_id }})"
                                 type="checkbox" name="quotation" value="{{ $details->id }}" id="chk_{{ $details->id }}"
-                                checked @if ($id != 16 && $details->mandatory == 1 && !in_array($current_user->menuroles, ['admin', 'account']) && !in_array($current_user->id, [122,158,165,167,177,176])) disabled @endif>
+                                checked @if ($id != 16 && $details->mandatory == 1 && !in_array($current_user->menuroles, ['admin', 'account']) && !in_array($current_user->id, [122,158,165,167,177,176,201])) disabled @endif>
                             <label for="chk_{{ $details->id }}">{{ $index + 1 }}</label>
                          @else
                            <input onchange="updateQuotation({{ $details->id }}, {{ $details->account_cat_id }})"

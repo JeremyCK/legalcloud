@@ -24,6 +24,7 @@ use App\Models\MenusLang;
 use App\Models\Users;
 use App\Models\CaseMasterListCategory;
 use App\Models\CaseMasterListField;
+use App\Models\CaseMasterListMainCat;
 use App\Models\Customer;
 use App\Models\EInvoiceDetails;
 use App\Models\EInvoiceMain;
@@ -878,13 +879,41 @@ class EInvoiceContoller extends Controller
         // Create pieces_inv array (chunked for pagination)
         $pieces_inv = array_chunk($invoice_v2, 30);
         
+        // Load master list data for print (similar to CaseController loadMasterListUpdateValue)
+        $masterlistValue = $this->loadMasterListUpdateValue($case->id);
+        
         return response()->json([
             'status' => 1,
             'data' => $InvoiceBillingParty,
-            'invoicePrint' => view('dashboard.case.d-invoice-print', compact('LoanCaseBillMain', 'current_user', 'case', 'Branch', 'invoice_v2', 'pieces_inv', 'InvoiceBillingParty', 'invoiceMain', 'purchaser_financier_ref_no'))->render(),
+            'invoicePrint' => view('dashboard.case.d-invoice-print', compact('LoanCaseBillMain', 'current_user', 'case', 'Branch', 'invoice_v2', 'pieces_inv', 'InvoiceBillingParty', 'invoiceMain', 'purchaser_financier_ref_no', 'masterlistValue'))->render(),
             'inv_no' => $invoice_no,
             'view' => view('dashboard.case.section.d-party-infov2', compact('InvoiceBillingParty'))->render(),
         ]);
+    }
+    
+    /**
+     * Load master list update value for print (similar to CaseController::loadMasterListUpdateValue)
+     */
+    private function loadMasterListUpdateValue($caseId)
+    {
+        $CaseMasterListMainCat = CaseMasterListMainCat::where('letter_head', 1)->orderBy('order', 'asc')->get();
+
+        for ($i = 0; $i < count($CaseMasterListMainCat); $i++) {
+            $master_list = DB::table('loan_case_masterlist as m')
+                ->leftJoin('case_masterlist_field AS f', 'f.id', '=', 'm.masterlist_field_id')
+                ->leftJoin('case_masterlist_field_category AS c', 'c.id', '=', 'f.case_field_id')
+                ->select('m.*')
+                ->where('m.case_id', '=', $caseId)
+                ->where('f.letter_head', 1)
+                ->where('f.master_list_code', $CaseMasterListMainCat[$i]->code)
+                ->get();
+
+            $CaseMasterListMainCat[$i]->details = $master_list;
+        }
+
+        return [
+            'CaseMasterListMainCat' => $CaseMasterListMainCat,
+        ];
     }
 
     public function UpdateBillToInfo(Request $request, $id)

@@ -572,6 +572,11 @@ Route::group(['middleware' => ['get.menu']], function () {
             Route::post('updateInvoiceValue', [CaseController::class, 'updateInvoiceValue']);
             Route::post('addInvoiceItem/{parameter1}', [CaseController::class, 'addInvoiceItem']);
             Route::post('deleteInvoiceItem/{parameter1}', [CaseController::class, 'deleteInvoiceItem']);
+            // Invoice List Page Routes
+            Route::get('invoice-list', [CaseController::class, 'invoiceList'])->name('invoice.list');
+            Route::get('invoice-list/data', [CaseController::class, 'getInvoiceList'])->name('invoice.list.data');
+            Route::get('invoice/{invoiceId}/details', [CaseController::class, 'getInvoiceDetails']);
+            Route::post('invoice/{invoiceId}/update', [CaseController::class, 'updateInvoice']);
             Route::get('debug-invoice-calculation/{invoice_no}', [CaseController::class, 'debugInvoiceCalculation']);
             Route::get('debug-multi-invoice/{bill_id}', [CaseController::class, 'debugMultiInvoiceScenario']);
             Route::post('convertToSST/{parameter1}', [CaseController::class, 'convertToSST']);

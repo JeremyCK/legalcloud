@@ -3716,7 +3716,7 @@
 
             if (min_hit_count > 0) {
                 @if (in_array($current_user->branch_id, [1]))
-                    @if (!in_array($current_user->menuroles, ['account', 'admin']) && !in_array($current_user->id, [122,158,165,167,177,176]))
+                    @if (!in_array($current_user->menuroles, ['account', 'admin']) && !in_array($current_user->id, [122,158,165,167,177,176,201]))
                         Swal.fire('notice!', 'Please make sure all item not lower than min value', 'warning');
                         $('.btn-submit').attr('disabled', false);
                         return;
@@ -3728,7 +3728,7 @@
 
             if (max_hit_count > 0) {
                 @if (in_array($current_user->branch_id, [1]))
-                    @if (!in_array($current_user->menuroles, ['account', 'admin']) && !in_array($current_user->id, [122,158,165,167,177,176]))
+                    @if (!in_array($current_user->menuroles, ['account', 'admin']) && !in_array($current_user->id, [122,158,165,167,177,176,201]))
                         Swal.fire('notice!', 'Please make sure all item not higher than max value', 'warning');
                         $('.btn-submit').attr('disabled', false);
                         return;
@@ -5434,7 +5434,7 @@
                 if ($newValue > $maxCap) {
                     
                     @if (in_array($current_user->branch_id, [1]))
-                        @if (!in_array($current_user->menuroles, ['account', 'admin']) && !in_array($current_user->id, [122,158,165,167,177,176]))
+                        @if (!in_array($current_user->menuroles, ['account', 'admin']) && !in_array($current_user->id, [122,158,165,167,177,176,201]))
                             Swal.fire('notice!', 'Please make sure all item not higher than max value', 'warning');
                             return;
                         @endif
@@ -5449,7 +5449,7 @@
                 if ($newValue < $minCap) {
                     
                     @if (in_array($current_user->branch_id, [1]))
-                      @if (!in_array($current_user->menuroles, ['account', 'admin']) && !in_array($current_user->id, [122,158,165,167,177,176]))
+                      @if (!in_array($current_user->menuroles, ['account', 'admin']) && !in_array($current_user->id, [122,158,165,167,177,176,201]))
                             Swal.fire('notice!', 'Please make sure all item not lower than min value', 'warning');
                             return;
                         @endif
