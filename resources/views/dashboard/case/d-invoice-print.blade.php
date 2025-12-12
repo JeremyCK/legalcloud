@@ -129,10 +129,23 @@
                         <b>To:</b>
                     </div>
                     <div class="col-10 ">
-                        <strong id="p-quo-client-name" class="text-blue">{{ $LoanCaseBillMain->invoice_to }} </strong>
+                        <strong id="p-quo-client-name" class="text-blue">
+                            @if(isset($InvoiceBillingParty) && $InvoiceBillingParty)
+                                {{ $InvoiceBillingParty->customer_name }}
+                            @else
+                                {{ $LoanCaseBillMain->invoice_to }}
+                            @endif
+                        </strong>
                     </div>
 
-                    @if (isset($LoanCaseBillMain->invoice_to_tax_no))
+                    @if (isset($InvoiceBillingParty) && $InvoiceBillingParty && isset($InvoiceBillingParty->tin) && $InvoiceBillingParty->tin)
+                        <div class="col-2">
+                            <b>Tax No:</b>
+                        </div>
+                        <div class="col-10 ">
+                            {{ $InvoiceBillingParty->tin }}
+                        </div>
+                    @elseif (isset($LoanCaseBillMain->invoice_to_tax_no))
                         <div class="col-2">
                             <b>Tax No:</b>
                         </div>
@@ -141,7 +154,53 @@
                         </div>
                     @endif
 
-                    @if (isset($LoanCaseBillMain->invoice_to_address))
+                    @if (isset($InvoiceBillingParty) && $InvoiceBillingParty)
+                        @php
+                            $addressParts = array_filter([
+                                $InvoiceBillingParty->address_1 ?? '',
+                                $InvoiceBillingParty->address_2 ?? '',
+                                $InvoiceBillingParty->address_3 ?? '',
+                                $InvoiceBillingParty->address_4 ?? '',
+                            ]);
+                            $postcode = trim($InvoiceBillingParty->postcode ?? '');
+                            $city = trim($InvoiceBillingParty->city ?? '');
+                            $state = trim($InvoiceBillingParty->state ?? '');
+                            
+                            // Build the postcode/city/state line
+                            $locationLine = trim(implode(' ', array_filter([$postcode, $city, $state])));
+                            
+                            // Check if the location line is already included in any address part
+                            $locationAlreadyIncluded = false;
+                            if ($locationLine) {
+                                $locationLower = strtolower($locationLine);
+                                foreach ($addressParts as $part) {
+                                    $partLower = strtolower(trim($part));
+                                    // Check if the full location line or its components are already in the address part
+                                    if ($partLower === $locationLower || 
+                                        ($postcode && strpos($partLower, strtolower($postcode)) !== false && 
+                                         ($city && strpos($partLower, strtolower($city)) !== false || 
+                                          $state && strpos($partLower, strtolower($state)) !== false))) {
+                                        $locationAlreadyIncluded = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            $fullAddress = implode("\n", $addressParts);
+                            // Only add location line if it's not already included in address parts
+                            if ($locationLine && !$locationAlreadyIncluded) {
+                                $fullAddress .= ($fullAddress ? "\n" : '') . $locationLine;
+                            }
+                        @endphp
+                        @if($fullAddress)
+                            <div class="col-2">
+                                <b>Address:</b>
+                            </div>
+                            <div class="col-10 ">
+                                {!! nl2br(htmlspecialchars($fullAddress)) !!}
+                            </div>
+                        @endif
+                    @elseif (isset($LoanCaseBillMain->invoice_to_address))
                         <div class="col-2">
                             <b>Address:</b>
                         </div>
@@ -176,19 +235,25 @@
                     <div class="col-6 ">
                         {{ $case->case_ref_no }}
                     </div>
-                    <div class="col-4 div_bank_ref_no">
-                        <b>Bank Ref No:</b>
-                    </div>
-                    <div class="col-6 div_bank_ref_no" id="purchaser_file_ref">
-
-                    </div>
+                    @if(isset($purchaser_financier_ref_no) && $purchaser_financier_ref_no && $purchaser_financier_ref_no->value)
+                        <div class="col-4 div_bank_ref_no">
+                            <b>Bank Ref No:</b>
+                        </div>
+                        <div class="col-6 div_bank_ref_no" id="purchaser_file_ref">
+                            {{ $purchaser_financier_ref_no->value }}
+                        </div>
+                    @endif
 
 
                     <div class="col-4">
                         <b>Invoice No:</b>
                     </div>
                     <div class="col-6 " id="inv_no_print">
-                        {{ $LoanCaseBillMain->invoice_no }}
+                        @if(isset($invoiceMain) && $invoiceMain)
+                            {{ $invoiceMain->invoice_no }}
+                        @else
+                            {{ $LoanCaseBillMain->invoice_no }}
+                        @endif
                     </div>
                 </address>
 

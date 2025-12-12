@@ -844,6 +844,13 @@ class EInvoiceContoller extends Controller
         // Get Branch information
         $Branch = Branch::where('id', '=', $case->branch_id)->first();
         
+        // Get Bank Ref No (purchaser_financier_ref_no) from masterlist field 160
+        $purchaser_financier_ref_no = DB::table('loan_case_masterlist as m')
+            ->select('m.value')
+            ->where('m.case_id', '=', $case->id)
+            ->where('m.masterlist_field_id', '=', 160)
+            ->first();
+        
         // Get account categories
         $category = AccountCategory::where('status', '=', 1)->orderBy('order', 'asc')->get();
         
@@ -870,11 +877,11 @@ class EInvoiceContoller extends Controller
         
         // Create pieces_inv array (chunked for pagination)
         $pieces_inv = array_chunk($invoice_v2, 30);
-
+        
         return response()->json([
             'status' => 1,
             'data' => $InvoiceBillingParty,
-            'invoicePrint' => view('dashboard.case.d-invoice-print', compact('LoanCaseBillMain', 'current_user', 'case', 'Branch', 'invoice_v2', 'pieces_inv',))->render(),
+            'invoicePrint' => view('dashboard.case.d-invoice-print', compact('LoanCaseBillMain', 'current_user', 'case', 'Branch', 'invoice_v2', 'pieces_inv', 'InvoiceBillingParty', 'invoiceMain', 'purchaser_financier_ref_no'))->render(),
             'inv_no' => $invoice_no,
             'view' => view('dashboard.case.section.d-party-infov2', compact('InvoiceBillingParty'))->render(),
         ]);

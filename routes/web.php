@@ -393,11 +393,11 @@ Route::group(['middleware' => ['get.menu']], function () {
             Route::resource('genfile',        'DocTemplateFileController');
             Route::resource('document-file',        'DocTemplateFilev2Controller'); 
             Route::resource('portfolio',        'PortfolioController');
-            // Main dashboard route now uses V2 (optimized version)
-            Route::get('dashboard', [DashboardV2Controller::class, 'index'])->name('dashboard.index');
+            // Main dashboard route - using original dashboard
+            Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard.index');
             
-            // Keep original dashboard accessible at dashboard-original for backup
-            Route::get('dashboard-original', [DashboardController::class, 'index'])->name('dashboard.original');
+            // Keep V2 dashboard accessible at dashboard-v2 for backup
+            Route::get('dashboard-v2', [DashboardV2Controller::class, 'index'])->name('dashboard.v2');
             
             // Keep other dashboard routes for compatibility
             Route::post('dashboard/{action}', [DashboardController::class, '{action}'])->where('action', 'create|store|update|destroy');
@@ -805,9 +805,13 @@ Route::get('transfer-fee-create', [AccountController::class, 'transferFeeCreate'
             Route::post('dashboard/load-case-files', [DashboardController::class, 'loadCaseFiles']);
             Route::post('dashboard/load-b2022-cases', [DashboardController::class, 'loadB2022Cases']);
 
-            // Dashboard V2 Routes
+            // Dashboard V2 Routes - Optimized with AJAX endpoints
             Route::get('dashboard-v2', [DashboardV2Controller::class, 'index'])->name('dashboard.v2');
-            Route::post('dashboard-v2/chart-data', [DashboardV2Controller::class, 'getChartData']);
+            Route::post('dashboard-v2/getDashboardCaseCount', [DashboardV2Controller::class, 'getDashboardCaseCount']);
+            Route::post('dashboard-v2/load-counts', [DashboardV2Controller::class, 'loadDashboardCounts']);
+            Route::post('dashboard-v2/load-notes', [DashboardV2Controller::class, 'loadNotesData']);
+            Route::post('dashboard-v2/load-case-files', [DashboardV2Controller::class, 'loadCaseFiles']);
+            Route::post('dashboard-v2/load-b2022-cases', [DashboardV2Controller::class, 'loadB2022Cases']);
             Route::post('dashboard-v2/clear-cache', [DashboardV2Controller::class, 'clearCache']);
             
             // Dashboard V2 - Lazy Loading AJAX Endpoints
@@ -818,10 +822,10 @@ Route::get('transfer-fee-create', [AccountController::class, 'transferFeeCreate'
             
             // Dashboard V2 - Original Dashboard Methods
             Route::post('dashboard-v2/getDashboardCaseCount', [DashboardV2Controller::class, 'getDashboardCaseCount']);
-            Route::post('dashboard-v2/getDashboardCaseChart', [DashboardV2Controller::class, 'getDashboardCaseChart']);
-            Route::post('dashboard-v2/getDashboardCaseChartByBranch', [DashboardV2Controller::class, 'getDashboardCaseChartByBranch']);
-            Route::post('dashboard-v2/getDashboardCaseChartByStaff', [DashboardV2Controller::class, 'getDashboardCaseChartByStaff']);
-            Route::post('dashboard-v2/getDashboardCaseChartBySales', [DashboardV2Controller::class, 'getDashboardCaseChartBySales']);
+            Route::post('dashboard-v2/getDashboardCaseChart', [DashboardController::class, 'getDashboardCaseChart']);
+            Route::post('dashboard-v2/getDashboardCaseChartByBranch', [DashboardController::class, 'getDashboardCaseChartByBranch']);
+            Route::post('dashboard-v2/getDashboardCaseChartByStaff', [DashboardController::class, 'getDashboardCaseChartByStaff']);
+            Route::post('dashboard-v2/getDashboardCaseChartBySales', [DashboardController::class, 'getDashboardCaseChartBySales']);
 
 
             Route::get('download-summary', [ReportController::class, 'downloadSummary'])->name('download-summary');

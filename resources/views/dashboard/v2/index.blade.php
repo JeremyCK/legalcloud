@@ -2,7 +2,75 @@
 
 @section('css')
     <link href="{{ asset('css/coreui-chartjs.css') }}" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.4/Chart.js"></script>
+    {{-- Chart.js will be loaded lazily when needed --}}
+    <style>
+        .loading-skeleton {
+            background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+            background-size: 200% 100%;
+            animation: loading 1.5s ease-in-out infinite;
+            border-radius: 4px;
+            min-height: 20px;
+            display: inline-block;
+        }
+        @keyframes loading {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+        .lazy-load-section {
+            min-height: 100px;
+        }
+        .card-loading {
+            opacity: 0.6;
+            pointer-events: none;
+            position: relative;
+        }
+        .card-loading::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 40px;
+            height: 40px;
+            margin: -20px 0 0 -20px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .loading-overlay {
+            position: relative;
+        }
+        .loading-overlay::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.8);
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .lazy-chart {
+            min-height: 400px;
+            position: relative;
+        }
+        .lazy-chart.loading::before {
+            content: 'Loading chart...';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #666;
+            z-index: 1;
+        }
+    </style>
 @endsection
 
 @section('content')
@@ -47,18 +115,18 @@
                                             <select class="form-control ddl_month" id="ddl_month_case" 
                                                 name="ddl_month" onchange="getDashBoardCaseCount()">
                                                 <option value="0">-- All --</option>
-                                                <option value="1" {{ (isset($currentMonth) && $currentMonth == 1) ? 'selected' : '' }}>January</option>
-                                                <option value='2' {{ (isset($currentMonth) && $currentMonth == 2) ? 'selected' : '' }}>February</option>
-                                                <option value='3' {{ (isset($currentMonth) && $currentMonth == 3) ? 'selected' : '' }}>March</option>
-                                                <option value='4' {{ (isset($currentMonth) && $currentMonth == 4) ? 'selected' : '' }}>April</option>
-                                                <option value='5' {{ (isset($currentMonth) && $currentMonth == 5) ? 'selected' : '' }}>May</option>
-                                                <option value='6' {{ (isset($currentMonth) && $currentMonth == 6) ? 'selected' : '' }}>June</option>
-                                                <option value='7' {{ (isset($currentMonth) && $currentMonth == 7) ? 'selected' : '' }}>July</option>
-                                                <option value='8' {{ (isset($currentMonth) && $currentMonth == 8) ? 'selected' : '' }}>August</option>
-                                                <option value='9' {{ (isset($currentMonth) && $currentMonth == 9) ? 'selected' : '' }}>September</option>
-                                                <option value='10' {{ (isset($currentMonth) && $currentMonth == 10) ? 'selected' : '' }}>October</option>
-                                                <option value='11' {{ (isset($currentMonth) && $currentMonth == 11) ? 'selected' : '' }}>November</option>
-                                                <option value='12' {{ (isset($currentMonth) && $currentMonth == 12) ? 'selected' : '' }}>December</option>
+                                                <option value="1">January</option>
+                                                <option value='2'>February</option>
+                                                <option value='3'>March</option>
+                                                <option value='4'>April</option>
+                                                <option value='5'>May</option>
+                                                <option value='6'>June</option>
+                                                <option value='7'>July</option>
+                                                <option value='8'>August</option>
+                                                <option value='9'>September</option>
+                                                <option value='10'>October</option>
+                                                <option value='11'>November</option>
+                                                <option value='12'>December</option>
                                             </select>
                                         </div>
                                     </div>
@@ -72,7 +140,7 @@
                                                 <select class="form-control"  id="ddl_branch_case" 
                                                     onchange="getDashBoardCaseCount()">
                                                     <option value="0">-- All --</option>
-                                                    @foreach ($branches as $index => $row)
+                                                    @foreach ($Branch as $index => $row)
                                                     <option value="{{ $row->id }}">{{ $row->name }}</option>
                                                     @endforeach
                                                     
@@ -87,59 +155,53 @@
                             </div>
 
                             <div class="row" id="div-case-count">
-                                <!-- Legal Cases Summary Cards -->
-                                @if (!in_array($current_user->menuroles, ['receptionist']))
-                                    @if (!in_array($current_user->id, [14]))
-                                        <div class="col-sm-6 col-lg-3">
+                                {{-- Loading skeletons - will be replaced by AJAX --}}
+                                <div class="col-sm-6 col-lg-3" id="case-count-total">
                                             <div class="card text-white bg-primary">
                                                 <div class="card-body pb-0" style="padding-bottom:30px !important;">
-                                                    <div class="btn-group float-right">
+                                            <div class="text-value-lg">
+                                                <span class="loading-skeleton" style="width:60px;height:35px;"></span>
                                                     </div>
-                                                    <div class="text-value-lg" id="openCaseCount">{{ $dashboardSummary['open_cases'] ?? 0 }}</div>
                                                     <div>Total Cases</div>
                                                 </div>
                                             </div>
                                         </div>
-                                    @endif
-                                @endif
-
-                                <div class="col-sm-6 col-lg-3">
+                                <div class="col-sm-6 col-lg-3" id="case-count-closed">
                                     <div class="card text-white bg-success">
                                         <div class="card-body pb-0" style="padding-bottom:30px !important;">
-                                            <div class="text-value-lg" id="closedCaseCount">{{ $dashboardSummary['closed_cases'] ?? 0 }}</div>
+                                            <div class="text-value-lg">
+                                                <span class="loading-skeleton" style="width:60px;height:35px;"></span>
+                                            </div>
                                             <div>Total Closed Cases</div>
                                         </div>
                                     </div>
                                 </div>
-                                
-                                <div class="col-sm-6 col-lg-3">
+                                <div class="col-sm-6 col-lg-3" id="case-count-active">
                                     <div class="card text-white bg-warning">
                                         <div class="card-body pb-0" style="padding-bottom:30px !important;">
-                                            <div class="btn-group float-right">
+                                            <div class="text-value-lg">
+                                                <span class="loading-skeleton" style="width:60px;height:35px;"></span>
                                             </div>
-                                            <div class="text-value-lg" id="inProgressCaseCount">{{ $dashboardSummary['in_progress_cases'] ?? 0 }}</div>
                                             <div>Total Active Cases</div>
                                         </div>
                                     </div>
                                 </div>
-                                
-                                <div class="col-sm-6 col-lg-3">
+                                <div class="col-sm-6 col-lg-3" id="case-count-pending">
                                     <div class="card text-white bg-purple">
                                         <div class="card-body pb-0" style="padding-bottom:30px !important;">
-                                            <div class="btn-group float-right">
+                                            <div class="text-value-lg">
+                                                <span class="loading-skeleton" style="width:60px;height:35px;"></span>
                                             </div>
-                                            <div class="text-value-lg" id="pendingCloseCaseCount">{{ $dashboardSummary['open_cases'] ?? 0 }}</div>
                                             <div>Total Pending Close Cases</div>
                                         </div>
                                     </div>
                                 </div>
-                                
-                                <div class="col-sm-6 col-lg-3">
+                                <div class="col-sm-6 col-lg-3" id="case-count-abort">
                                     <div class="card text-white bg-danger">
                                         <div class="card-body pb-0" style="padding-bottom:30px !important;">
-                                            <div class="btn-group float-right">
+                                            <div class="text-value-lg">
+                                                <span class="loading-skeleton" style="width:60px;height:35px;"></span>
                                             </div>
-                                            <div class="text-value-lg" id="abortCaseCount">{{ $dashboardSummary['aborted_cases'] ?? 0 }}</div>
                                             <div>Total Abort Cases</div>
                                         </div>
                                     </div>
@@ -156,21 +218,22 @@
             @endif
 
             @if (in_array($current_user->menuroles, ['admin', 'account']))
-            <div class="row">
+            <div class="row" id="b2022-cases-section">
                 <div class="col-xl-12">
                     <div class="card">
                         <div class="card-header">
                             <strong>Case Before 2022</strong>
                         </div>
-                        <div class="card-body">
-
+                        <div class="card-body lazy-load-section">
                             <div class="row" id="div-case-count">
                                 <div class="col-sm-6 col-lg-3">
                                     <div class="card text-white bg-primary">
                                         <div class="card-body pb-0" style="padding-bottom:30px !important;">
                                             <div class="btn-group float-right">
                                             </div>
-                                            <div class="text-value-lg">{{ $B2022AllCases }}</div>
+                                            <div class="text-value-lg" id="b2022-all-cases">
+                                                <span class="loading-skeleton" style="display:inline-block;width:50px;height:30px;"></span>
+                                            </div>
                                             <div>Total Cases</div>
                                         </div>
                                     </div>
@@ -180,7 +243,9 @@
                                     <div class="card text-white bg-success">
                                         <div class="card-body pb-0" style="padding-bottom:30px !important;">
             
-                                            <div class="text-value-lg">{{ $B2022ClosedCases }}</div>
+                                            <div class="text-value-lg" id="b2022-closed-cases">
+                                                <span class="loading-skeleton" style="display:inline-block;width:50px;height:30px;"></span>
+                                            </div>
                                             <div>Total Closed Cases</div>
                                         </div>
                                     </div>
@@ -190,7 +255,9 @@
                                     <div class="card text-white bg-warning">
                                         <div class="card-body pb-0" style="padding-bottom:30px !important;">
             
-                                            <div class="text-value-lg">{{ $B2022ActiveCases }}</div>
+                                            <div class="text-value-lg" id="b2022-active-cases">
+                                                <span class="loading-skeleton" style="display:inline-block;width:50px;height:30px;"></span>
+                                            </div>
                                             <div>Total Active Cases</div>
                                         </div>
                                     </div>
@@ -200,7 +267,9 @@
                                     <div class="card text-white bg-purple">
                                         <div class="card-body pb-0" style="padding-bottom:30px !important;">
             
-                                            <div class="text-value-lg">{{ $B2022PendingCloseCases }}</div>
+                                            <div class="text-value-lg" id="b2022-pending-close-cases">
+                                                <span class="loading-skeleton" style="display:inline-block;width:50px;height:30px;"></span>
+                                            </div>
                                             <div>Total Pending Close Cases</div>
                                         </div>
                                     </div>
@@ -367,7 +436,7 @@
                                                 <select class="form-control" id="ddl_branch" name="ddl_branch"
                                                     onchange="reloadDashBoardReport()">
                                                     <option value="0">-- All --</option>
-                                                    @foreach ($branches as $index => $row)
+                                                    @foreach ($Branch as $index => $row)
                                                     <option value="{{ $row->id }}">{{ $row->name }}</option>
                                                     @endforeach
                                                     
@@ -531,7 +600,7 @@
                                                 <select class="form-control" id="ddl_branch" name="ddl_branch"
                                                     onchange="reloadDashBoardReport()">
                                                     <option value="0">-- All --</option>
-                                                    @foreach ($branches as $index => $row)
+                                                    @foreach ($Branch as $index => $row)
                                                     <option value="{{ $row->id }}">{{ $row->name }}</option>
                                                     @endforeach
                                                     
@@ -656,8 +725,8 @@
                                     </div>
 
                                     <div class="div-chart div-chart2023">
-                                        <div id="chart_cases_all" class="c-chart-wrapper c-chart-wrapper2023 mt-3 mx-3"
-                                            style="height: 400px">
+                                        <div id="chart_cases_all" class="c-chart-wrapper c-chart-wrapper2023 mt-3 mx-3 lazy-chart loading"
+                                            style="height: 400px" data-chart-type="all">
                                             <canvas height="392" class="chart" id="caseCountChartAll"></canvas>
                                         </div>
                                     </div>
@@ -696,8 +765,8 @@
                                 </div>
 
                                 <div class="div-chart div-chart2022">
-                                    <div id="chart_cases_branch" class="c-chart-wrapper c-chart-wrapper2022 mt-3 mx-3"
-                                        style="height: 400px;">
+                                    <div id="chart_cases_branch_by_branch" class="c-chart-wrapper c-chart-wrapper2022 mt-3 mx-3 lazy-chart loading"
+                                        style="height: 400px;" data-chart-type="branch">
                                         <canvas height="392" class="chart" id="caseCountChartBranch"></canvas>
                                     </div>
                                 </div>
@@ -760,7 +829,7 @@
                                                 <select class="form-control" id="ddl_branch_sales" name="ddl_branch_sales"
                                                     onchange="reloadDashBoardCaseCountBySales()">
                                                     <option value="0">-- All --</option>
-                                                    @foreach ($branches as $index => $row)
+                                                    @foreach ($Branch as $index => $row)
                                                     <option value="{{ $row->id }}">{{ $row->name }}</option>
                                                     @endforeach
                                                     
@@ -772,8 +841,8 @@
                                 </div>
 
                                 <div class="div-chart div-chart2022">
-                                    <div id="chart_cases_branch" class="c-chart-wrapper c-chart-wrapper2022 mt-3 mx-3"
-                                        style="height: 400px;">
+                                    <div id="chart_cases_branch" class="c-chart-wrapper c-chart-wrapper2022 mt-3 mx-3 lazy-chart loading"
+                                        style="height: 400px;" data-chart-type="sales">
                                         <canvas height="392" class="chart" id="caseCountChartSales"></canvas>
                                     </div>
                                 </div>
@@ -852,7 +921,7 @@
                                                 <select class="form-control" id="ddl_branch_staff" name="ddl_branch_staff"
                                                     onchange="reloadDashBoardCaseCountByStaff()">
                                                     <option value="0">-- All --</option>
-                                                    @foreach ($branches as $index => $row)
+                                                    @foreach ($Branch as $index => $row)
                                                     <option value="{{ $row->id }}">{{ $row->name }}</option>
                                                     @endforeach
                                                     
@@ -864,8 +933,8 @@
                                 </div>
 
                                 <div class="div-chart div-chart2022">
-                                    <div id="chart_cases_branch" class="c-chart-wrapper c-chart-wrapper2022 mt-3 mx-3"
-                                        style="height: 400px;">
+                                    <div id="chart_cases_branch" class="c-chart-wrapper c-chart-wrapper2022 mt-3 mx-3 lazy-chart loading"
+                                        style="height: 400px;" data-chart-type="staff">
                                         <canvas height="392" class="chart" id="caseCountChartStaff"></canvas>
                                     </div>
                                 </div>
@@ -889,7 +958,7 @@
                             <div class="card">
                                 <div class="card-header">
                                                                             <strong>Bonus Request</strong> <span class=" badge badge-pill badge-danger">Total bonus
-                                            request: {{ count($recentActivities) }}</span>
+                                        request: {{ count($BonusRequestList) }}</span>
                                 </div>
                                 <div class="card-body" style="max-height:600px;overflow:scroll">
                                     <br>
@@ -906,266 +975,43 @@
                                         </thead>s
                                         <tbody>
 
-                                            @foreach($recentActivities as $index => $activity)
-                                                @if($activity['type'] === 'bonus_request')
-                                                    <tr>
-                                                        <td class="text-center">{{ $index + 1 }}</td>
-                                                        <td class="text-center">{{ $activity['message'] }}</td>
-                                                        <td class="text-center">{{ $activity['message'] }}</td>
-                                                        <td class="text-center">Pending</td>
-                                                        <td class="text-center">{{ \Carbon\Carbon::parse($activity['time'])->format('Y-m-d') }}</td>
-                                                    </tr>
-                                                @endif
-                                            @endforeach
-
-                                        </tbody>
-                                    </table>
-
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                @endif
-
-                {{-- Notes Section --}}
-                @if (!in_array($current_user->id, [2, 3]))
-                    @if (isset($notesData['kiv_note']) && count($notesData['kiv_note']))
-                        <div class="container-fluid">
-                            <div class="fade-in">
-                                <div class="row">
-                                    <div class="col-md-12">
-                                        <div class="card">
-                                            <div class="card-header">
-                                                <strong>Notes</strong> <span class=" badge badge-pill badge-danger">Today new messages:
-                                                    {{ $today_message_count }}</span>
-                                            </div>
-                                            <div class="card-body" style="max-height:600px;overflow:scroll">
-                                                <br>
-                                                <table id="table_notes_month"
-                                                    class="table table-responsive-sm table-striped table-hover  mb-0">
-                                                    <thead class="thead-light">
-                                                        <tr>
-                                                            <th>No</th>
-                                                            <th class="text-center">User</th>
-                                                            <th class="text-center">Message</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        @if (count($notesData['kiv_note']))
-                                                            @foreach ($notesData['kiv_note'] as $index => $note)
-                                                                <?php
-                                                                $color = 'info';
-                                                                if ($note->menuroles == 'account') {
-                                                                    $color = 'warning';
-                                                                } elseif ($note->menuroles == 'admin') {
-                                                                    $color = 'danger';
-                                                                } elseif ($note->menuroles == 'sales') {
-                                                                    $color = 'success';
-                                                                } elseif ($note->menuroles == 'clerk') {
-                                                                    $color = 'primary';
-                                                                } elseif ($note->menuroles == 'lawyer') {
-                                                                    $color = 'info';
-                                                                }
-                                                                ?>
+                                            @if (count($BonusRequestList))
+                                                @foreach ($BonusRequestList as $index => $row)
                                                                 <tr>
                                                                     <td class="text-center">
                                                                         {{ $index + 1 }}
                                                                     </td>
-                                                                    <td><span style=""
-                                                                            class="text-{{ $color }}"><b>{{ $note->user_name }}</b></span><br /><br />
-                                                                        <b>Ref No: </b><br />
-                                                                        <a target="_blank"
-                                                                            href="/case/{{ $note->case_id }}">{{ $note->case_ref_no }}
-                                                                            <i class="cil-arrow-right"></i></a><br />
-                                                                        <span class="small">
-                                                                            {{ date('d-m-Y h:i A', strtotime($note->created_at)) }}
-                                                                        </span>
+                                                        <td class="text-center">{{ $row->user_name }} </td>
+                                                        <td class="text-center"><a target="_blank"
+                                                                href="/case/{{ $row->case_id }}">{{ $row->case_ref_no }}
+                                                                <i class="cil-arrow-right"></i></a></td>
+                                                        <td class="text-center">
+                                                            @if ($row->status == 1)
+                                                                <span class=" badge badge-pill badge-warning">Pending
+                                                                    Review</span>
+                                                            @else
+                                                            @endif
                                                                     </td>
-                                                                    <td>
-                                                                        @php
-                                                                            $message = $note->notes;
-                                                                            if ($note->label == 'operation|dispatch')
-                                                                            {
-                                                                                $prefix = '<a target="_blank" href="/app/documents/dispatch/';
-                                                                                $postfix = '" class="mailbox-attachment-name"';
-                                                                                $replace = '<a href="javascript:void(0)" onclick="openFileFromS3(\'';
-                                                                                $replace2 = '\')"  class="mailbox-attachment-name"';
-
-                                                                                if (!str_contains($message , '<a target="_blank" href="/app/documents/dispatch/dispatch/'))
-                                                                                {
-                                                                                    $prefix = '<a target="_blank" href="/app/documents/';
-                                                                                }
-
-                                                                                $message = str_replace($prefix,$replace,$message);
-                                                                                $message = str_replace($postfix,$replace2,$message);
-                                                                            }
-                                                                            else  if ($note->label == 'operation|safekeeping')
-                                                                            {
-                                                                                $prefix = '<a target="_blank" href="/app/documents/safe_keeping/';
-                                                                                $postfix = '" class="mailbox-attachment-name"';
-                                                                                $replace = '<a href="javascript:void(0)" onclick="openFileFromS3(\'';
-                                                                                $replace2 = '\')"  class="mailbox-attachment-name"';
-
-                                                                                $message = str_replace($prefix,$replace,$message);
-                                                                                $message = str_replace($postfix,$replace2,$message);
-                                                                            }
-                                                                            else  if ($note->label == 'operation|landoffice')
-                                                                            {
-                                                                                $prefix = '<a target="_blank" href="/app/documents/land_office/';
-                                                                                $postfix = '" class="mailbox-attachment-name"';
-                                                                                $replace = '<a href="javascript:void(0)" onclick="openFileFromS3(\'';
-                                                                                $replace2 = '\')"  class="mailbox-attachment-name"';
-
-                                                                                $message = str_replace($prefix,$replace,$message);
-                                                                                $message = str_replace($postfix,$replace2,$message);
-                                                                            }
-                                                                        @endphp
-                                                                        
-                                                                        {!! $message !!}
-                                                                    </td>
+                                                        <td class="text-center">
+                                                            {{ date('d-m-Y h:i A', strtotime($row->created_at)) }}</td>
                                                                 </tr>
                                                             @endforeach
-                                                        @endif
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    @endif
-                @endif
-
-                {{-- Marketing Notes Section --}}
-                @if (in_array($current_user->menuroles, ['admin', 'account', 'sales', 'maker']))
-                    <div class="container-fluid">
-                        <div class="fade-in">
-                            <div class="row">
-                                @if (!in_array($current_user->id, [2]))
-                                    <div class="col-md-6">
-                                        <div class="card">
-                                            <div class="card-header">
-                                                <strong>Marketing Notes</strong> <span class=" badge badge-pill badge-danger">Past 7
-                                                    days
-                                                    messages:
-                                                    {{ isset($notesData['LoanMarketingNotes']) ? count($notesData['LoanMarketingNotes']) : 0 }}</span>
-                                            </div>
-                                            <div class="card-body" style="max-height:600px;overflow:scroll">
-                                                <br>
-                                                <table id="table_notes_month"
-                                                    class="table table-responsive-sm table-striped table-hover  mb-0">
-                                                    <thead class="thead-light">
-                                                        <tr>
-                                                            <th>No</th>
-                                                            <th class="text-center">User</th>
-                                                            <th class="text-center">Message</th>
+                                            @else
+                                                <tr>
+                                                    <td class="text-center" colspan="5">No request</td>
                                                         </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        @if (isset($notesData['LoanMarketingNotes']) && count($notesData['LoanMarketingNotes']))
-                                                            @foreach ($notesData['LoanMarketingNotes'] as $index => $note)
-                                                                <?php
-                                                                $color = 'info';
-                                                                if ($note->menuroles == 'account') {
-                                                                    $color = 'warning';
-                                                                } elseif ($note->menuroles == 'admin') {
-                                                                    $color = 'danger';
-                                                                } elseif ($note->menuroles == 'sales') {
-                                                                    $color = 'warning';
-                                                                } elseif ($note->menuroles == 'clerk') {
-                                                                    $color = 'primary';
-                                                                } elseif ($note->menuroles == 'lawyer') {
-                                                                    $color = 'info';
-                                                                }
-                                                                ?>
-                                                                <tr>
-                                                                    <td class="text-center">
-                                                                        {{ $index + 1 }}
-                                                                    </td>
-                                                                    <td><span style=""
-                                                                            class="text-{{ $color }}"><b>{{ $note->user_name }}</b></span><br /><br />
-                                                                        <b>Ref No: </b><br />
-                                                                        <a target="_blank"
-                                                                            href="/case/{{ $note->case_id }}">{{ $note->case_ref_no }}
-                                                                            <i class="cil-arrow-right"></i></a><br />
-                                                                        <span class="small">
-                                                                            {{ date('d-m-Y h:i A', strtotime($note->created_at)) }}
-                                                                        </span>
-                                                                    </td>
-                                                                    <td>{!! $note->notes !!}</td>
-                                                                </tr>
-                                                            @endforeach
                                                         @endif
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </div>
-                                    </div>
-                                @endif
 
-                                {{-- PNC Notes Section --}}
-                                @if ($current_user->management == 1)
-                                    <div class="col-md-6">
-                                        <div class="card">
-                                            <div class="card-header">
-                                                <strong>PNC Notes</strong> <span class=" badge badge-pill badge-danger">messages:
-                                                    {{ isset($notesData['pnc_note']) ? count($notesData['pnc_note']) : 0 }}</span>
-                                            </div>
-                                            <div class="card-body" style="max-height:600px;overflow:scroll">
-                                                <br>
-                                                <table id="table_notes_month"
-                                                    class="table table-responsive-sm table-striped table-hover  mb-0">
-                                                    <thead class="thead-light">
-                                                        <tr>
-                                                            <th>No</th>
-                                                            <th class="text-center">User</th>
-                                                            <th class="text-center">Message</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        @if (isset($notesData['pnc_note']) && count($notesData['pnc_note']))
-                                                            @foreach ($notesData['pnc_note'] as $index => $note)
-                                                                <?php
-                                                                $color = 'info';
-                                                                if ($note->menuroles == 'account') {
-                                                                    $color = 'warning';
-                                                                } elseif ($note->menuroles == 'sales') {
-                                                                    $color = 'success';
-                                                                } elseif ($note->menuroles == 'clerk') {
-                                                                    $color = 'primary';
-                                                                } elseif ($note->menuroles == 'lawyer') {
-                                                                    $color = 'info';
-                                                                }
-                                                                ?>
-                                                                <tr>
-                                                                    <td class="text-center">
-                                                                        {{ $index + 1 }}
-                                                                    </td>
-                                                                    <td><span style=""
-                                                                            class="text-{{ $color }}"><b>{{ $note->user_name }}</b></span><br /><br />
-                                                                        <b>Ref No: </b><br />
-                                                                        <a target="_blank"
-                                                                            href="/case/{{ $note->case_id }}">{{ $note->case_ref_no }}
-                                                                            <i class="cil-arrow-right"></i></a><br />
-                                                                        <span class="small">
-                                                                            {{ date('d-m-Y h:i A', strtotime($note->created_at)) }}
-                                                                        </span>
-                                                                    </td>
-                                                                    <td>{!! $note->notes !!}</td>
-                                                                </tr>
-                                                            @endforeach
-                                                        @endif
                                                     </tbody>
                                                 </table>
+
+                                            </div>
                                             </div>
                                         </div>
                                     </div>
-                                @endif
-                            </div>
-                        </div>
-                    </div>
-                @endif
+                @endif --}}
+
+
 
                 <div class="row hide">
                     <div class="col-md-12">
@@ -1433,7 +1279,7 @@
                                                                     $prefix = '<a target="_blank" href="/app/documents/dispatch/';
 
                                                                     $postfix = '" class="mailbox-attachment-name"';
-                                                                    $replace = '<a href="javascript:void(0)" onclick="openFileFromS3(\'';
+                                                                    $replace = '<a href="#" onclick="openFileFromS3(\'';
                                                                     $replace2 = '\')"  class="mailbox-attachment-name"';
 
                                                                     if (!str_contains($message , '<a target="_blank" href="/app/documents/dispatch/dispatch/'))
@@ -1449,7 +1295,7 @@
                                                                     $prefix = '<a target="_blank" href="/app/documents/safe_keeping/';
 
                                                                     $postfix = '" class="mailbox-attachment-name"';
-                                                                    $replace = '<a href="javascript:void(0)" onclick="openFileFromS3(\'';
+                                                                    $replace = '<a href="#" onclick="openFileFromS3(\'';
                                                                     $replace2 = '\')"  class="mailbox-attachment-name"';
 
                                                                     $message = str_replace($prefix,$replace,$message);
@@ -1460,7 +1306,7 @@
                                                                     $prefix = '<a target="_blank" href="/app/documents/land_office/';
 
                                                                     $postfix = '" class="mailbox-attachment-name"';
-                                                                    $replace = '<a href="javascript:void(0)" onclick="openFileFromS3(\'';
+                                                                    $replace = '<a href="#" onclick="openFileFromS3(\'';
                                                                     $replace2 = '\')"  class="mailbox-attachment-name"';
 
                                                                     $message = str_replace($prefix,$replace,$message);
@@ -1783,7 +1629,7 @@
                                                     <td class="">
 
                                                         @if ($file->s3_file_name)
-                                                            <a href="javascript:void(0)"
+                                                            <a href="#"
                                                                 onclick="openFileFromS3('{{ $file->filename }}')"><i
                                                                     class="cil-paperclip"></i>
                                                                 {{ $file->display_name }}</a>
@@ -1987,7 +1833,7 @@
 
                                                                                           <div class="col-3 ">
                                                                                             <div class="form-group  ">
-                                                                                              <a class="btn btn-lg btn-info" href="javascript:void(0)" onclick="clearSearch()">Clear search</a>
+                                                                                              <a class="btn btn-lg btn-info" href="#" onclick="clearSearch(); return false;">Clear search</a>
                                                                                             </div>
                                                                                           </div>
                                                                                         </div> -->
@@ -2066,13 +1912,83 @@
         // });
     </script>
     <script type="text/javascript">
-        // Initialize charts when page loads
-        $(document).ready(function() {
-            // Load initial charts with current year values
+        // Lazy load Chart.js when needed
+        var chartJsLoaded = false;
+        function loadChartJs() {
+            if (!chartJsLoaded) {
+                return new Promise(function(resolve, reject) {
+                    var script = document.createElement('script');
+                    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.4/Chart.js';
+                    script.async = true;
+                    script.onload = function() {
+                        chartJsLoaded = true;
+                        resolve();
+                    };
+                    script.onerror = function() {
+                        reject(new Error('Failed to load Chart.js'));
+                    };
+                    document.head.appendChild(script);
+                });
+            }
+            return Promise.resolve();
+        }
+
+        // Intersection Observer for lazy loading charts
+        function initLazyCharts() {
+            if ('IntersectionObserver' in window) {
+                const chartObserver = new IntersectionObserver(function(entries) {
+                    entries.forEach(function(entry) {
+                        if (entry.isIntersecting) {
+                            const chartContainer = entry.target;
+                            const chartType = chartContainer.dataset.chartType;
+                            
+                            // Load Chart.js if not loaded
+                            loadChartJs().then(function() {
+                                // Load chart data
+                                if (chartType === 'all') {
             reloadDashBoardCaseCount();
+                                } else if (chartType === 'branch') {
             reloadDashBoardCaseCountByBranch();
+                                } else if (chartType === 'sales') {
             reloadDashBoardCaseCountBySales();
+                                } else if (chartType === 'staff') {
             reloadDashBoardCaseCountByStaff();
+                                }
+                                chartObserver.unobserve(chartContainer);
+                            }).catch(function(error) {
+                                console.error('Error loading chart:', error);
+                            });
+                        }
+                    });
+                }, {
+                    rootMargin: '50px' // Start loading 50px before chart is visible
+                });
+
+                // Observe all chart containers
+                document.querySelectorAll('.lazy-chart').forEach(function(chart) {
+                    chartObserver.observe(chart);
+                });
+            } else {
+                // Fallback for browsers without IntersectionObserver
+                loadChartJs().then(function() {
+                    reloadDashBoardCaseCount();
+                    reloadDashBoardCaseCountByBranch();
+                });
+            }
+        }
+
+        // Initialize dashboard on page load
+        $(document).ready(function() {
+            // Load case counts immediately (critical data)
+            loadCaseCounts();
+            
+            // Load B2022 cases if section exists
+            if ($('#b2022-cases-section').length) {
+                loadB2022Cases();
+            }
+            
+            // Initialize lazy chart loading
+            initLazyCharts();
         });
         
         $(".btn-filter-date").click(function() {
@@ -2105,9 +2021,23 @@
 
 
 
-        function getDashBoardCaseCount() {
+        // Debounce function for filter changes
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
 
-
+        // Load case counts with loading state
+        function loadCaseCounts() {
+            // Show loading state
+            $('#div-case-count').addClass('card-loading');
 
             $.ajaxSetup({
                 headers: {
@@ -2116,21 +2046,115 @@
             });
 
             var form_data = new FormData();
+            form_data.append("month", $("#ddl_month_case").val() || 0);
+            form_data.append("year", $("#ddl_year_case").val() || 0);
+            form_data.append("branch", $("#ddl_branch_case").val() || 0);
 
+            $.ajax({
+                type: 'POST',
+                url: '/dashboard-v2/getDashboardCaseCount',
+                processData: false,
+                contentType: false,
+                data: form_data,
+                success: function(result) {
+                    if (result.data) {
+                        // Update individual cards
+                        $('#case-count-total .text-value-lg').html(result.data.openCaseCount || 0);
+                        $('#case-count-closed .text-value-lg').html(result.data.closedCaseCount || 0);
+                        $('#case-count-active .text-value-lg').html(result.data.InProgressCaseCount || 0);
+                        $('#case-count-pending .text-value-lg').html(result.data.OverdueCaseCount || 0);
+                        $('#case-count-abort .text-value-lg').html(result.data.abortCaseCount || 0);
+                    } else if (result.view) {
+                        // Fallback to view replacement
+                        $("#div-case-count").html(result.view);
+                    }
+                    $('#div-case-count').removeClass('card-loading');
+                },
+                error: function(xhr, status, error) {
+                    console.error('Error loading case counts:', error);
+                    $('#div-case-count').removeClass('card-loading');
+                    // Show error message
+                    $('#div-case-count').prepend('<div class="alert alert-danger">Failed to load case counts. Please refresh the page.</div>');
+                }
+            });
+        }
+
+        function getDashBoardCaseCount() {
+            // Use debounced version for filter changes
+            debouncedLoadCaseCounts();
+        }
+
+        // Create debounced version (300ms delay)
+        var debouncedLoadCaseCounts = debounce(loadCaseCounts, 300);
+
+        // Load B2022 cases with loading state
+        function loadB2022Cases() {
+            $('#b2022-cases-section').addClass('card-loading');
+            
+            $.ajaxSetup({
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                }
+            });
+
+            $.ajax({
+                type: 'POST',
+                url: '/dashboard-v2/load-b2022-cases',
+                success: function(data) {
+                    // Update B2022 cases section
+                    if (data.B2022AllCases !== undefined && $('#b2022-all-cases').length) {
+                        $('#b2022-all-cases').html(data.B2022AllCases);
+                    }
+                    if (data.B2022ClosedCases !== undefined && $('#b2022-closed-cases').length) {
+                        $('#b2022-closed-cases').html(data.B2022ClosedCases);
+                    }
+                    if (data.B2022ActiveCases !== undefined && $('#b2022-active-cases').length) {
+                        $('#b2022-active-cases').html(data.B2022ActiveCases);
+                    }
+                    if (data.B2022PendingCloseCases !== undefined && $('#b2022-pending-close-cases').length) {
+                        $('#b2022-pending-close-cases').html(data.B2022PendingCloseCases);
+                    }
+                    if (data.totalAcount !== undefined && $('#total-account').length) {
+                        $('#total-account').text(data.totalAcount);
+                    }
+                    if (data.totalAssigned !== undefined && $('#total-assigned').length) {
+                        $('#total-assigned').text(data.totalAssigned);
+                    }
+                    if (data.totalUpdated !== undefined && $('#total-updated').length) {
+                        $('#total-updated').text(data.totalUpdated);
+                    }
+                    $('#b2022-cases-section').removeClass('card-loading');
+                },
+                error: function(xhr, status, error) {
+                    console.error('Error loading B2022 cases:', error);
+                    $('#b2022-cases-section').removeClass('card-loading');
+                }
+            });
+        }
+
+        // Original getDashBoardCaseCount for compatibility (when view replacement is needed)
+        function getDashBoardCaseCountOriginal() {
+            $.ajaxSetup({
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                }
+            });
+
+            var form_data = new FormData();
             form_data.append("month", $("#ddl_month_case").val());
             form_data.append("year", $("#ddl_year_case").val());
             form_data.append("branch", $("#ddl_branch_case").val());
 
             $.ajax({
                 type: 'POST',
-                url: 'getDashboardCaseCount',
+                url: '/dashboard-v2/getDashboardCaseCount',
                 processData: false,
                 contentType: false,
                 data: form_data,
                 success: function(result) {
-
+                    if (result.view) {
                     $("#div-case-count").html(result.view);
-
+                    }
                     return 1;
 
                     var xValues = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov',
@@ -2238,6 +2262,8 @@
         }
 
         async function reloadDashBoardCaseCount() {
+            // Remove loading class when chart starts loading
+            $('#chart_cases_all').removeClass('loading');
 
             $.ajaxSetup({
                 headers: {
@@ -2401,6 +2427,8 @@
         }
 
         async function reloadDashBoardCaseCountByBranch() {
+            // Remove loading class when chart starts loading
+            $('#chart_cases_branch_by_branch').removeClass('loading');
 
             $.ajaxSetup({
                 headers: {
@@ -2534,6 +2562,8 @@
         }
 
         async function reloadDashBoardCaseCountByStaff() {
+            // Remove loading class when chart starts loading
+            $('#chart_cases_branch[data-chart-type="staff"]').removeClass('loading');
 
             $.ajaxSetup({
                 headers: {
@@ -2550,7 +2580,7 @@
 
             $.ajax({
                 type: 'POST',
-                url: '/dashboard-v2/getDashboardCaseChartByStaff',
+                url: 'getDashboardCaseChartByStaff',
                 processData: false,
                 contentType: false,
                 data: form_data,
@@ -2604,6 +2634,10 @@
         }
 
         async function reloadDashBoardCaseCountBySales() {
+            // Remove loading class when chart starts loading
+            $('#chart_cases_branch[data-chart-type="sales"]').removeClass('loading');
+            // Remove loading class when chart starts loading
+            $('#chart_cases_branch[data-chart-type="sales"]').removeClass('loading');
 
             $.ajaxSetup({
                 headers: {
@@ -2619,7 +2653,7 @@
 
             $.ajax({
                 type: 'POST',
-                url: '/dashboard-v2/getDashboardCaseChartBySales',
+                url: 'getDashboardCaseChartBySales',
                 processData: false,
                 contentType: false,
                 data: form_data,
@@ -2874,539 +2908,7 @@
         function clearForm() {
             document.getElementById("form_search").reset();
         }
-
-        // Reload dashboard case count
-        function reloadDashBoardCaseCount() {
-            var year = $('#ddl_year').val();
-            
-            $.ajax({
-                url: '/dashboard-v2/chart-data',
-                type: 'POST',
-                data: {
-                    year: year,
-                    type: 'cases',
-                    _token: $('meta[name="csrf-token"]').attr('content')
-                },
-                success: function(response) {
-                    if (response.status === 1) {
-                        var data = response.data;
-                        var xValues = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                        var monthlyTotals = null;
-                        
-                        // Find monthly totals
-                        for (var i = 0; i < data.length; i++) {
-                            if (data[i].branch === 'Monthly Total') {
-                                monthlyTotals = data[i];
-                                break;
-                            }
-                        }
-                        
-                        // Create x-axis labels with monthly totals
-                        var xLabelsWithTotals = [];
-                        for (var i = 0; i < xValues.length; i++) {
-                            var monthLabel = xValues[i];
-                            if (monthlyTotals && monthlyTotals.count[i] !== undefined) {
-                                monthLabel = monthLabel + '\n(' + monthlyTotals.count[i] + ')';
-                            }
-                            xLabelsWithTotals.push(monthLabel);
-                        }
-                        
-                        if (chartAllCases === null) {
-                            // Create new chart
-                            var ctx = document.getElementById('caseCountChartAll').getContext('2d');
-                            chartAllCases = new Chart(ctx, {
-                                type: 'bar',
-                                data: {
-                                    labels: xLabelsWithTotals,
-                                    datasets: []
-                                },
-                                options: {
-                                    responsive: true,
-                                    maintainAspectRatio: false,
-                                    tooltips: {
-                                        callbacks: {
-                                            title: function(tooltipItems, data) {
-                                                return 'Month: ' + xValues[tooltipItems[0].index];
-                                            },
-                                            label: function(tooltipItem, data) {
-                                                return 'Cases: ' + data.datasets[tooltipItem.datasetIndex].data[tooltipItem.index];
-                                            }
-                                        }
-                                    },
-                                    scales: {
-                                        xAxes: [{
-                                            ticks: {
-                                                callback: function(value, index, values) {
-                                                    var monthLabel = xValues[index];
-                                                    if (monthlyTotals && monthlyTotals.count[index] !== undefined) {
-                                                        return monthLabel + '\n(' + monthlyTotals.count[index] + ')';
-                                                    }
-                                                    return monthLabel;
-                                                }
-                                            }
-                                        }]
-                                    }
-                                }
-                            });
-                            
-                            // Add datasets
-                            for (var i = 0; i < data.length; i++) {
-                                if (data[i].branch !== 'Monthly Total') {
-                                    var color = getRandomColor();
-                                    chartAllCases.data.datasets.push({
-                                        label: data[i].branch,
-                                        data: data[i].count,
-                                        backgroundColor: color,
-                                        borderColor: color,
-                                        borderWidth: 1
-                                    });
-                                }
-                            }
-                            chartAllCases.update();
-                        } else {
-                            // Update existing chart
-                            chartAllCases.data.labels = xLabelsWithTotals;
-                            chartAllCases.data.datasets = [];
-                            
-                            for (var i = 0; i < data.length; i++) {
-                                if (data[i].branch !== 'Monthly Total') {
-                                    var color = getRandomColor();
-                                    chartAllCases.data.datasets.push({
-                                        label: data[i].branch,
-                                        data: data[i].count,
-                                        backgroundColor: color,
-                                        borderColor: color,
-                                        borderWidth: 1
-                                    });
-                                }
-                            }
-                            
-                            // Force chart to redraw with new labels
-                            chartAllCases.options.scales.xAxes[0].ticks.callback = function(value, index, values) {
-                                var monthLabel = xValues[index];
-                                if (monthlyTotals && monthlyTotals.count[index] !== undefined) {
-                                    return monthLabel + '\n(' + monthlyTotals.count[index] + ')';
-                                }
-                                return monthLabel;
-                            };
-                            chartAllCases.update();
-                        }
-                    }
-                },
-                error: function(xhr, status, error) {
-                    console.error('Error loading chart data:', error);
-                }
-            });
-        }
-
-        // Reload dashboard case count by branch
-        function reloadDashBoardCaseCountByBranch() {
-            var year = $('#ddl_year_branch').val();
-            
-            $.ajax({
-                url: '/dashboard-v2/chart-data',
-                type: 'POST',
-                data: {
-                    year: year,
-                    type: 'branch',
-                    _token: $('meta[name="csrf-token"]').attr('content')
-                },
-                success: function(response) {
-                    if (response.status === 1) {
-                        var data = response.data;
-                        var xValues = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                        var monthlyTotals = null;
-                        
-                        // Find monthly totals
-                        for (var i = 0; i < data.length; i++) {
-                            if (data[i].branch === 'Monthly Total') {
-                                monthlyTotals = data[i];
-                                break;
-                            }
-                        }
-                        
-                        // Create x-axis labels with monthly totals
-                        var xLabelsWithTotals = [];
-                        for (var i = 0; i < xValues.length; i++) {
-                            var monthLabel = xValues[i];
-                            if (monthlyTotals && monthlyTotals.count[i] !== undefined) {
-                                monthLabel = monthLabel + '\n(' + monthlyTotals.count[i] + ')';
-                            }
-                            xLabelsWithTotals.push(monthLabel);
-                        }
-                        
-                        if (chartAllCasesbyBranch === null) {
-                            // Create new chart
-                            var ctx = document.getElementById('caseCountChartBranch').getContext('2d');
-                            chartAllCasesbyBranch = new Chart(ctx, {
-                                type: 'bar',
-                                data: {
-                                    labels: xLabelsWithTotals,
-                                    datasets: []
-                                },
-                                options: {
-                                    responsive: true,
-                                    maintainAspectRatio: false,
-                                    tooltips: {
-                                        callbacks: {
-                                            title: function(tooltipItems, data) {
-                                                return 'Month: ' + xValues[tooltipItems[0].index];
-                                            },
-                                            label: function(tooltipItem, data) {
-                                                return data.datasets[tooltipItem.datasetIndex].label + ': ' + data.datasets[tooltipItem.datasetIndex].data[tooltipItem.index];
-                                            }
-                                        }
-                                    },
-                                    scales: {
-                                        xAxes: [{
-                                            ticks: {
-                                                callback: function(value, index, values) {
-                                                    var monthLabel = xValues[index];
-                                                    if (monthlyTotals && monthlyTotals.count[index] !== undefined) {
-                                                        return monthLabel + '\n(' + monthlyTotals.count[index] + ')';
-                                                    }
-                                                    return monthLabel;
-                                                }
-                                            }
-                                        }]
-                                    }
-                                }
-                            });
-                            
-                            // Add datasets
-                            for (var i = 0; i < data.length; i++) {
-                                if (data[i].branch !== 'Monthly Total') {
-                                    var color = getRandomColor();
-                                    chartAllCasesbyBranch.data.datasets.push({
-                                        label: data[i].branch,
-                                        data: data[i].count,
-                                        backgroundColor: color,
-                                        borderColor: color,
-                                        borderWidth: 1
-                                    });
-                                }
-                            }
-                            chartAllCasesbyBranch.update();
-                        } else {
-                            // Update existing chart
-                            chartAllCasesbyBranch.data.labels = xLabelsWithTotals;
-                            chartAllCasesbyBranch.data.datasets = [];
-                            
-                            for (var i = 0; i < data.length; i++) {
-                                if (data[i].branch !== 'Monthly Total') {
-                                    var color = getRandomColor();
-                                    chartAllCasesbyBranch.data.datasets.push({
-                                        label: data[i].branch,
-                                        data: data[i].count,
-                                        backgroundColor: color,
-                                        borderColor: color,
-                                        borderWidth: 1
-                                    });
-                                }
-                            }
-                            
-                            // Force chart to redraw with new labels
-                            chartAllCasesbyBranch.options.scales.xAxes[0].ticks.callback = function(value, index, values) {
-                                var monthLabel = xValues[index];
-                                if (monthlyTotals && monthlyTotals.count[index] !== undefined) {
-                                    return monthLabel + '\n(' + monthlyTotals.count[index] + ')';
-                                }
-                                return monthLabel;
-                            };
-                            chartAllCasesbyBranch.update();
-                        }
-                    }
-                },
-                error: function(xhr, status, error) {
-                    console.error('Error loading branch chart data:', error);
-                }
-            });
-        }
-
-        // Reload dashboard case count by sales
-        function reloadDashBoardCaseCountBySales() {
-            var year = $('#ddl_year_sales').val();
-            var month = $('#ddl_month_sales').val();
-            var branch = $('#ddl_branch_sales').val();
-            
-            console.log('Reloading sales chart for year:', year, 'month:', month, 'branch:', branch);
-            
-            $.ajax({
-                url: '/dashboard-v2/getDashboardCaseChartBySales',
-                type: 'POST',
-                data: {
-                    year: year,
-                    month: month,
-                    branch: branch,
-                    _token: $('meta[name="csrf-token"]').attr('content')
-                },
-                success: function(result) {
-                    if (result.status === 1) {
-                        var xValues = result.salesList;
-                        var caseCount = result.caseCount;
-                        
-                        if (chartAllCasesbySales === null) {
-                            // Create new chart
-                            var ctx = document.getElementById('caseCountChartSales').getContext('2d');
-                            chartAllCasesbySales = new Chart(ctx, {
-                                type: 'bar',
-                                data: {
-                                    labels: xValues,
-                                    datasets: [{
-                                        label: 'Sales Cases',
-                                        data: caseCount,
-                                        backgroundColor: 'rgba(54, 162, 235, 0.8)',
-                                        borderColor: 'rgba(54, 162, 235, 1)',
-                                        borderWidth: 1
-                                    }]
-                                },
-                                options: {
-                                    responsive: true,
-                                    maintainAspectRatio: false,
-                                    tooltips: {
-                                        callbacks: {
-                                            title: function(tooltipItems, data) {
-                                                return 'Sales Staff: ' + data.labels[tooltipItems[0].index];
-                                            },
-                                            label: function(tooltipItem, data) {
-                                                return 'Cases: ' + data.datasets[0].data[tooltipItem.index];
-                                            }
-                                        }
-                                    },
-                                    scales: {
-                                        y: {
-                                            beginAtZero: true
-                                        }
-                                    }
-                                }
-                            });
-                        } else {
-                            // Update existing chart
-                            chartAllCasesbySales.data.labels = xValues;
-                            chartAllCasesbySales.data.datasets[0].data = caseCount;
-                            chartAllCasesbySales.update();
-                        }
-                    }
-                },
-                error: function(xhr, status, error) {
-                    console.error('Error loading sales chart data:', error);
-                }
-            });
-        }
-
-        // Reload dashboard case count by staff
-        function reloadDashBoardCaseCountByStaff() {
-            var year = $('#ddl_year_staff').val();
-            var month = $('#ddl_month_staff').val();
-            var role = $('#ddl_role_staff').val();
-            var branch = $('#ddl_branch_staff').val();
-            
-            console.log('Reloading staff chart for year:', year, 'month:', month, 'role:', role, 'branch:', branch);
-            
-            $.ajax({
-                url: '/dashboard-v2/getDashboardCaseChartByStaff',
-                type: 'POST',
-                data: {
-                    year: year,
-                    month: month,
-                    role: role,
-                    branch: branch,
-                    _token: $('meta[name="csrf-token"]').attr('content')
-                },
-                success: function(result) {
-                    if (result.status === 1) {
-                        var xValues = result.lawyerList;
-                        var caseCount = result.lawyercount;
-                        
-                        if (chartAllCasesbyStaff === null) {
-                            // Create new chart
-                            var ctx = document.getElementById('caseCountChartStaff').getContext('2d');
-                            chartAllCasesbyStaff = new Chart(ctx, {
-                                type: 'bar',
-                                data: {
-                                    labels: xValues,
-                                    datasets: [{
-                                        label: 'Staff Cases',
-                                        data: caseCount,
-                                        backgroundColor: 'rgba(255, 99, 132, 0.8)',
-                                        borderColor: 'rgba(255, 99, 132, 1)',
-                                        borderWidth: 1
-                                    }]
-                                },
-                                options: {
-                                    responsive: true,
-                                    maintainAspectRatio: false,
-                                    tooltips: {
-                                        callbacks: {
-                                            title: function(tooltipItems, data) {
-                                                return 'Staff Member: ' + data.labels[tooltipItems[0].index];
-                                            },
-                                            label: function(tooltipItem, data) {
-                                                return 'Cases: ' + data.datasets[0].data[tooltipItem.index];
-                                            }
-                                        }
-                                    },
-                                    scales: {
-                                        y: {
-                                            beginAtZero: true
-                                        }
-                                    }
-                                }
-                            });
-                        } else {
-                            // Update existing chart
-                            chartAllCasesbyStaff.data.labels = xValues;
-                            chartAllCasesbyStaff.data.datasets[0].data = caseCount;
-                            chartAllCasesbyStaff.update();
-                        }
-                    }
-                },
-                error: function(xhr, status, error) {
-                    console.error('Error loading staff chart data:', error);
-                }
-            });
-        }
-
-        // Get random color for charts
-        function getRandomColor() {
-            var letters = '0123456789ABCDEF';
-            var color = '#';
-            for (var i = 0; i < 6; i++) {
-                color += letters[Math.floor(Math.random() * 16)];
-                }
-                            return color;
-                        }
-
-                        // Function to open files from S3
-                        function openFileFromS3(filename) {
-                            var form_data = new FormData();
-                            form_data.append("filename", filename);
-
-                            $.ajax({
-                                type: 'POST',
-                                url: '/getFileFromS3',
-                                data: form_data,
-                                processData: false,
-                                contentType: false,
-                                success: function(data) {
-                                    if( /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ) {
-                                        window.location.href = data;
-                                    } else {
-                                        window.open(data, "_blank");
-                                    }
-                                }
-                            });
-                        }
-                    </script>
-                    
-                    <script>
-                        // Dashboard V2 - Lazy Loading for Better Performance
-                        $(document).ready(function() {
-                            // Load heavy data asynchronously after page loads
-                            setTimeout(function() {
-                                loadAllNotesData();
-                                loadDashboardSummaryData();
-                                loadRecentActivitiesData();
-                                loadPerformanceMetricsData();
-                            }, 500); // Wait 500ms after page load
-                        });
-
-                        function loadAllNotesData() {
-                            $.ajaxSetup({
-                                headers: {
-                                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
-                                }
-                            });
-
-                            $.ajax({
-                                type: 'POST',
-                                url: '/dashboard/load-all-notes',
-                                success: function(data) {
-                                    // Update notes sections if they exist
-                                    if (data.kiv_note && $('#kiv-notes-container').length) {
-                                        updateNotesSection('#kiv-notes-container', data.kiv_note);
-                                    }
-                                    if (data.pnc_note && $('#pnc-notes-container').length) {
-                                        updateNotesSection('#pnc-notes-container', data.pnc_note);
-                                    }
-                                    if (data.LoanMarketingNotes && $('#marketing-notes-container').length) {
-                                        updateNotesSection('#marketing-notes-container', data.LoanMarketingNotes);
-                                    }
-                                },
-                                error: function(xhr, status, error) {
-                                    console.error('Error loading notes:', error);
-                                }
-                            });
-                        }
-
-                        function loadDashboardSummaryData() {
-                            $.ajaxSetup({
-                                headers: {
-                                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
-                                }
-                            });
-
-                            $.ajax({
-                                type: 'POST',
-                                url: '/dashboard/load-summary',
-                                data: { year: new Date().getFullYear() },
-                                success: function(data) {
-                                    // Update summary cards if needed
-                                    console.log('Dashboard summary loaded');
-                                },
-                                error: function(xhr, status, error) {
-                                    console.error('Error loading summary:', error);
-                                }
-                            });
-                        }
-
-                        function loadRecentActivitiesData() {
-                            $.ajaxSetup({
-                                headers: {
-                                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
-                                }
-                            });
-
-                            $.ajax({
-                                type: 'POST',
-                                url: '/dashboard/load-activities',
-                                success: function(data) {
-                                    // Update activities section if needed
-                                    console.log('Recent activities loaded');
-                                },
-                                error: function(xhr, status, error) {
-                                    console.error('Error loading activities:', error);
-                                }
-                            });
-                        }
-
-                        function loadPerformanceMetricsData() {
-                            $.ajaxSetup({
-                                headers: {
-                                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
-                                }
-                            });
-
-                            $.ajax({
-                                type: 'POST',
-                                url: '/dashboard/load-metrics',
-                                data: { year: new Date().getFullYear() },
-                                success: function(data) {
-                                    // Update metrics if needed
-                                    console.log('Performance metrics loaded');
-                                },
-                                error: function(xhr, status, error) {
-                                    console.error('Error loading metrics:', error);
-                                }
-                            });
-                        }
-
-                        function updateNotesSection(container, notes) {
-                            // This can be customized based on your view structure
-                            console.log('Updating notes section:', container, notes.length);
-                        }
-                    </script>
-                    
+    </script>
                     <script src="{{ asset('js/Chart.min.js') }}"></script>
     <script src="{{ asset('js/coreui-chartjs.js') }}"></script>
     <script src="{{ asset('js/main.js?00001') }}"></script>

@@ -333,7 +333,7 @@
                         //   </svg> ` + data.data[i].name + ` ` + data.data[i].desc + `</a>`;
 
                             strDiv +=
-                                ` <a class="dropdown-item" href="javascript:void(0)" onclick="OpenNotification( ` + data.data[i].id + `);">
+                                ` <a class="dropdown-item" href="#" onclick="OpenNotification( ` + data.data[i].id + `); return false;">
                                 <i class="c-icon mr-2 text-success cil-user"></i> ` + data.data[i].name + ` ` + data.data[i].desc + `</a>`;
                         }
 
@@ -344,9 +344,9 @@
                         $(".notification-badge").html('');
                         $("#notification_count").html(0);
 
-                        strDiv += ` <a class="dropdown-item" href="javascript:void(0)">
+                        strDiv += ` <a class="dropdown-item" href="#">
           <svg class="c-icon mr-2 text-success">
-              <use xlink:href="javascript:void(0)"></use>
+              <use xlink:href="#"></use>
             </svg>No notification</a>`;
                     }
 
@@ -369,8 +369,8 @@
                         //   </svg> ` + data.data[i].name + ` ` + data.data[i].desc + `</a>`;
 
                             strDiv +=
-                                ` <a class="dropdown-item" href="javascript:void(0)" onclick="OpenNotification( ` +
-                                data.data[i].id + `);">
+                                ` <a class="dropdown-item" href="#" onclick="OpenNotification( ` +
+                                data.data[i].id + `); return false;">
           <i class="c-icon cil-user"></i> ` + data.data[i].name + ` ` + data.data[i].desc + `</a>`;
                         }
 
@@ -381,9 +381,9 @@
                         $(".notification-receipt-badge").html('');
                         $("#notification_receipt_count").html(0);
 
-                        strDiv += ` <a class="dropdown-item" href="javascript:void(0)">
+                        strDiv += ` <a class="dropdown-item" href="#">
           <svg class="c-icon mr-2 text-success">
-              <use xlink:href="javascript:void(0)"></use>
+              <use xlink:href="#"></use>
             </svg>No notification</a>`;
                     }
 
