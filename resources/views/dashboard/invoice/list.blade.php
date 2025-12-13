@@ -38,48 +38,53 @@
                             <div class="row">
                                 <div class="col-md-3">
                                     <div class="form-group">
-                                        <label>Quick Search (Invoice No)</label>
+                                        <label>Invoice No</label>
                                         <input type="text" class="form-control" id="search_invoice_no" 
-                                            placeholder="Type invoice no to search..." autocomplete="off">
+                                            placeholder="Search..." autocomplete="off">
                                     </div>
                                 </div>
-                                <div class="col-md-2">
+                                <div class="col-md-3">
                                     <div class="form-group">
                                         <label>Case Ref No</label>
                                         <input type="text" class="form-control" id="search_case_ref" 
-                                            placeholder="Search by case ref">
+                                            placeholder="Search...">
                                     </div>
                                 </div>
-                                <div class="col-md-2">
+                                <div class="col-md-3">
                                     <div class="form-group">
                                         <label>Bill No</label>
                                         <input type="text" class="form-control" id="search_bill_no" 
-                                            placeholder="Search by bill no">
+                                            placeholder="Search...">
                                     </div>
                                 </div>
-                                <div class="col-md-2">
+                                <div class="col-md-3">
+                                    <div class="form-group">
+                                        <label>&nbsp;</label>
+                                        <div>
+                                            <button type="button" class="btn btn-primary" onclick="searchInvoices()">
+                                                <i class="cil-magnifying-glass"></i> Search
+                                            </button>
+                                            <button type="button" class="btn btn-secondary ml-2" onclick="refreshInvoiceList()">
+                                                <i class="cil-reload"></i> Reset
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-3">
                                     <div class="form-group">
                                         <label>Date From</label>
                                         <input type="date" class="form-control" id="filter_date_from">
                                     </div>
                                 </div>
-                                <div class="col-md-2">
+                                <div class="col-md-3">
                                     <div class="form-group">
                                         <label>Date To</label>
                                         <input type="date" class="form-control" id="filter_date_to">
                                     </div>
                                 </div>
-                                <div class="col-md-1">
-                                    <div class="form-group">
-                                        <label>&nbsp;</label>
-                                        <button type="button" class="btn btn-primary btn-block" onclick="searchInvoices()">
-                                            <i class="cil-magnifying-glass"></i> Search
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="row">
-                                <div class="col-md-2">
+                                <div class="col-md-3">
                                     <div class="form-group">
                                         <label>SST Status</label>
                                         <select class="form-control" id="filter_sst_status">
@@ -89,7 +94,7 @@
                                         </select>
                                     </div>
                                 </div>
-                                <div class="col-md-2">
+                                <div class="col-md-3">
                                     <div class="form-group">
                                         <label>Transferred Status</label>
                                         <select class="form-control" id="filter_transferred_status">
@@ -107,6 +112,7 @@
                             <table class="table table-bordered table-striped table-hover invoice-table" id="invoice-list-table">
                                 <thead class="thead-light">
                                     <tr>
+                                        <th>Action</th>
                                         <th>Invoice No</th>
                                         <th>Invoice Date</th>
                                         <th>Case Ref No</th>
@@ -117,7 +123,6 @@
                                         <th>SST Paid Status</th>
                                         <th>Payment Date</th>
                                         <th>Transferred</th>
-                                        <th>Action</th>
                                     </tr>
                                 </thead>
                                 <tbody id="invoice-list-tbody">
@@ -290,6 +295,11 @@
                 '<span class="badge badge-warning">Unpaid</span>';
 
             var row = '<tr>' +
+                '<td>' +
+                    '<a href="/invoice/' + invoice.id + '/details" class="btn btn-sm btn-info" title="Edit Invoice">' +
+                        '<i class="cil-pencil"></i>' +
+                    '</a>' +
+                '</td>' +
                 '<td>' + (invoice.invoice_no || '-') + '</td>' +
                 '<td>' + (invoice.Invoice_date ? formatDate(invoice.Invoice_date) : '-') + '</td>' +
                 '<td><a href="/case/' + invoice.case_id + '" target="_blank">' + (invoice.case_ref_no || '-') + '</a></td>' +
@@ -300,11 +310,6 @@
                 '<td class="text-center">' + sstStatusBadge + '</td>' +
                 '<td>' + (invoice.payment_receipt_date ? formatDate(invoice.payment_receipt_date) : '-') + '</td>' +
                 '<td class="text-center">' + transferredBadge + '</td>' +
-                '<td>' +
-                    '<a href="/invoice/' + invoice.id + '/details" class="btn btn-sm btn-info" title="View Details">' +
-                        '<i class="cil-pencil"></i> Edit' +
-                    '</a>' +
-                '</td>' +
             '</tr>';
             tbody.append(row);
         });
