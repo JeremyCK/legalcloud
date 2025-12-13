@@ -1735,6 +1735,120 @@
             });
         }
 
+        // Function to download invoice PDF
+        function downloadInvoicePDF(invoiceId) {
+            if (!invoiceId) {
+                if (typeof toastController === 'function') {
+                    toastController('Invoice ID not found', 'warning');
+                } else {
+                    alert('Invoice ID not found');
+                }
+                return;
+            }
+
+            // Show loading message
+            if (typeof toastController === 'function') {
+                toastController('Generating PDF...', 'info');
+            }
+
+            // Use fetch to handle errors properly
+            var downloadUrl = '/generateInvoicePDF/' + invoiceId;
+            fetch(downloadUrl, {
+                method: 'GET',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(function(response) {
+                if (!response.ok) {
+                    return response.json().then(function(data) {
+                        throw new Error(data.message || 'Failed to generate PDF');
+                    });
+                }
+                return response.blob();
+            })
+            .then(function(blob) {
+                // Create download link
+                var url = window.URL.createObjectURL(blob);
+                var link = document.createElement('a');
+                link.href = url;
+                link.download = 'Invoice_' + invoiceId + '_' + new Date().toISOString().split('T')[0] + '.pdf';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(url);
+                
+                if (typeof toastController === 'function') {
+                    toastController('PDF downloaded successfully', 'success');
+                }
+            })
+            .catch(function(error) {
+                console.error('PDF download error:', error);
+                if (typeof toastController === 'function') {
+                    toastController(error.message || 'Error downloading PDF. Please try again.', 'error');
+                } else {
+                    alert(error.message || 'Error downloading PDF. Please try again.');
+                }
+            });
+        }
+
+        // Function to download proforma invoice PDF
+        function downloadProformaInvoicePDF(billId) {
+            if (!billId) {
+                if (typeof toastController === 'function') {
+                    toastController('Bill ID not found', 'warning');
+                } else {
+                    alert('Bill ID not found');
+                }
+                return;
+            }
+
+            // Show loading message
+            if (typeof toastController === 'function') {
+                toastController('Generating PDF...', 'info');
+            }
+
+            // Use fetch to handle errors properly
+            var downloadUrl = '/generateProformaInvoicePDF/' + billId;
+            fetch(downloadUrl, {
+                method: 'GET',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(function(response) {
+                if (!response.ok) {
+                    return response.json().then(function(data) {
+                        throw new Error(data.message || 'Failed to generate PDF');
+                    });
+                }
+                return response.blob();
+            })
+            .then(function(blob) {
+                // Create download link
+                var url = window.URL.createObjectURL(blob);
+                var link = document.createElement('a');
+                link.href = url;
+                link.download = 'Proforma_Invoice_' + billId + '_' + new Date().toISOString().split('T')[0] + '.pdf';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(url);
+                
+                if (typeof toastController === 'function') {
+                    toastController('PDF downloaded successfully', 'success');
+                }
+            })
+            .catch(function(error) {
+                console.error('PDF download error:', error);
+                if (typeof toastController === 'function') {
+                    toastController(error.message || 'Error downloading PDF. Please try again.', 'error');
+                } else {
+                    alert(error.message || 'Error downloading PDF. Please try again.');
+                }
+            });
+        }
+
 
 
         function cancelInvoicePrintMode() {

@@ -38,31 +38,65 @@
                             <div class="row">
                                 <div class="col-md-3">
                                     <div class="form-group">
-                                        <label>Invoice No</label>
+                                        <label>Quick Search (Invoice No)</label>
                                         <input type="text" class="form-control" id="search_invoice_no" 
-                                            placeholder="Search by invoice no">
+                                            placeholder="Type invoice no to search..." autocomplete="off">
                                     </div>
                                 </div>
-                                <div class="col-md-3">
+                                <div class="col-md-2">
                                     <div class="form-group">
                                         <label>Case Ref No</label>
                                         <input type="text" class="form-control" id="search_case_ref" 
                                             placeholder="Search by case ref">
                                     </div>
                                 </div>
-                                <div class="col-md-3">
+                                <div class="col-md-2">
                                     <div class="form-group">
                                         <label>Bill No</label>
                                         <input type="text" class="form-control" id="search_bill_no" 
                                             placeholder="Search by bill no">
                                     </div>
                                 </div>
-                                <div class="col-md-3">
+                                <div class="col-md-2">
+                                    <div class="form-group">
+                                        <label>Date From</label>
+                                        <input type="date" class="form-control" id="filter_date_from">
+                                    </div>
+                                </div>
+                                <div class="col-md-2">
+                                    <div class="form-group">
+                                        <label>Date To</label>
+                                        <input type="date" class="form-control" id="filter_date_to">
+                                    </div>
+                                </div>
+                                <div class="col-md-1">
                                     <div class="form-group">
                                         <label>&nbsp;</label>
                                         <button type="button" class="btn btn-primary btn-block" onclick="searchInvoices()">
                                             <i class="cil-magnifying-glass"></i> Search
                                         </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-2">
+                                    <div class="form-group">
+                                        <label>SST Status</label>
+                                        <select class="form-control" id="filter_sst_status">
+                                            <option value="unpaid" selected>Unpaid</option>
+                                            <option value="paid">Paid</option>
+                                            <option value="all">All</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-md-2">
+                                    <div class="form-group">
+                                        <label>Transferred Status</label>
+                                        <select class="form-control" id="filter_transferred_status">
+                                            <option value="all" selected>All</option>
+                                            <option value="transferred">Transferred</option>
+                                            <option value="not_transferred">Not Transferred</option>
+                                        </select>
                                     </div>
                                 </div>
                             </div>
@@ -82,7 +116,7 @@
                                         <th>Amount (RM)</th>
                                         <th>SST Paid Status</th>
                                         <th>Payment Date</th>
-                                        <th>Status</th>
+                                        <th>Transferred</th>
                                         <th>Action</th>
                                     </tr>
                                 </thead>
@@ -198,6 +232,10 @@
         var searchInvoiceNo = $('#search_invoice_no').val();
         var searchCaseRef = $('#search_case_ref').val();
         var searchBillNo = $('#search_bill_no').val();
+        var filterSstStatus = $('#filter_sst_status').val() || 'unpaid';
+        var filterDateFrom = $('#filter_date_from').val();
+        var filterDateTo = $('#filter_date_to').val();
+        var filterTransferredStatus = $('#filter_transferred_status').val() || 'all';
 
         $.ajaxSetup({
             headers: {
@@ -212,6 +250,10 @@
                 search_invoice_no: searchInvoiceNo,
                 search_case_ref: searchCaseRef,
                 search_bill_no: searchBillNo,
+                filter_sst_status: filterSstStatus,
+                filter_date_from: filterDateFrom,
+                filter_date_to: filterDateTo,
+                filter_transferred_status: filterTransferredStatus,
                 page: page
             },
             success: function(response) {
@@ -239,9 +281,9 @@
         }
 
         invoices.forEach(function(invoice) {
-            var statusBadge = invoice.invoice_status == 1 ? 
-                '<span class="badge badge-success">Active</span>' : 
-                '<span class="badge badge-secondary">Inactive</span>';
+            var transferredBadge = invoice.transferred_status == 1 ? 
+                '<span class="badge badge-success">Yes</span>' : 
+                '<span class="badge badge-secondary">No</span>';
 
             var sstStatusBadge = invoice.sst_paid_status == 1 ? 
                 '<span class="badge badge-success">Paid</span>' : 
@@ -257,11 +299,11 @@
                 '<td class="text-right">' + formatCurrency(invoice.amount || 0) + '</td>' +
                 '<td class="text-center">' + sstStatusBadge + '</td>' +
                 '<td>' + (invoice.payment_receipt_date ? formatDate(invoice.payment_receipt_date) : '-') + '</td>' +
-                '<td>' + statusBadge + '</td>' +
+                '<td class="text-center">' + transferredBadge + '</td>' +
                 '<td>' +
-                    '<button class="btn btn-sm btn-info" onclick="editInvoice(' + invoice.id + ')" title="Edit">' +
+                    '<a href="/invoice/' + invoice.id + '/details" class="btn btn-sm btn-info" title="View Details">' +
                         '<i class="cil-pencil"></i> Edit' +
-                    '</button>' +
+                    '</a>' +
                 '</td>' +
             '</tr>';
             tbody.append(row);
@@ -334,8 +376,26 @@
         $('#search_invoice_no').val('');
         $('#search_case_ref').val('');
         $('#search_bill_no').val('');
+        $('#filter_sst_status').val('unpaid');
+        $('#filter_date_from').val('');
+        $('#filter_date_to').val('');
+        $('#filter_transferred_status').val('all');
         loadInvoiceList(1);
     }
+
+    // Quick search with debounce for invoice no
+    var searchTimeout;
+    $('#search_invoice_no').on('input', function() {
+        clearTimeout(searchTimeout);
+        var searchValue = $(this).val();
+        
+        // Only search if at least 2 characters or empty
+        if (searchValue.length >= 2 || searchValue.length === 0) {
+            searchTimeout = setTimeout(function() {
+                loadInvoiceList(1);
+            }, 500); // Wait 500ms after user stops typing
+        }
+    });
 
     function editInvoice(invoiceId) {
         $.ajaxSetup({
@@ -452,8 +512,8 @@
     }
 
     // Allow Enter key to trigger search
-    $('#search_invoice_no, #search_case_ref, #search_bill_no').on('keypress', function(e) {
-        if (e.which === 13) {
+    $('#search_case_ref, #search_bill_no, #filter_sst_status, #filter_date_from, #filter_date_to, #filter_transferred_status').on('keypress change', function(e) {
+        if (e.type === 'change' || (e.type === 'keypress' && e.which === 13)) {
             searchInvoices();
         }
     });

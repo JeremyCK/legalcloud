@@ -32,6 +32,7 @@ use App\Http\Controllers\DocTemplateFilev2Controller;
 use App\Http\Controllers\EInvoiceContoller;
 use App\Http\Controllers\EInvoiceContollerV2;
 use App\Http\Controllers\EInvoiceController;
+use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\TransferFeeV2Controller;
 use App\Http\Controllers\TransferFeeV3Controller;
 use App\Http\Controllers\DataRepairController;
@@ -573,10 +574,17 @@ Route::group(['middleware' => ['get.menu']], function () {
             Route::post('addInvoiceItem/{parameter1}', [CaseController::class, 'addInvoiceItem']);
             Route::post('deleteInvoiceItem/{parameter1}', [CaseController::class, 'deleteInvoiceItem']);
             // Invoice List Page Routes
-            Route::get('invoice-list', [CaseController::class, 'invoiceList'])->name('invoice.list');
-            Route::get('invoice-list/data', [CaseController::class, 'getInvoiceList'])->name('invoice.list.data');
-            Route::get('invoice/{invoiceId}/details', [CaseController::class, 'getInvoiceDetails']);
-            Route::post('invoice/{invoiceId}/update', [CaseController::class, 'updateInvoice']);
+            Route::get('invoice-list', [InvoiceController::class, 'index'])->name('invoice.list');
+            Route::get('invoice-list/data', [InvoiceController::class, 'getInvoiceList'])->name('invoice.list.data');
+            Route::get('invoice/{invoiceId}/details', [InvoiceController::class, 'show'])->name('invoice.details.page');
+            Route::get('invoice/{invoiceId}/details/data', [InvoiceController::class, 'getInvoiceDetails'])->name('invoice.details');
+            Route::post('invoice/{invoiceId}/update', [InvoiceController::class, 'update'])->name('invoice.update');
+            Route::post('invoice/split/{billId}', [InvoiceController::class, 'splitInvoice'])->name('invoice.split');
+            Route::delete('invoice/{invoiceId}/remove', [InvoiceController::class, 'removeInvoice'])->name('invoice.remove');
+            Route::post('invoice/add-item/{billId}', [InvoiceController::class, 'addInvoiceItem'])->name('invoice.add-item');
+            Route::post('invoice/delete-item/{billId}', [InvoiceController::class, 'deleteInvoiceItem'])->name('invoice.delete-item');
+            Route::get('invoice/account-items/{categoryId}', [InvoiceController::class, 'getAccountItemsByCategory'])->name('invoice.account-items');
+            Route::get('invoice/get-bill-invoices/{billId}', [InvoiceController::class, 'getBillInvoices'])->name('invoice.get-bill-invoices');
             Route::get('debug-invoice-calculation/{invoice_no}', [CaseController::class, 'debugInvoiceCalculation']);
             Route::get('debug-multi-invoice/{bill_id}', [CaseController::class, 'debugMultiInvoiceScenario']);
             Route::post('convertToSST/{parameter1}', [CaseController::class, 'convertToSST']);
@@ -1044,6 +1052,8 @@ Route::get('transfer-fee-create', [AccountController::class, 'transferFeeCreate'
             Route::post('updateInvoiceDate', [EInvoiceContoller::class, 'updateInvoiceDate']);
             Route::post('removeBillto/{parameter1}', [EInvoiceContoller::class, 'removeBillto']);
             Route::post('loadBillToInvWIthInvoice/{parameter1}', [EInvoiceContoller::class, 'loadBillToInvWIthInvoice']);
+            Route::get('generateInvoicePDF/{id}', [EInvoiceContoller::class, 'generateInvoicePDF'])->name('invoice.generate.pdf');
+            Route::get('generateProformaInvoicePDF/{id}', [CaseController::class, 'generateProformaInvoicePDF'])->name('proforma.invoice.generate.pdf');
 
             
 

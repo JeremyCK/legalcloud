@@ -57,6 +57,9 @@
               <a class="dropdown-item btn-success" href="javascript:void(0)"
                  onclick="invoicePrintMode({{ $details->invoice_id }});" style="color:white"><i class="cil-print"
                      style="margin-right: 10px;"></i> <span></span>Print Invoice</a>
+              <a class="dropdown-item btn-primary" href="javascript:void(0)"
+                 onclick="downloadInvoicePDF({{ $details->invoice_id }});" style="color:white"><i class="cil-cloud-download"
+                     style="margin-right: 10px;"></i> <span></span>Download Invoice</a>
              <div class="dropdown-divider" style="margin:0"></div>
 
              <a class="dropdown-item btn-warning" href="javascript:void(0)" data-backdrop="static" data-keyboard="false"

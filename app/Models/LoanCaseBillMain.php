@@ -21,4 +21,12 @@ class LoanCaseBillMain extends Model
                             'financed_fee','financed_sum','payment_date',
                             'uncollected','collection_amount',
 ];
+
+    /**
+     * Get the loan case record.
+     */
+    public function loanCase()
+    {
+        return $this->belongsTo(LoanCase::class, 'case_id');
+    }
 }

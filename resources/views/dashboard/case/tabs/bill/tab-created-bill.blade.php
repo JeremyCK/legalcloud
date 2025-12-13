@@ -40,6 +40,10 @@
                         onclick="quotationPrintMode();" style="color:white"><i class="cil-print"
                             style="margin-right: 10px;"></i> <span></span>Print Proforma Invoice
                     </a>
+                    <a class="dropdown-item btn-primary" href="javascript:void(0)"
+                        onclick="downloadProformaInvoicePDF({{ $LoanCaseBillMain->id }});" style="color:white"><i class="cil-cloud-download"
+                            style="margin-right: 10px;"></i> <span></span>Download Pro forma Invoice
+                    </a>
                     <div class="dropdown-divider" style="margin:0"></div>
                     @if(App\Http\Controllers\AccessController::UserAccessPermissionController(App\Http\Controllers\PermissionController::UpdateSSTRatePermission()) == true)
                         @if ($LoanCaseBillMain->bln_invoice == 0)

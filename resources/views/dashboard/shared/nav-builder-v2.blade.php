@@ -88,7 +88,8 @@
             AccessController::UserAccessPermissionController(PermissionController::ClientAccountBalancePermission()) ==
                 true ||
             AccessController::UserAccessPermissionController(PermissionController::OfficeAccountBalancePermission()) ==
-                true)
+                true ||
+            AccessController::UserAccessPermissionController(PermissionController::AccessInvoicePermission()) == true)
 
         <li class="c-sidebar-nav-dropdown"><a class="c-sidebar-nav-dropdown-toggle" href="#"><i
                     class="cil-money c-sidebar-nav-icon"></i>Account <div id="side_Account"></div></a>
@@ -136,6 +137,10 @@
 
                 @if (AccessController::UserAccessPermissionController(PermissionController::AccountToolPermission()) == true)
                     <li class="c-sidebar-nav-item"><a class="c-sidebar-nav-link" href="{{ url('account-tool') }}"><span class="c-sidebar-nav-icon"></span>Account Tool</a></li>
+                @endif
+
+                @if (AccessController::UserAccessPermissionController(PermissionController::AccessInvoicePermission()) == true)
+                    <li class="c-sidebar-nav-item"><a class="c-sidebar-nav-link" href="{{ route('invoice.list') }}"><span class="c-sidebar-nav-icon"></span>Invoice List</a></li>
                 @endif
 
                

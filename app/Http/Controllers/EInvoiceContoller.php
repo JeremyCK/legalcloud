@@ -48,6 +48,7 @@ use App\Models\TransferFeeDetails;
 use App\Models\TransferFeeDetailsDelete;
 use App\Models\TransferFeeMain;
 use App\Models\User;
+use Barryvdh\DomPDF\Facade\Pdf;
 use App\Models\Voucher;
 use App\Models\VoucherDetails;
 use App\Models\VoucherMain;
@@ -889,6 +890,139 @@ class EInvoiceContoller extends Controller
             'inv_no' => $invoice_no,
             'view' => view('dashboard.case.section.d-party-infov2', compact('InvoiceBillingParty'))->render(),
         ]);
+    }
+    
+    /**
+     * Generate PDF invoice from invoice ID
+     */
+    public function generateInvoicePDF($id)
+    {
+        try {
+            // Reuse the same logic as loadBillToInvWIthInvoice
+            $invoiceMain = LoanCaseInvoiceMain::where('id', $id)->first();
+            
+            if (!$invoiceMain) {
+                return response()->json([
+                    'status' => 0,
+                    'message' => 'Invoice not found'
+                ], 404);
+            }
+            
+            $invoice_no = $invoiceMain->invoice_no;
+            $InvoiceBillingParty = InvoiceBillingParty::where('id', $invoiceMain->bill_party_id)->first();
+
+            // Get required variables for invoicePrint view
+            $current_user = auth()->user();
+            
+            // Get LoanCaseBillMain
+            $LoanCaseBillMain = LoanCaseBillMain::where('id', '=', $invoiceMain->loan_case_main_bill_id)->first();
+            
+            if (!$LoanCaseBillMain) {
+                return response()->json([
+                    'status' => 0,
+                    'message' => 'Bill not found'
+                ], 404);
+            }
+            
+            // Get case information
+            $case = LoanCase::where('id', '=', $LoanCaseBillMain->case_id)->first();
+            
+            if (!$case) {
+                return response()->json([
+                    'status' => 0,
+                    'message' => 'Case not found'
+                ], 404);
+            }
+            
+            // Get Branch information
+            $Branch = Branch::where('id', '=', $case->branch_id)->first();
+            
+            // Get Bank Ref No (purchaser_financier_ref_no) from masterlist field 160
+            $purchaser_financier_ref_no = DB::table('loan_case_masterlist as m')
+                ->select('m.value')
+                ->where('m.case_id', '=', $case->id)
+                ->where('m.masterlist_field_id', '=', 160)
+                ->first();
+            
+            // Get account categories
+            $category = AccountCategory::where('status', '=', 1)->orderBy('order', 'asc')->get();
+            
+            // Build invoice_v2 array
+            $invoice_v2 = array();
+            
+            for ($i = 0; $i < count($category); $i++) {
+                array_push($invoice_v2, array('row' => 'title', 'category' => $category[$i], 'account_details' => []));
+                
+                $QuotationTemplateDetails = DB::table('loan_case_invoice_details AS qd')
+                    ->leftJoin('account_item AS a', 'a.id', '=', 'qd.account_item_id')
+                    ->select('qd.*', 'a.name as account_name', 'a.name_cn as account_name_cn', 'a.formula as account_formula', 'a.min as account_min', 'a.id as account_item_id', 'a.pfee1_item', 'a.remark as item_desc', 'qd.remark as item_remark')
+                    ->where('qd.invoice_main_id', '=', $id)
+                    ->where('qd.status', '=', 1)
+                    ->where('a.account_cat_id', '=', $category[$i]->id)
+                    ->get();
+                
+                for ($j = 0; $j < count($QuotationTemplateDetails); $j++) {
+                    array_push($invoice_v2, array('row' => 'item', 'category' => $category[$i], 'account_details' => $QuotationTemplateDetails[$j]));
+                }
+                
+                array_push($invoice_v2, array('row' => 'subtotal', 'category' => $category[$i], 'account_details' => []));
+            }
+            
+            // Create pieces_inv array (chunked for pagination)
+            $pieces_inv = array_chunk($invoice_v2, 30);
+            
+            // Load master list data for print
+            $masterlistValue = $this->loadMasterListUpdateValue($case->id);
+            
+            // Generate filename
+            $filename = 'Invoice_' . $invoice_no . '_' . date('Y-m-d') . '.pdf';
+            
+            // Generate PDF using DomPDF with the same template as print view
+            // Pass a flag to indicate it's for PDF (to hide no-print elements)
+            $isPDF = true;
+            
+            // Use simplified PDF template instead of complex Bootstrap layout
+            // The template already has full HTML structure, so use it directly
+            $fullHtml = view('dashboard.case.d-invoice-print-simple', compact(
+                'LoanCaseBillMain', 
+                'current_user', 
+                'case', 
+                'Branch', 
+                'invoice_v2', 
+                'pieces_inv', 
+                'InvoiceBillingParty', 
+                'invoiceMain', 
+                'purchaser_financier_ref_no', 
+                'masterlistValue'
+            ))->render();
+            
+            try {
+                $pdf = Pdf::loadHTML($fullHtml)->setOptions([
+                    'isHtml5ParserEnabled' => true,
+                    'isRemoteEnabled' => false,
+                    'chroot' => public_path(),
+                ]);
+            } catch (\Exception $pdfError) {
+                Log::error('PDF Generation Error: ' . $pdfError->getMessage());
+                Log::error('PDF Generation Trace: ' . $pdfError->getTraceAsString());
+                return response()->json([
+                    'status' => 0,
+                    'message' => 'Error generating PDF: ' . $pdfError->getMessage()
+                ], 500);
+            }
+            
+            // Set paper size to A4 with minimal margins
+            $pdf->setPaper('A4', 'portrait');
+            
+            // Download the PDF
+            return $pdf->download($filename);
+            
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'Error generating PDF: ' . $e->getMessage()
+            ], 500);
+        }
     }
     
     /**
