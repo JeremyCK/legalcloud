@@ -546,6 +546,8 @@ Route::group(['middleware' => ['get.menu']], function () {
             Route::post('SaveAccountSummary/{parameter1}', [CaseController::class, 'SaveAccountSummary']);
             Route::post('clearReferral/{parameter1}', [CaseController::class, 'clearReferral']);
             Route::post('updateQuotationValue', [CaseController::class, 'updateQuotationValue']);
+            Route::get('getBillDescription/{detailsId}', [CaseController::class, 'getBillDescription']);
+            Route::post('updateBillDescription', [CaseController::class, 'updateBillDescription']);
             Route::post('addQuotationItem/{parameter1}', [CaseController::class, 'addQuotationItem']);
             Route::post('deleteQuotationItem/{parameter1}', [CaseController::class, 'deleteQuotationItem']);
             // Route::post('adminUpdateValue', [CaseController::class, 'updateBillSummaryAllByAdmin']);      

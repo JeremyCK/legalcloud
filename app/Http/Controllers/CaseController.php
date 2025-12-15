@@ -13303,6 +13303,142 @@ class CaseController extends Controller
         return response()->json(['status' => 1, 'message' => 'yes']);
     }
 
+    /**
+     * Get bill detail description
+     */
+    public function getBillDescription($detailsId)
+    {
+        $current_user = auth()->user();
+        
+        if (!$detailsId) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'Details ID is required'
+            ], 400);
+        }
+        
+        $LoanCaseBillDetails = LoanCaseBillDetails::where('id', '=', $detailsId)->first();
+        
+        if (!$LoanCaseBillDetails) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'Bill detail not found'
+            ], 404);
+        }
+        
+        // Get description from remark field, or from account_item if remark is empty
+        $description = $LoanCaseBillDetails->remark;
+        
+        if (empty($description)) {
+            $AccountItem = AccountItem::where('id', '=', $LoanCaseBillDetails->account_item_id)->first();
+            if ($AccountItem) {
+                $description = $AccountItem->remark ?? '';
+            }
+        }
+        
+        return response()->json([
+            'status' => 1,
+            'description' => $description
+        ]);
+    }
+
+    /**
+     * Update bill detail description
+     */
+    public function updateBillDescription(Request $request)
+    {
+        $current_user = auth()->user();
+        
+        $detailsId = $request->input('details_id');
+        $description = $request->input('description');
+        
+        if (!$detailsId) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'Details ID is required'
+            ], 400);
+        }
+        
+        $LoanCaseBillDetails = LoanCaseBillDetails::where('id', '=', $detailsId)->first();
+        
+        if (!$LoanCaseBillDetails) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'Bill detail not found'
+            ], 404);
+        }
+        
+        // Check permissions - same as updateQuotationValue
+        $LoanCaseBillMain = LoanCaseBillMain::where('id', '=', $LoanCaseBillDetails->loan_case_main_bill_id)->first();
+        
+        if (!$LoanCaseBillMain) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'Bill not found'
+            ], 404);
+        }
+        
+        // Check permissions - same logic as view
+        // Allow edit if: (no invoice AND no commission paid) OR user is admin
+        // For now, we'll allow admin always, and check invoice status for others
+        $canEdit = false;
+        
+        if (in_array($current_user->menuroles, ['admin'])) {
+            $canEdit = true;
+        } elseif ($LoanCaseBillMain->bln_invoice == 0) {
+            // Check if commission is paid - this would need to be determined from case/bill data
+            // For now, allow edit if invoice not created (matching view logic)
+            $canEdit = true;
+        }
+        
+        if (!$canEdit) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'Cannot edit description. Invoice has been created or you do not have permission.'
+            ], 403);
+        }
+        
+        // Update the description (stored in remark field)
+        $oldDescription = $LoanCaseBillDetails->remark;
+        $LoanCaseBillDetails->remark = $description;
+        $LoanCaseBillDetails->save();
+        
+        // Also update the corresponding invoice details if they exist
+        // Invoice details are linked to bill details via quotation_item_id
+        $LoanCaseInvoiceDetails = LoanCaseInvoiceDetails::where('quotation_item_id', '=', $detailsId)
+            ->where('status', '=', 1)
+            ->get();
+        
+        if ($LoanCaseInvoiceDetails->count() > 0) {
+            foreach ($LoanCaseInvoiceDetails as $invoiceDetail) {
+                $invoiceDetail->remark = $description;
+                $invoiceDetail->save();
+            }
+        }
+        
+        // Log the change
+        $AccountItem = AccountItem::where('id', '=', $LoanCaseBillDetails->account_item_id)->first();
+        $itemName = $AccountItem ? ($AccountItem->name ?? 'N/A') : 'N/A';
+        
+        $AccountLog = new AccountLog();
+        $AccountLog->user_id = $current_user->id;
+        $AccountLog->case_id = $LoanCaseBillMain->case_id;
+        $AccountLog->bill_id = $LoanCaseBillMain->id;
+        $AccountLog->object_id = $detailsId;
+        $AccountLog->ori_amt = 0;
+        $AccountLog->new_amt = 0;
+        $AccountLog->action = 'Update Description';
+        $AccountLog->desc = $current_user->name . ' updated description for item (' . $itemName . ') in bill ' . $LoanCaseBillMain->id;
+        $AccountLog->status = 1;
+        $AccountLog->created_at = date('Y-m-d H:i:s');
+        $AccountLog->save();
+        
+        return response()->json([
+            'status' => 1,
+            'message' => 'Description updated successfully'
+        ]);
+    }
+
     public function updateQuotationValue(Request $request)
     {
         $new_quo_amount = 0;

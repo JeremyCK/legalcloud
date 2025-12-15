@@ -739,6 +739,18 @@ class EInvoiceContoller extends Controller
 
                 // Associate the billing party with this bill
                 $InvoiceBillingParty->loan_case_main_bill_id = $bill_id;
+                
+                // Check and update completed status when adding existing billing party
+                $mandatoryFields = self::getEinvoiceCustomerMandatoryField();
+                $allMandatoryFieldsFilled = true;
+                foreach ($mandatoryFields as $field) {
+                    if (empty($InvoiceBillingParty->$field)) {
+                        $allMandatoryFieldsFilled = false;
+                        break;
+                    }
+                }
+                $InvoiceBillingParty->completed = $allMandatoryFieldsFilled ? 1 : 0;
+                
                 $InvoiceBillingParty->save();
             }
         }
@@ -762,6 +774,18 @@ class EInvoiceContoller extends Controller
             $LoanCaseInvoiceMain->save();
 
             $InvoiceBillingParty->invoice_main_id = $request->input('invoice_id');
+            
+            // Refresh completed status before saving
+            $mandatoryFields = self::getEinvoiceCustomerMandatoryField();
+            $allMandatoryFieldsFilled = true;
+            foreach ($mandatoryFields as $field) {
+                if (empty($InvoiceBillingParty->$field)) {
+                    $allMandatoryFieldsFilled = false;
+                    break;
+                }
+            }
+            $InvoiceBillingParty->completed = $allMandatoryFieldsFilled ? 1 : 0;
+            
             $InvoiceBillingParty->save();
 
             $this->updateInvoiceDetailsAmt($LoanCaseInvoiceMain->id, $LoanCaseBillMain->id, $LoanCaseBillMain->case_id);
@@ -4340,12 +4364,23 @@ class EInvoiceContoller extends Controller
             $billingParty->loan_case_main_bill_id = $request->input('loan_case_main_bill_id');
             
             // Set default values
-            $billingParty->completed = 0;
             $billingParty->sent_to_sql = 0;
             $billingParty->status = 1;
             $billingParty->created_at = date('Y-m-d H:i:s');
             $billingParty->created_by = $current_user->id;
 
+            // Check mandatory fields to set completed status
+            $mandatoryFields = self::getEinvoiceCustomerMandatoryField();
+            $allMandatoryFieldsFilled = true;
+
+            foreach ($mandatoryFields as $field) {
+                if (empty($billingParty->$field)) {
+                    $allMandatoryFieldsFilled = false;
+                    break;
+                }
+            }
+
+            $billingParty->completed = $allMandatoryFieldsFilled ? 1 : 0;
             $billingParty->save();
 
             // Increment the running number in Parameter table

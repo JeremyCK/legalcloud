@@ -5525,6 +5525,88 @@
 
         }
 
+        function prepareEditDescription(detailsId) {
+            // Set the details ID first
+            $("#txtDescriptionID").val(detailsId);
+            $("#txtDescription").val('Loading...');
+            
+            // Fetch the description from server
+            $.ajaxSetup({
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                }
+            });
+            
+            $.ajax({
+                type: 'GET',
+                url: '/getBillDescription/' + detailsId,
+                success: function(data) {
+                    if (data.status == 1) {
+                        $("#txtDescription").val(data.description || '');
+                    } else {
+                        $("#txtDescription").val('');
+                        alert(data.message || 'Failed to load description');
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('Error loading description:', xhr, status, error);
+                    $("#txtDescription").val('');
+                    alert('Failed to load description. Please try again.');
+                }
+            });
+        }
+
+        function updateDescription() {
+            var detailsId = $("#txtDescriptionID").val();
+            var description = $("#txtDescription").val();
+
+            if (!detailsId) {
+                Swal.fire('Error!', 'Item ID not found', 'error');
+                return;
+            }
+
+            $.ajaxSetup({
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                }
+            });
+
+            $("#editDescriptionModal .overlay").show();
+
+            $.ajax({
+                type: 'POST',
+                url: '/updateBillDescription',
+                data: {
+                    details_id: detailsId,
+                    description: description
+                },
+                success: function(data) {
+                    $("#editDescriptionModal .overlay").hide();
+                    if (data.status == 1) {
+                        toastController('Description updated successfully', 'success');
+                        closeUniversalModal();
+                        
+                        // Reload the bill list to show updated description (works for both bill and invoice tabs)
+                        if (typeof loadCaseBill === 'function' && $("#selected_bill_id").val()) {
+                            loadCaseBill($("#selected_bill_id").val());
+                        } else {
+                            location.reload();
+                        }
+                    } else {
+                        Swal.fire('Error!', data.message || 'Failed to update description', 'error');
+                    }
+                },
+                error: function(xhr) {
+                    $("#editDescriptionModal .overlay").hide();
+                    var errorMsg = 'Error updating description. Please try again.';
+                    if (xhr.responseJSON && xhr.responseJSON.message) {
+                        errorMsg = xhr.responseJSON.message;
+                    }
+                    Swal.fire('Error!', errorMsg, 'error');
+                }
+            });
+        }
+
 
         function updateQuotationValue() {
 

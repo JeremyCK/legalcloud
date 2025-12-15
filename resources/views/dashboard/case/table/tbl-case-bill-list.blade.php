@@ -84,10 +84,58 @@ $sst_rate = $LoanCaseBillMain->sst_rate * 0.01;
                     {{ $details->account_name }} @if($LoanCaseBillMain->isChinese == 1) {{ $details->account_name_cn }} @endif
                     @if ($cat['category']->id == 1 || $cat['category']->id == 4)
                         @if($details->item_remark)
-                            <hr/>{!! $details->item_remark !!}
+                            <hr/>
+                            <div id="desc_display_{{ $details->id }}">
+                                {!! $details->item_remark !!}
+                                @if (in_array($current_user->menuroles, ['account', 'admin', 'management', 'sales', 'clerk', 'lawyer', 'chambering', 'maker']))
+                                    @if ($LoanCaseBillMain->bln_invoice == 0 && $blnCommPaid == 0)
+                                        <button type="button" class="btn btn-xs btn-info ml-2 btn-edit-desc" 
+                                            data-details-id="{{ $details->id }}" 
+                                            data-toggle="modal" 
+                                            data-target="#editDescriptionModal"
+                                            onclick="prepareEditDescription({{ $details->id }})"
+                                            title="Edit Description">
+                                            <i class="cil-pencil"></i> Edit
+                                        </button>
+                                    @elseif ($current_user->menuroles == 'admin')
+                                        <button type="button" class="btn btn-xs btn-info ml-2 btn-edit-desc" 
+                                            data-details-id="{{ $details->id }}" 
+                                            data-toggle="modal" 
+                                            data-target="#editDescriptionModal"
+                                            onclick="prepareEditDescription({{ $details->id }})"
+                                            title="Edit Description">
+                                            <i class="cil-pencil"></i> Edit
+                                        </button>
+                                    @endif
+                                @endif
+                            </div>
                         @else
                             @if($details->item_desc)
-                                <hr/>{!! $details->item_desc !!}
+                                <hr/>
+                                <div id="desc_display_{{ $details->id }}">
+                                    {!! $details->item_desc !!}
+                                    @if (in_array($current_user->menuroles, ['account', 'admin', 'management', 'sales', 'clerk', 'lawyer', 'chambering', 'maker']))
+                                        @if ($LoanCaseBillMain->bln_invoice == 0 && $blnCommPaid == 0)
+                                            <button type="button" class="btn btn-xs btn-info ml-2 btn-edit-desc" 
+                                                data-details-id="{{ $details->id }}" 
+                                                data-toggle="modal" 
+                                                data-target="#editDescriptionModal"
+                                                onclick="prepareEditDescription({{ $details->id }})"
+                                                title="Edit Description">
+                                                <i class="cil-pencil"></i> Edit
+                                            </button>
+                                        @elseif ($current_user->menuroles == 'admin')
+                                            <button type="button" class="btn btn-xs btn-info ml-2 btn-edit-desc" 
+                                                data-details-id="{{ $details->id }}" 
+                                                data-toggle="modal" 
+                                                data-target="#editDescriptionModal"
+                                                onclick="prepareEditDescription({{ $details->id }})"
+                                                title="Edit Description">
+                                                <i class="cil-pencil"></i> Edit
+                                            </button>
+                                        @endif
+                                    @endif
+                                </div>
                             @endif
                         @endif
                     @endif
