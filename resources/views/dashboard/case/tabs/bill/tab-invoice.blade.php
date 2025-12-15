@@ -199,16 +199,7 @@
                                     id="bln_modified_{{ $details->id }}">
                                 <input type="hidden" name="account_item_id" value="{{ $details->account_item_id }}"
                                     id="account_item_id_{{ $details->id }}">
-                                <div class="checkbox">
-                                    @if ($cat['category']->id != 1)
-                                        <input type="checkbox" name="case_bill" value="{{ $details->id }}"
-                                            id="chk_{{ $details->id }}"
-                                            @if ($details->ori_invoice_amt == 0) disabled @endif>
-                                    @else
-                                    @endif
-
-                                    <label for="chk_{{ $details->id }}">{{ $index + 1 }}</label>
-                                </div>
+                                {{ $index + 1 }}
                             </td>
                             <td class="hide" id="item_id_{{ $details->id }}">{{ $details->id }}</td>
                             <td id="item_{{ $details->id }}">{{ $details->account_name }} @if($LoanCaseBillMain->isChinese == 1) {{ $details->account_name_cn }} @endif
