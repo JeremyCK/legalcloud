@@ -860,8 +860,15 @@
                             'value="' + amount.toFixed(2) + '" ' +
                             'onchange="recalculateRow(this)">' +
                         '</td>' +
-                        '<td class="text-right row-sst" data-detail-id="' + detail.id + '">' +
-                            (isTaxable ? formatCurrency(sstAmount) : '-') +
+                        '<td class="text-right">' +
+                            (isTaxable ? 
+                                '<input type="number" step="0.01" class="form-control form-control-sm invoice-detail-sst text-right" ' +
+                                'data-detail-id="' + detail.id + '" ' +
+                                'data-category-id="' + category.category_id + '" ' +
+                                'data-taxable="' + (isTaxable ? '1' : '0') + '" ' +
+                                'value="' + sstAmount.toFixed(2) + '" ' +
+                                'onchange="recalculateRowFromSst(this)">' :
+                                '-') +
                         '</td>' +
                         '<td class="text-right row-total" data-detail-id="' + detail.id + '">' +
                             '<strong>' + formatCurrency(totalWithSst) + '</strong>' +
@@ -933,7 +940,26 @@
         }
 
         // Update row SST and Total
-        $('.row-sst[data-detail-id="' + detailId + '"]').text(isTaxable ? formatCurrency(sstAmount) : '-');
+        $('.invoice-detail-sst[data-detail-id="' + detailId + '"]').val(sstAmount.toFixed(2));
+        $('.row-total[data-detail-id="' + detailId + '"]').html('<strong>' + formatCurrency(totalWithSst) + '</strong>');
+
+        // Recalculate category subtotals
+        recalculateCategorySubtotal(categoryId);
+        
+        // Recalculate grand totals
+        recalculateGrandTotals();
+    }
+
+    function recalculateRowFromSst(input) {
+        var $input = $(input);
+        var sstAmount = parseFloat($input.val() || 0);
+        var detailId = $input.data('detail-id');
+        var categoryId = $input.data('category-id');
+        var $row = $('tr.detail-item-row[data-detail-id="' + detailId + '"]');
+        var amount = parseFloat($row.find('.invoice-detail-amount').val() || 0);
+        var totalWithSst = amount + sstAmount;
+
+        // Update row Total
         $('.row-total[data-detail-id="' + detailId + '"]').html('<strong>' + formatCurrency(totalWithSst) + '</strong>');
 
         // Recalculate category subtotals
@@ -956,13 +982,19 @@
             
             var sstAmount = 0;
             if (isTaxable) {
-                var sstCalculation = amount * (globalSstRate / 100);
-                var sstString = sstCalculation.toFixed(3);
-                
-                if (sstString.slice(-1) === '5') {
-                    sstAmount = Math.floor(sstCalculation * 100) / 100;
+                // Use manually entered SST if available, otherwise calculate
+                var $sstInput = $row.find('.invoice-detail-sst');
+                if ($sstInput.length > 0 && $sstInput.val() !== undefined && $sstInput.val() !== '') {
+                    sstAmount = parseFloat($sstInput.val() || 0);
                 } else {
-                    sstAmount = Math.round(sstCalculation * 100) / 100;
+                    var sstCalculation = amount * (globalSstRate / 100);
+                    var sstString = sstCalculation.toFixed(3);
+                    
+                    if (sstString.slice(-1) === '5') {
+                        sstAmount = Math.floor(sstCalculation * 100) / 100;
+                    } else {
+                        sstAmount = Math.round(sstCalculation * 100) / 100;
+                    }
                 }
             }
             
@@ -988,9 +1020,9 @@
         });
 
         $('.category-sst').each(function() {
-            var text = $(this).text();
+            var text = $(this).html();
             if (text !== '-') {
-                text = text.replace('RM ', '').replace(/,/g, '').replace('<strong>', '').replace('</strong>', '');
+                text = text.replace('RM ', '').replace(/,/g, '').replace('<strong>', '').replace('</strong>', '').trim();
                 grandSst += parseFloat(text || 0);
             }
         });
@@ -1076,11 +1108,19 @@
         $('.invoice-detail-amount').each(function() {
             var detailId = $(this).data('detail-id');
             var detailAmount = $(this).val();
+            var $sstInput = $('.invoice-detail-sst[data-detail-id="' + detailId + '"]');
+            var detailSst = $sstInput.length > 0 ? $sstInput.val() : null;
+            
             if (detailId && detailAmount !== undefined) {
-                details.push({
+                var detailObj = {
                     id: detailId,
                     amount: detailAmount
-                });
+                };
+                // Include SST if it's a taxable item and SST is provided
+                if (detailSst !== null && detailSst !== undefined && detailSst !== '') {
+                    detailObj.sst = detailSst;
+                }
+                details.push(detailObj);
             }
         });
 

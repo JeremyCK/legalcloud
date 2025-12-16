@@ -405,6 +405,9 @@ class InvoiceController extends Controller
             $invoice->Invoice_date = !empty($invoiceDate) ? $invoiceDate : null;
         }
 
+        // Store custom SST values for use in calculation
+        $customSstValues = [];
+        
         // Update invoice details if provided
         if ($request->has('details')) {
             $details = $request->input('details');
@@ -418,6 +421,11 @@ class InvoiceController extends Controller
                     if ($existingDetail) {
                         $oldAmount = $existingDetail->amount;
                         $newAmount = floatval($detail['amount']);
+                        
+                        // Store custom SST if provided
+                        if (isset($detail['sst']) && $detail['sst'] !== null && $detail['sst'] !== '') {
+                            $customSstValues[$detail['id']] = floatval($detail['sst']);
+                        }
                         
                         // Only update and log if amount actually changed
                         if ($oldAmount != $newAmount) {
@@ -451,7 +459,8 @@ class InvoiceController extends Controller
         }
 
         // Recalculate invoice amounts from details (same as case details)
-        $calculated = $this->calculateInvoiceAmountsFromDetails($invoiceId, $sstRate);
+        // Pass custom SST values if any were provided
+        $calculated = $this->calculateInvoiceAmountsFromDetails($invoiceId, $sstRate, $customSstValues);
         
         // Update invoice with calculated amounts
         $invoice->pfee1_inv = $calculated['pfee1'];
@@ -475,8 +484,11 @@ class InvoiceController extends Controller
 
     /**
      * Calculate invoice amounts from details (same logic as CaseController)
+     * @param int $invoiceId
+     * @param float $sstRate
+     * @param array $customSstValues Optional array of custom SST values keyed by detail_id
      */
-    private function calculateInvoiceAmountsFromDetails($invoiceId, $sstRate)
+    private function calculateInvoiceAmountsFromDetails($invoiceId, $sstRate, $customSstValues = [])
     {
         $details = DB::table('loan_case_invoice_details as ild')
             ->leftJoin('account_item as ai', 'ild.account_item_id', '=', 'ai.id')
@@ -502,14 +514,19 @@ class InvoiceController extends Controller
                     $pfee2 += $detail->amount;
                 }
                 
-                // Apply special rounding rule for SST: round DOWN if 3rd decimal is 5
-                $sst_calculation = $detail->amount * ($sstRate / 100);
-                $sst_string = number_format($sst_calculation, 3, '.', '');
-                
-                if (substr($sst_string, -1) == '5') {
-                    $row_sst = floor($sst_calculation * 100) / 100; // Round down
+                // Use custom SST if provided, otherwise calculate
+                if (isset($customSstValues[$detail->detail_id])) {
+                    $row_sst = floatval($customSstValues[$detail->detail_id]);
                 } else {
-                    $row_sst = round($sst_calculation, 2); // Normal rounding
+                    // Apply special rounding rule for SST: round DOWN if 3rd decimal is 5
+                    $sst_calculation = $detail->amount * ($sstRate / 100);
+                    $sst_string = number_format($sst_calculation, 3, '.', '');
+                    
+                    if (substr($sst_string, -1) == '5') {
+                        $row_sst = floor($sst_calculation * 100) / 100; // Round down
+                    } else {
+                        $row_sst = round($sst_calculation, 2); // Normal rounding
+                    }
                 }
                 
                 $sst += $row_sst;
@@ -518,14 +535,19 @@ class InvoiceController extends Controller
                 // Calculate reimbursement amounts for account_cat_id == 4
                 $reimbursement_amount += $detail->amount;
                 
-                // Apply special rounding rule for reimbursement SST too
-                $sst_calculation = $detail->amount * ($sstRate / 100);
-                $sst_string = number_format($sst_calculation, 3, '.', '');
-                
-                if (substr($sst_string, -1) == '5') {
-                    $row_sst = floor($sst_calculation * 100) / 100; // Round down
+                // Use custom SST if provided, otherwise calculate
+                if (isset($customSstValues[$detail->detail_id])) {
+                    $row_sst = floatval($customSstValues[$detail->detail_id]);
                 } else {
-                    $row_sst = round($sst_calculation, 2); // Normal rounding
+                    // Apply special rounding rule for reimbursement SST too
+                    $sst_calculation = $detail->amount * ($sstRate / 100);
+                    $sst_string = number_format($sst_calculation, 3, '.', '');
+                    
+                    if (substr($sst_string, -1) == '5') {
+                        $row_sst = floor($sst_calculation * 100) / 100; // Round down
+                    } else {
+                        $row_sst = round($sst_calculation, 2); // Normal rounding
+                    }
                 }
                 
                 $reimbursement_sst += $row_sst;

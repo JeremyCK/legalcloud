@@ -177,9 +177,20 @@
                     <?php $category_amount = 0; ?>
                     @foreach ($cat['account_details'] as $index => $details)
                         <?php
+                        $row_sst = 0;
                         if ($cat['category']->id == 1 || $cat['category']->id == 4) {
-                            $subtotalGST += round($details->ori_invoice_amt * (1 + $sst_rate), 2);
-                            $sumSST += round($details->ori_invoice_amt * $sst_rate, 2);
+                            // Apply special rounding rule for SST: round DOWN if 3rd decimal is 5
+                            $sst_calculation = $details->ori_invoice_amt * $sst_rate;
+                            $sst_string = number_format($sst_calculation, 3, '.', '');
+                            
+                            if (substr($sst_string, -1) == '5') {
+                                $row_sst = floor($sst_calculation * 100) / 100; // Round down
+                            } else {
+                                $row_sst = round($sst_calculation, 2); // Normal rounding
+                            }
+                            
+                            $subtotalGST += $details->ori_invoice_amt + $row_sst;
+                            $sumSST += $row_sst;
                         } else {
                             $subtotalGST += round($details->ori_invoice_amt, 2);
                         }
@@ -240,19 +251,19 @@
                                     in_array($current_user->id, [51, 32, 13]))
                                 <td class="text-right" id="amt_sst_{{ $details->id }}">
                                     @if ($cat['category']->id == 1 || $cat['category']->id == 4)
-                                        {{ number_format($details->ori_invoice_amt * $sst_rate, 2, '.', ',') }}
+                                        {{ number_format($row_sst, 2, '.', ',') }}
                                     @else
                                         -
                                     @endif
 
                                     <?php
                                     if ($cat['category']->id == 1 || $cat['category']->id == 4) {
-                                        $sstTotal += $details->ori_invoice_amt * $sst_rate;
+                                        $sstTotal += $row_sst;
                                     }
                                     ?>
                                 <td class="text-right" id="amt_sst_quo_{{ $details->id }}">
                                     @if ($cat['category']->id == 1 || $cat['category']->id == 4)
-                                        {{ number_format($details->ori_invoice_amt * (1 + $sst_rate), 2, '.', ',') }}
+                                        {{ number_format($details->ori_invoice_amt + $row_sst, 2, '.', ',') }}
                                     @else
                                         {{ number_format($details->ori_invoice_amt, 2, '.', ',') }}
                                     @endif
