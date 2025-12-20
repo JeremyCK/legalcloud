@@ -253,7 +253,12 @@ class InvoiceFixController extends Controller
      */
     public function fixMultipleInvoices(Request $request)
     {
+        // Increase execution time limit for batch processing
+        set_time_limit(300); // 5 minutes
+        ini_set('max_execution_time', 300);
+        
         $invoiceNumbers = $request->input('invoice_numbers');
+        $batchSize = $request->input('batch_size', 20); // Process 20 invoices at a time
         
         if (empty($invoiceNumbers)) {
             return response()->json([
@@ -274,47 +279,79 @@ class InvoiceFixController extends Controller
             }
             
             $invoiceList = array_filter($invoiceList); // Remove empty values
+            $totalInvoices = count($invoiceList);
+            
+            Log::info("Starting batch fix for {$totalInvoices} invoices with batch size {$batchSize}");
             
             $results = [];
             $successCount = 0;
             $errorCount = 0;
             
-            // Fix each invoice one by one
-            foreach ($invoiceList as $invoiceNo) {
-                try {
-                    $result = $this->fixInvoiceByNumber($invoiceNo);
-                    
-                    $resultData = [
-                        'success' => $result['success'],
-                        'invoice_no' => $invoiceNo,
-                        'message' => $result['message']
-                    ];
-                    
-                    // Include detailed data if available
-                    if ($result['success'] && isset($result['data'])) {
-                        $resultData['data'] = $result['data'];
-                    }
-                    
-                    $results[] = $resultData;
-                    
-                    if ($result['success']) {
-                        $successCount++;
-                    } else {
+            // Process invoices in batches to avoid timeout and memory issues
+            $batches = array_chunk($invoiceList, $batchSize);
+            $batchNumber = 0;
+            
+            foreach ($batches as $batch) {
+                $batchNumber++;
+                Log::info("Processing batch {$batchNumber} of " . count($batches) . " (" . count($batch) . " invoices)");
+                
+                // Fix each invoice one by one
+                foreach ($batch as $invoiceNo) {
+                    try {
+                        // Reset execution time for each invoice to prevent timeout
+                        set_time_limit(60);
+                        
+                        $result = $this->fixInvoiceByNumber($invoiceNo);
+                        
+                        $resultData = [
+                            'success' => $result['success'],
+                            'invoice_no' => $invoiceNo,
+                            'message' => $result['message']
+                        ];
+                        
+                        // Include detailed data if available
+                        if ($result['success'] && isset($result['data'])) {
+                            $resultData['data'] = $result['data'];
+                        }
+                        
+                        $results[] = $resultData;
+                        
+                        if ($result['success']) {
+                            $successCount++;
+                        } else {
+                            $errorCount++;
+                        }
+                        
+                        // Log progress every 10 invoices
+                        if (($successCount + $errorCount) % 10 == 0) {
+                            Log::info("Progress: {$successCount} successful, {$errorCount} errors out of {$totalInvoices} total");
+                        }
+                        
+                    } catch (\Exception $e) {
+                        Log::error("Error fixing invoice {$invoiceNo}: " . $e->getMessage());
+                        $results[] = [
+                            'success' => false,
+                            'invoice_no' => $invoiceNo,
+                            'message' => 'Error: ' . $e->getMessage()
+                        ];
                         $errorCount++;
                     }
-                } catch (\Exception $e) {
-                    $results[] = [
-                        'success' => false,
-                        'invoice_no' => $invoiceNo,
-                        'message' => 'Error: ' . $e->getMessage()
-                    ];
-                    $errorCount++;
+                }
+                
+                // Small delay between batches to prevent overwhelming the database
+                if ($batchNumber < count($batches)) {
+                    usleep(100000); // 0.1 second delay
                 }
             }
+            
+            Log::info("Batch fix completed: {$successCount} successful, {$errorCount} errors out of {$totalInvoices} total");
             
             return response()->json([
                 'success' => true,
                 'message' => "Fixed {$successCount} invoice(s) successfully. {$errorCount} error(s).",
+                'total' => $totalInvoices,
+                'success_count' => $successCount,
+                'error_count' => $errorCount,
                 'results' => $results
             ]);
             
@@ -601,6 +638,17 @@ class InvoiceFixController extends Controller
                 ->sum('reimbursement_sst_amount');
             $invoice->save();
             
+            // Update transfer_fee_main amount from all transfer_fee_details
+            $transferFeeMainIds = TransferFeeDetails::where('loan_case_invoice_main_id', $invoiceId)
+                ->where('status', '<>', 99)
+                ->pluck('transfer_fee_main_id')
+                ->unique()
+                ->filter();
+            
+            foreach ($transferFeeMainIds as $transferFeeMainId) {
+                $this->updateTransferFeeMainAmt($transferFeeMainId);
+            }
+            
             // Fix ledger entries (now uses updated transfer_fee_details)
             $ledgerUpdateResult = $this->fixLedgerEntries($invoiceId);
             
@@ -674,6 +722,38 @@ class InvoiceFixController extends Controller
                 'message' => 'Error: ' . $e->getMessage()
             ];
         }
+    }
+
+    /**
+     * Update transfer_fee_main transfer_amount from sum of all transfer_fee_details
+     */
+    private function updateTransferFeeMainAmt($transferFeeMainId)
+    {
+        $sumTransferFee = 0;
+        $transferFeeMain = TransferFeeMain::find($transferFeeMainId);
+        
+        if (!$transferFeeMain) {
+            return;
+        }
+        
+        $transferFeeDetailsSum = TransferFeeDetails::where('transfer_fee_main_id', $transferFeeMainId)
+            ->where('status', '<>', 99)
+            ->get();
+        
+        if ($transferFeeDetailsSum->count() > 0) {
+            foreach ($transferFeeDetailsSum as $tfd) {
+                // Include all amount components: transfer_amount + sst_amount + reimbursement_amount + reimbursement_sst_amount
+                $sumTransferFee += $tfd->transfer_amount ?? 0;
+                $sumTransferFee += $tfd->sst_amount ?? 0;
+                $sumTransferFee += $tfd->reimbursement_amount ?? 0;
+                $sumTransferFee += $tfd->reimbursement_sst_amount ?? 0;
+            }
+        }
+        
+        $transferFeeMain->transfer_amount = round($sumTransferFee, 2);
+        $transferFeeMain->save();
+        
+        Log::info("Updated transfer_fee_main {$transferFeeMainId} amount to " . $transferFeeMain->transfer_amount);
     }
 
     /**
@@ -1581,6 +1661,219 @@ class InvoiceFixController extends Controller
                 'message' => 'Error: ' . $e->getMessage()
             ]);
         }
+    }
+
+    /**
+     * Verify multiple invoices by checking if calculated values match stored values
+     */
+    public function verifyInvoices(Request $request)
+    {
+        set_time_limit(300); // 5 minutes
+        
+        $invoiceNumbers = $request->input('invoice_numbers');
+        
+        if (empty($invoiceNumbers)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No invoice numbers provided'
+            ]);
+        }
+        
+        try {
+            // Handle both array and string inputs
+            if (is_array($invoiceNumbers)) {
+                $invoiceList = array_map('trim', $invoiceNumbers);
+            } else {
+                $invoiceList = preg_split('/[,\n]+/', $invoiceNumbers);
+                $invoiceList = array_map('trim', $invoiceList);
+            }
+            
+            $invoiceList = array_filter($invoiceList);
+            $totalInvoices = count($invoiceList);
+            
+            Log::info("Starting verification for {$totalInvoices} invoices");
+            
+            $results = [];
+            $fixedCount = 0;
+            $issueCount = 0;
+            $notFoundCount = 0;
+            
+            foreach ($invoiceList as $invoiceNo) {
+                try {
+                    $verification = $this->verifySingleInvoice($invoiceNo);
+                    $results[] = $verification;
+                    
+                    if ($verification['status'] === 'not_found') {
+                        $notFoundCount++;
+                    } elseif ($verification['status'] === 'fixed') {
+                        $fixedCount++;
+                    } else {
+                        $issueCount++;
+                    }
+                } catch (\Exception $e) {
+                    Log::error("Error verifying invoice {$invoiceNo}: " . $e->getMessage());
+                    $results[] = [
+                        'invoice_no' => $invoiceNo,
+                        'status' => 'error',
+                        'message' => 'Error: ' . $e->getMessage(),
+                        'issues' => []
+                    ];
+                    $issueCount++;
+                }
+            }
+            
+            Log::info("Verification completed: {$fixedCount} fixed, {$issueCount} with issues, {$notFoundCount} not found");
+            
+            return response()->json([
+                'success' => true,
+                'summary' => [
+                    'total' => $totalInvoices,
+                    'fixed' => $fixedCount,
+                    'with_issues' => $issueCount,
+                    'not_found' => $notFoundCount
+                ],
+                'results' => $results
+            ]);
+            
+        } catch (\Exception $e) {
+            Log::error('Error verifying invoices: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Verify a single invoice
+     */
+    private function verifySingleInvoice($invoiceNo)
+    {
+        // Find invoice
+        $invoice = DB::table('loan_case_invoice_main as im')
+            ->leftJoin('loan_case_bill_main as bm', 'bm.id', '=', 'im.loan_case_main_bill_id')
+            ->leftJoin('loan_case as lc', 'lc.id', '=', 'bm.case_id')
+            ->where('im.invoice_no', $invoiceNo)
+            ->where('im.status', '<>', 99)
+            ->select(
+                'im.id',
+                'im.invoice_no',
+                'im.pfee1_inv',
+                'im.pfee2_inv',
+                'im.sst_inv',
+                'im.reimbursement_amount',
+                'im.reimbursement_sst',
+                'im.amount',
+                'bm.sst_rate',
+                'lc.case_ref_no'
+            )
+            ->first();
+        
+        if (!$invoice) {
+            return [
+                'invoice_no' => $invoiceNo,
+                'status' => 'not_found',
+                'message' => 'Invoice not found',
+                'issues' => []
+            ];
+        }
+        
+        // Calculate expected values from details
+        $calculated = $this->calculateInvoiceAmountsFromDetails($invoice->id, $invoice->sst_rate);
+        
+        $issues = [];
+        $tolerance = 0.01; // Allow 0.01 difference for rounding
+        
+        // Check pfee1
+        if (abs($invoice->pfee1_inv - $calculated['pfee1']) > $tolerance) {
+            $issues[] = [
+                'field' => 'pfee1_inv',
+                'stored' => $invoice->pfee1_inv,
+                'calculated' => $calculated['pfee1'],
+                'difference' => round($invoice->pfee1_inv - $calculated['pfee1'], 2)
+            ];
+        }
+        
+        // Check pfee2
+        if (abs($invoice->pfee2_inv - $calculated['pfee2']) > $tolerance) {
+            $issues[] = [
+                'field' => 'pfee2_inv',
+                'stored' => $invoice->pfee2_inv,
+                'calculated' => $calculated['pfee2'],
+                'difference' => round($invoice->pfee2_inv - $calculated['pfee2'], 2)
+            ];
+        }
+        
+        // Check SST
+        if (abs($invoice->sst_inv - $calculated['sst']) > $tolerance) {
+            $issues[] = [
+                'field' => 'sst_inv',
+                'stored' => $invoice->sst_inv,
+                'calculated' => $calculated['sst'],
+                'difference' => round($invoice->sst_inv - $calculated['sst'], 2)
+            ];
+        }
+        
+        // Check reimbursement amount
+        $storedReimb = $invoice->reimbursement_amount ?? 0;
+        if (abs($storedReimb - $calculated['reimbursement_amount']) > $tolerance) {
+            $issues[] = [
+                'field' => 'reimbursement_amount',
+                'stored' => $storedReimb,
+                'calculated' => $calculated['reimbursement_amount'],
+                'difference' => round($storedReimb - $calculated['reimbursement_amount'], 2)
+            ];
+        }
+        
+        // Check reimbursement SST
+        $storedReimbSst = $invoice->reimbursement_sst ?? 0;
+        if (abs($storedReimbSst - $calculated['reimbursement_sst']) > $tolerance) {
+            $issues[] = [
+                'field' => 'reimbursement_sst',
+                'stored' => $storedReimbSst,
+                'calculated' => $calculated['reimbursement_sst'],
+                'difference' => round($storedReimbSst - $calculated['reimbursement_sst'], 2)
+            ];
+        }
+        
+        // Check total amount
+        if (abs($invoice->amount - $calculated['total']) > $tolerance) {
+            $issues[] = [
+                'field' => 'amount',
+                'stored' => $invoice->amount,
+                'calculated' => $calculated['total'],
+                'difference' => round($invoice->amount - $calculated['total'], 2)
+            ];
+        }
+        
+        $status = count($issues) === 0 ? 'fixed' : 'has_issues';
+        $message = count($issues) === 0 
+            ? 'All values match calculated values' 
+            : count($issues) . ' field(s) have mismatches';
+        
+        return [
+            'invoice_no' => $invoiceNo,
+            'case_ref_no' => $invoice->case_ref_no,
+            'status' => $status,
+            'message' => $message,
+            'stored_values' => [
+                'pfee1_inv' => $invoice->pfee1_inv,
+                'pfee2_inv' => $invoice->pfee2_inv,
+                'sst_inv' => $invoice->sst_inv,
+                'reimbursement_amount' => $storedReimb,
+                'reimbursement_sst' => $storedReimbSst,
+                'amount' => $invoice->amount
+            ],
+            'calculated_values' => [
+                'pfee1' => $calculated['pfee1'],
+                'pfee2' => $calculated['pfee2'],
+                'sst' => $calculated['sst'],
+                'reimbursement_amount' => $calculated['reimbursement_amount'],
+                'reimbursement_sst' => $calculated['reimbursement_sst'],
+                'total' => $calculated['total']
+            ],
+            'issues' => $issues
+        ];
     }
 }
 

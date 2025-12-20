@@ -179,14 +179,24 @@
                         <?php
                         $row_sst = 0;
                         if ($cat['category']->id == 1 || $cat['category']->id == 4) {
-                            // Apply special rounding rule for SST: round DOWN if 3rd decimal is 5
-                            $sst_calculation = $details->ori_invoice_amt * $sst_rate;
-                            $sst_string = number_format($sst_calculation, 3, '.', '');
+                            // Use custom SST if available, otherwise calculate
+                            $hasCustomSst = false;
+                            if (property_exists($details, 'sst') && isset($details->sst) && $details->sst !== null && trim((string)$details->sst) !== '') {
+                                $row_sst = (float) $details->sst;
+                                $hasCustomSst = true;
+                            }
                             
-                            if (substr($sst_string, -1) == '5') {
-                                $row_sst = floor($sst_calculation * 100) / 100; // Round down
-                            } else {
-                                $row_sst = round($sst_calculation, 2); // Normal rounding
+                            // If no custom SST, calculate it
+                            if (!$hasCustomSst) {
+                                // Apply special rounding rule for SST: round DOWN if 3rd decimal is 5
+                                $sst_calculation = $details->ori_invoice_amt * $sst_rate;
+                                $sst_string = number_format($sst_calculation, 3, '.', '');
+                                
+                                if (substr($sst_string, -1) == '5') {
+                                    $row_sst = floor($sst_calculation * 100) / 100; // Round down
+                                } else {
+                                    $row_sst = round($sst_calculation, 2); // Normal rounding
+                                }
                             }
                             
                             $subtotalGST += $details->ori_invoice_amt + $row_sst;

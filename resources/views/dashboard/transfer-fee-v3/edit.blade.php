@@ -329,19 +329,83 @@
                                                                             </td>
                                                                             <td class="text-right"
                                                                                 style="font-size: 11px;">
-                                                                                {{ number_format(($detail->pfee1_inv ?? 0) + ($detail->pfee2_inv ?? 0), 2) }}
+                                                                                <div class="d-inline-flex align-items-center">
+                                                                                    <span class="pfee-display" 
+                                                                                          data-detail-id="{{ $detail->id }}" 
+                                                                                          data-invoice-id="{{ $detail->loan_case_invoice_main_id }}"
+                                                                                          data-pfee1="{{ $detail->pfee1_inv ?? 0 }}"
+                                                                                          data-pfee2="{{ $detail->pfee2_inv ?? 0 }}"
+                                                                                          data-original-value="{{ ($detail->pfee1_inv ?? 0) + ($detail->pfee2_inv ?? 0) }}">
+                                                                                        {{ number_format(($detail->pfee1_inv ?? 0) + ($detail->pfee2_inv ?? 0), 2) }}
+                                                                                    </span>
+                                                                                    @if(in_array(auth()->user()->menuroles, ['admin', 'maker', 'account']) && $TransferFeeMain->is_recon != '1')
+                                                                                        <i class="fa fa-pencil edit-pfee ml-1" 
+                                                                                           style="cursor: pointer; color: #007bff; font-size: 11px;" 
+                                                                                           data-detail-id="{{ $detail->id }}"
+                                                                                           data-invoice-id="{{ $detail->loan_case_invoice_main_id }}"
+                                                                                           data-bill-id="{{ $detail->loan_case_main_bill_id }}"
+                                                                                           data-pfee1="{{ $detail->pfee1_inv ?? 0 }}"
+                                                                                           data-pfee2="{{ $detail->pfee2_inv ?? 0 }}"
+                                                                                           title="Edit Professional Fee"></i>
+                                                                                    @endif
+                                                                                </div>
                                                                             </td>
                                                                             <td class="text-right"
                                                                                 style="font-size: 11px;">
-                                                                                {{ number_format($detail->sst_inv ?? 0, 2) }}
+                                                                                <div class="d-inline-flex align-items-center">
+                                                                                    <span class="sst-display" 
+                                                                                          data-detail-id="{{ $detail->id }}" 
+                                                                                          data-invoice-id="{{ $detail->loan_case_invoice_main_id }}"
+                                                                                          data-original-value="{{ $detail->sst_inv ?? 0 }}">
+                                                                                        {{ number_format($detail->sst_inv ?? 0, 2) }}
+                                                                                    </span>
+                                                                                    @if(in_array(auth()->user()->menuroles, ['admin', 'maker', 'account']) && $TransferFeeMain->is_recon != '1')
+                                                                                        <i class="fa fa-pencil edit-sst ml-1" 
+                                                                                           style="cursor: pointer; color: #007bff; font-size: 11px;" 
+                                                                                           data-detail-id="{{ $detail->id }}"
+                                                                                           data-invoice-id="{{ $detail->loan_case_invoice_main_id }}"
+                                                                                           data-bill-id="{{ $detail->loan_case_main_bill_id }}"
+                                                                                           title="Edit SST"></i>
+                                                                                    @endif
+                                                                                </div>
                                                                             </td>
                                                                             <td class="text-right"
                                                                                 style="font-size: 11px;">
-                                                                                {{ number_format($detail->reimbursement_amount ?? 0, 2) }}
+                                                                                <div class="d-inline-flex align-items-center">
+                                                                                    <span class="reimb-display" 
+                                                                                          data-detail-id="{{ $detail->id }}" 
+                                                                                          data-invoice-id="{{ $detail->loan_case_invoice_main_id }}"
+                                                                                          data-original-value="{{ $detail->reimbursement_amount ?? 0 }}">
+                                                                                        {{ number_format($detail->reimbursement_amount ?? 0, 2) }}
+                                                                                    </span>
+                                                                                    @if(in_array(auth()->user()->menuroles, ['admin', 'maker', 'account']) && $TransferFeeMain->is_recon != '1')
+                                                                                        <i class="fa fa-pencil edit-reimb ml-1" 
+                                                                                           style="cursor: pointer; color: #007bff; font-size: 11px;" 
+                                                                                           data-detail-id="{{ $detail->id }}"
+                                                                                           data-invoice-id="{{ $detail->loan_case_invoice_main_id }}"
+                                                                                           data-bill-id="{{ $detail->loan_case_main_bill_id }}"
+                                                                                           title="Edit Reimbursement"></i>
+                                                                                    @endif
+                                                                                </div>
                                                                             </td>
                                                                             <td class="text-right"
                                                                                 style="font-size: 11px;">
-                                                                                {{ number_format($detail->reimbursement_sst ?? 0, 2) }}
+                                                                                <div class="d-inline-flex align-items-center">
+                                                                                    <span class="reimb-sst-display" 
+                                                                                          data-detail-id="{{ $detail->id }}" 
+                                                                                          data-invoice-id="{{ $detail->loan_case_invoice_main_id }}"
+                                                                                          data-original-value="{{ $detail->reimbursement_sst ?? 0 }}">
+                                                                                        {{ number_format($detail->reimbursement_sst ?? 0, 2) }}
+                                                                                    </span>
+                                                                                    @if(in_array(auth()->user()->menuroles, ['admin', 'maker', 'account']) && $TransferFeeMain->is_recon != '1')
+                                                                                        <i class="fa fa-pencil edit-reimb-sst ml-1" 
+                                                                                           style="cursor: pointer; color: #007bff; font-size: 11px;" 
+                                                                                           data-detail-id="{{ $detail->id }}"
+                                                                                           data-invoice-id="{{ $detail->loan_case_invoice_main_id }}"
+                                                                                           data-bill-id="{{ $detail->loan_case_main_bill_id }}"
+                                                                                           title="Edit Reimbursement SST"></i>
+                                                                                    @endif
+                                                                                </div>
                                                                             </td>
                                                                             <td class="text-right"
                                                                                 style="font-size: 11px;">
@@ -3351,5 +3415,336 @@
                 }
             });
         });
+
+        // Edit Professional Fee (pfee1 + pfee2) - Inline with two inputs
+        $(document).on('click', '.edit-pfee', function() {
+            const $icon = $(this);
+            const $display = $icon.siblings('.pfee-display');
+            const detailId = $icon.data('detail-id');
+            const invoiceId = $icon.data('invoice-id');
+            const billId = $icon.data('bill-id');
+            const currentPfee1 = parseFloat($icon.data('pfee1') || 0);
+            const currentPfee2 = parseFloat($icon.data('pfee2') || 0);
+            
+            // Create container for two inputs
+            const $container = $('<div>', {
+                class: 'd-inline-flex align-items-center',
+                style: 'gap: 5px;'
+            });
+            
+            // Create pfee1 input
+            const $input1 = $('<input>', {
+                type: 'number',
+                class: 'form-control form-control-sm pfee-input',
+                style: 'width: 80px; display: inline-block; font-size: 11px;',
+                value: currentPfee1.toFixed(2),
+                step: '0.01',
+                min: '0',
+                placeholder: 'Pfee1',
+                title: 'Professional Fee 1'
+            });
+            
+            // Create separator
+            const $separator = $('<span>', {
+                text: '+',
+                style: 'font-size: 11px; margin: 0 2px;'
+            });
+            
+            // Create pfee2 input
+            const $input2 = $('<input>', {
+                type: 'number',
+                class: 'form-control form-control-sm pfee-input',
+                style: 'width: 80px; display: inline-block; font-size: 11px;',
+                value: currentPfee2.toFixed(2),
+                step: '0.01',
+                min: '0',
+                placeholder: 'Pfee2',
+                title: 'Professional Fee 2'
+            });
+            
+            // Create total display
+            const $totalDisplay = $('<span>', {
+                class: 'pfee-total-display',
+                style: 'font-size: 11px; margin-left: 5px; font-weight: bold;',
+                text: '= ' + (currentPfee1 + currentPfee2).toFixed(2)
+            });
+            
+            // Create save button
+            const $saveBtn = $('<button>', {
+                type: 'button',
+                class: 'btn btn-sm btn-success ml-1 save-pfee',
+                style: 'font-size: 10px; padding: 2px 8px;',
+                html: '<i class="fa fa-check"></i>'
+            });
+            $saveBtn.data('detail-id', detailId);
+            $saveBtn.data('invoice-id', invoiceId);
+            $saveBtn.data('bill-id', billId);
+            
+            // Create cancel button
+            const $cancelBtn = $('<button>', {
+                type: 'button',
+                class: 'btn btn-sm btn-secondary ml-1 cancel-pfee',
+                style: 'font-size: 10px; padding: 2px 8px;',
+                html: '<i class="fa fa-times"></i>'
+            });
+            
+            // Update total when inputs change
+            const updateTotal = function() {
+                const pfee1 = parseFloat($input1.val() || 0);
+                const pfee2 = parseFloat($input2.val() || 0);
+                $totalDisplay.text('= ' + (pfee1 + pfee2).toFixed(2));
+            };
+            
+            $input1.on('input', updateTotal);
+            $input2.on('input', updateTotal);
+            
+            // Assemble container
+            $container.append($input1);
+            $container.append($separator);
+            $container.append($input2);
+            $container.append($totalDisplay);
+            $container.append($saveBtn);
+            $container.append($cancelBtn);
+            
+            // Replace display with container
+            $display.hide();
+            $icon.hide();
+            $display.after($container);
+            $input1.focus().select();
+            
+            // Save handler
+            $saveBtn.on('click', function() {
+                const newPfee1 = parseFloat($input1.val() || 0);
+                const newPfee2 = parseFloat($input2.val() || 0);
+                const newTotal = newPfee1 + newPfee2;
+
+                if (newPfee1 < 0 || newPfee2 < 0) {
+                    alert('Amounts cannot be negative');
+                    return;
+                }
+
+                const detailId = $(this).data('detail-id');
+                const invoiceId = $(this).data('invoice-id');
+                const billId = $(this).data('bill-id');
+
+                // Save via AJAX
+                $.ajax({
+                    url: '{{ route("transferfee.updateAmounts", ":detailId") }}'.replace(':detailId', detailId),
+                    method: 'POST',
+                    data: {
+                        _token: '{{ csrf_token() }}',
+                        invoice_id: invoiceId,
+                        bill_id: billId,
+                        pfee1: newPfee1,
+                        pfee2: newPfee2,
+                        field: 'pfee'
+                    },
+                    success: function(response) {
+                        if (response.status === 1) {
+                            // Update display
+                            $display.data('pfee1', newPfee1);
+                            $display.data('pfee2', newPfee2);
+                            $display.data('original-value', newTotal);
+                            $display.text(newTotal.toLocaleString('en-US', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
+                            }));
+                            $icon.data('pfee1', newPfee1);
+                            $icon.data('pfee2', newPfee2);
+                            
+                            // Remove container
+                            $container.remove();
+                            $display.show();
+                            $icon.show();
+                            
+                            // Update footer totals
+                            updateFooterTotals();
+                            
+                            // Show success message
+                            Swal.fire('Success', 'Professional fee updated successfully', 'success');
+                        } else {
+                            Swal.fire('Error', response.message || 'Failed to update professional fee', 'error');
+                        }
+                    },
+                    error: function(xhr) {
+                        Swal.fire('Error', 'Failed to update professional fee. Please try again.', 'error');
+                    }
+                });
+            });
+            
+            // Cancel handler
+            $cancelBtn.on('click', function() {
+                $container.remove();
+                $display.show();
+                $icon.show();
+            });
+            
+            // Enter key handler
+            $input1.on('keypress', function(e) {
+                if (e.which === 13) {
+                    $input2.focus().select();
+                } else if (e.which === 27) {
+                    $cancelBtn.click();
+                }
+            });
+            
+            $input2.on('keypress', function(e) {
+                if (e.which === 13) {
+                    $saveBtn.click();
+                } else if (e.which === 27) {
+                    $cancelBtn.click();
+                }
+            });
+        });
+
+        // Edit SST - Inline
+        $(document).on('click', '.edit-sst', function() {
+            const $icon = $(this);
+            const $display = $icon.siblings('.sst-display');
+            const detailId = $icon.data('detail-id');
+            const invoiceId = $icon.data('invoice-id');
+            const billId = $icon.data('bill-id');
+            const currentValue = parseFloat($display.data('original-value') || $display.text().replace(/,/g, '')) || 0;
+            
+            editAmountInline($display, $icon, detailId, invoiceId, billId, currentValue, 'sst');
+        });
+
+        // Edit Reimbursement - Inline
+        $(document).on('click', '.edit-reimb', function() {
+            const $icon = $(this);
+            const $display = $icon.siblings('.reimb-display');
+            const detailId = $icon.data('detail-id');
+            const invoiceId = $icon.data('invoice-id');
+            const billId = $icon.data('bill-id');
+            const currentValue = parseFloat($display.data('original-value') || $display.text().replace(/,/g, '')) || 0;
+            
+            editAmountInline($display, $icon, detailId, invoiceId, billId, currentValue, 'reimb');
+        });
+
+        // Edit Reimbursement SST - Inline
+        $(document).on('click', '.edit-reimb-sst', function() {
+            const $icon = $(this);
+            const $display = $icon.siblings('.reimb-sst-display');
+            const detailId = $icon.data('detail-id');
+            const invoiceId = $icon.data('invoice-id');
+            const billId = $icon.data('bill-id');
+            const currentValue = parseFloat($display.data('original-value') || $display.text().replace(/,/g, '')) || 0;
+            
+            editAmountInline($display, $icon, detailId, invoiceId, billId, currentValue, 'reimb_sst');
+        });
+
+        // Generic inline edit function
+        function editAmountInline($display, $icon, detailId, invoiceId, billId, currentValue, field) {
+            // Replace display with input field
+            const $input = $('<input>', {
+                type: 'number',
+                class: 'form-control form-control-sm amount-input',
+                style: 'width: 100px; display: inline-block; font-size: 11px;',
+                value: currentValue.toFixed(2),
+                step: '0.01',
+                min: '0'
+            });
+            
+            const $saveBtn = $('<button>', {
+                type: 'button',
+                class: 'btn btn-sm btn-success ml-1 save-amount',
+                style: 'font-size: 10px; padding: 2px 8px;',
+                html: '<i class="fa fa-check"></i>'
+            });
+            $saveBtn.data('detail-id', detailId);
+            $saveBtn.data('invoice-id', invoiceId);
+            $saveBtn.data('bill-id', billId);
+            $saveBtn.data('field', field);
+            
+            const $cancelBtn = $('<button>', {
+                type: 'button',
+                class: 'btn btn-sm btn-secondary ml-1 cancel-amount',
+                style: 'font-size: 10px; padding: 2px 8px;',
+                html: '<i class="fa fa-times"></i>'
+            });
+            
+            $display.hide();
+            $icon.hide();
+            $display.after($input);
+            $input.after($saveBtn);
+            $saveBtn.after($cancelBtn);
+            $input.focus().select();
+            
+            // Save handler
+            $saveBtn.on('click', function() {
+                // Round to 2 decimal places to avoid floating-point precision issues
+                const rawValue = parseFloat($input.val()) || 0;
+                const newValue = Math.round(rawValue * 100) / 100; // Round to 2 decimals
+                
+                if (newValue < 0) {
+                    alert('Amount cannot be negative');
+                    return;
+                }
+                
+                const fieldName = $(this).data('field');
+                const detailId = $(this).data('detail-id');
+                const invoiceId = $(this).data('invoice-id');
+                const billId = $(this).data('bill-id');
+                
+                // Save via AJAX
+                $.ajax({
+                    url: '{{ route("transferfee.updateAmounts", ":detailId") }}'.replace(':detailId', detailId),
+                    method: 'POST',
+                    data: {
+                        _token: '{{ csrf_token() }}',
+                        invoice_id: invoiceId,
+                        bill_id: billId,
+                        [fieldName]: newValue,
+                        field: fieldName
+                    },
+                    success: function(response) {
+                        if (response.status === 1) {
+                            // Update display
+                            $display.data('original-value', newValue);
+                            $display.text(newValue.toLocaleString('en-US', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
+                            }));
+                            
+                            // Remove input and buttons
+                            $input.remove();
+                            $saveBtn.remove();
+                            $cancelBtn.remove();
+                            $display.show();
+                            $icon.show();
+                            
+                            // Update footer totals
+                            updateFooterTotals();
+                            
+                            // Show success message
+                            Swal.fire('Success', 'Amount updated successfully', 'success');
+                        } else {
+                            Swal.fire('Error', response.message || 'Failed to update amount', 'error');
+                        }
+                    },
+                    error: function(xhr) {
+                        Swal.fire('Error', 'Failed to update amount. Please try again.', 'error');
+                    }
+                });
+            });
+            
+            // Cancel handler
+            $cancelBtn.on('click', function() {
+                $input.remove();
+                $saveBtn.remove();
+                $cancelBtn.remove();
+                $display.show();
+                $icon.show();
+            });
+            
+            // Enter key handler
+            $input.on('keypress', function(e) {
+                if (e.which === 13) {
+                    $saveBtn.click();
+                } else if (e.which === 27) {
+                    $cancelBtn.click();
+                }
+            });
+        }
     </script>
 @endsection

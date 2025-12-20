@@ -1269,6 +1269,7 @@ Route::get('transfer-fee-create', [AccountController::class, 'transferFeeCreate'
                     Route::get('/{id}/edit', [TransferFeeV3Controller::class, 'transferFeeEditV3'])->name('transferfee.edit');
         Route::put('/{id}', [TransferFeeV3Controller::class, 'transferFeeUpdateV3'])->name('transferfee.update');
         Route::post('/update-total-amt/{detailId}', [TransferFeeV3Controller::class, 'updateTotalAmtV3'])->name('transferfee.updateTotalAmt');
+        Route::post('/update-amounts/{detailId}', [TransferFeeV3Controller::class, 'updateAmountsV3'])->name('transferfee.updateAmounts');
         Route::delete('/{id}', [TransferFeeV3Controller::class, 'transferFeeDeleteV3'])->name('transferfee.destroy');
             Route::delete('/{id}/delete-detail', [TransferFeeV3Controller::class, 'deleteTransferFeeDetailV3'])->name('transferfee.delete-detail');
     Route::post('/{id}/reconcile', [TransferFeeV3Controller::class, 'reconTransferFeeV3'])->name('transferfee.reconcile');
@@ -1313,6 +1314,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/invoice-fix/fix-single', [InvoiceFixController::class, 'fixSingleInvoice'])->name('invoice-fix.fix-single');
     Route::post('/invoice-fix/fix-multiple', [InvoiceFixController::class, 'fixMultipleInvoices'])->name('invoice-fix.fix-multiple');
     Route::post('/invoice-fix/fix-all', [InvoiceFixController::class, 'fixAllInvoices'])->name('invoice-fix.fix-all');
+    Route::post('/invoice-fix/verify', [InvoiceFixController::class, 'verifyInvoices'])->name('invoice-fix.verify');
     Route::get('/invoice-fix/search-bills', [InvoiceFixController::class, 'searchBills'])->name('invoice-fix.search-bills');
     Route::get('/invoice-fix/bill-details/{billId}', [InvoiceFixController::class, 'getBillDetailsForConversion'])->name('invoice-fix.bill-details');
     Route::post('/invoice-fix/convert-reimbursement', [InvoiceFixController::class, 'convertReimbursement'])->name('invoice-fix.convert-reimbursement');

@@ -56,7 +56,7 @@ class FileController extends Controller
 
         $attachment_type = Parameter::where('parameter_type', '=', 'attachment_type')->get();
 
-        $date = Carbon::now()->subDays(4);
+        $date = Carbon::now()->subDays(7);
 
         $case_file = DB::table('loan_attachment as a')
             ->join('loan_case as l', 'l.id', '=', 'a.case_id')

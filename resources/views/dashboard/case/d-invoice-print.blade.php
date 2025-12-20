@@ -332,15 +332,25 @@
                                         // }
 
                                         if ($row['category']->taxable == '1') {
-                                            // Simple rule: always round down when third decimal is 5
-                                            $sst_calculation = $details->amount * $sst_rate;
-                                            $sst_string = number_format($sst_calculation, 3, '.', '');
+                                            // Use custom SST if available, otherwise calculate
+                                            $hasCustomSst = false;
+                                            if (property_exists($details, 'sst') && isset($details->sst) && $details->sst !== null && trim((string)$details->sst) !== '') {
+                                                $row_sst = (float) $details->sst;
+                                                $hasCustomSst = true;
+                                            }
                                             
-                                            // Check if third decimal is 5 and round down
-                                            if (substr($sst_string, -1) == '5') {
-                                                $row_sst = floor($sst_calculation * 100) / 100; // Round down
-                                            } else {
-                                                $row_sst = round($sst_calculation, 2); // Normal rounding
+                                            // If no custom SST, calculate it
+                                            if (!$hasCustomSst) {
+                                                // Simple rule: always round down when third decimal is 5
+                                                $sst_calculation = $details->amount * $sst_rate;
+                                                $sst_string = number_format($sst_calculation, 3, '.', '');
+                                                
+                                                // Check if third decimal is 5 and round down
+                                                if (substr($sst_string, -1) == '5') {
+                                                    $row_sst = floor($sst_calculation * 100) / 100; // Round down
+                                                } else {
+                                                    $row_sst = round($sst_calculation, 2); // Normal rounding
+                                                }
                                             }
                                             
                                             $totalSST += $row_sst;

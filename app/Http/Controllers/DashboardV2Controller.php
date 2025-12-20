@@ -59,12 +59,12 @@ class DashboardV2Controller extends Controller
         Carbon::setWeekStartsAt(Carbon::SUNDAY);
         Carbon::setWeekEndsAt(Carbon::SATURDAY);
 
-        $date = Carbon::now()->subDays(4);
-        $Last7Days = Carbon::now()->subDays(14);
+        $date = Carbon::now()->subDays(7)->startOfDay();
+        $Last7Days = Carbon::now()->subDays(7)->startOfDay();
 
         if($current_user->id ==22)
         {
-            $date = Carbon::now()->subDays(30);
+            $date = Carbon::now()->subDays(30)->startOfDay();
         }
 
         // Cache access info for 5 minutes
@@ -73,20 +73,20 @@ class DashboardV2Controller extends Controller
         });
 
         // Limit initial data load - load notes via AJAX for better performance
-        // Only load last 10 notes initially, rest will load via AJAX
-        $kiv_note = $this->getKivNotes($current_user, $date, $accessInfo, 10);
+        // Load up to 100 notes initially
+        $kiv_note = $this->getKivNotes($current_user, $date, $accessInfo, 100);
 
         // Limit initial data load - load notes via AJAX
-        $pnc_note = $this->getPncNotes($current_user, $date, 10);
+        $pnc_note = $this->getPncNotes($current_user, $date, 100);
         
         // Limit marketing notes initial load
         $LoanMarketingNotes = [];
         if (in_array($current_user->menuroles, ['account', 'admin', 'sales', 'maker'])) {
-            $LoanMarketingNotes = $this->getMarketingNotes($current_user, $Last7Days, $accessInfo, 10);
+            $LoanMarketingNotes = $this->getMarketingNotes($current_user, $Last7Days, $accessInfo, 100);
         }
 
         // Load case files via AJAX for better performance - limit initial load
-        $LoanAttachmentFrame = $this->getCaseFiles($current_user, $date, $branchInfo, 20);
+        $LoanAttachmentFrame = $this->getCaseFiles($current_user, $date, $branchInfo, 100);
 
         // Case counts will be loaded via AJAX for better performance
         // Initial load with minimal data
@@ -107,10 +107,8 @@ class DashboardV2Controller extends Controller
         $LoanCaseChecklistDetails = [];
         $cases = [];
 
-        // Cache today message count for 5 minutes
-        $today_message_count = Cache::remember("today_message_count_{$current_user->id}", 300, function () use ($current_user) {
-            return $this->getTodayMessageCount($current_user);
-        });
+        // Get today message count - no caching
+        $today_message_count = $this->getTodayMessageCount($current_user);
 
 
         return view('dashboard.v2.index', [
@@ -257,14 +255,15 @@ class DashboardV2Controller extends Controller
      */
     private function getCaseFiles($current_user, $date, $branchInfo, $limit = null)
     {
-        $cacheKey = "case_files_{$current_user->id}_" . ($limit ? "limit_{$limit}" : "all") . "_" . md5($date);
+        // No caching - always get fresh data for past 7 days
+        // Ensure date is in correct format for query
+        $dateString = is_string($date) ? $date : $date->toDateTimeString();
         
-        return Cache::remember($cacheKey, 180, function () use ($current_user, $date, $branchInfo, $limit) {
-            $case_file = DB::table('loan_attachment as a')
+        $case_file = DB::table('loan_attachment as a')
             ->join('loan_case as l', 'l.id', '=', 'a.case_id')
             ->join('users as u', 'u.id', '=', 'a.user_id')
             ->where('a.status', '=', 1)
-            ->where('a.created_at', '>=', $date)
+            ->where('a.created_at', '>=', $dateString)
             ->select(
                 'a.id',
                 'a.s3_file_name',
@@ -281,7 +280,7 @@ class DashboardV2Controller extends Controller
             ->join('loan_case as l', 'l.id', '=', 'a.case_id')
             ->join('users as u', 'u.id', '=', 'a.created_by')
             ->where('a.status', '=', 1)
-            ->where('a.created_at', '>=', $date)
+            ->where('a.created_at', '>=', $dateString)
             ->select(
                 'a.id',
                 'a.s3_file_name',
@@ -344,11 +343,10 @@ class DashboardV2Controller extends Controller
                 $case_file2 = $case_file2->limit($limit);
             }
             
-            $case_file = $case_file->get();
-            $case_file2 = $case_file2->get();
+        $case_file = $case_file->get();
+        $case_file2 = $case_file2->get();
 
-            return $case_file->merge($case_file2)->sortByDesc('created_at');
-        });
+        return $case_file->merge($case_file2)->sortByDesc('created_at');
     }
 
     /**
@@ -524,18 +522,18 @@ class DashboardV2Controller extends Controller
     public function loadNotesData(Request $request)
     {
         $current_user = auth()->user();
-        $date = Carbon::now()->subDays(4);
-        $Last7Days = Carbon::now()->subDays(14);
+        $date = Carbon::now()->subDays(7)->startOfDay();
+        $Last7Days = Carbon::now()->subDays(7)->startOfDay();
         
         if($current_user->id == 22) {
-            $date = Carbon::now()->subDays(30);
+            $date = Carbon::now()->subDays(30)->startOfDay();
         }
 
         $accessInfo = Cache::remember("access_info_{$current_user->id}", 300, function () {
             return AccessController::manageAccess();
         });
 
-        $limit = $request->input('limit', 50); // Allow loading more via AJAX
+        $limit = $request->input('limit', 100); // Allow loading more via AJAX
         
         $kiv_note = $this->getKivNotes($current_user, $date, $accessInfo, $limit);
         $pnc_note = $this->getPncNotes($current_user, $date, $limit);
@@ -558,17 +556,17 @@ class DashboardV2Controller extends Controller
     public function loadCaseFiles(Request $request)
     {
         $current_user = auth()->user();
-        $date = Carbon::now()->subDays(4);
+        $date = Carbon::now()->subDays(7)->startOfDay();
         
         if($current_user->id == 22) {
-            $date = Carbon::now()->subDays(30);
+            $date = Carbon::now()->subDays(30)->startOfDay();
         }
 
         $branchInfo = Cache::remember("branch_access_{$current_user->id}", 3600, function () {
             return BranchController::manageBranchAccess();
         });
 
-        $limit = $request->input('limit', 50); // Allow loading more via AJAX
+        $limit = $request->input('limit', 100); // Allow loading more via AJAX
         $case_files = $this->getCaseFiles($current_user, $date, $branchInfo, $limit);
 
         return response()->json([
@@ -618,6 +616,34 @@ class DashboardV2Controller extends Controller
         Cache::forget("b2022_cases_{$current_user->id}");
         Cache::forget("today_message_count_{$current_user->id}");
         Cache::forget("access_info_{$current_user->id}");
+        
+        // Clear notes and attachments cache - need to clear for all possible date combinations
+        // Since cache keys include date hash, we'll clear common patterns
+        $date7Days = Carbon::now()->subDays(7);
+        $date4Days = Carbon::now()->subDays(4); // Old value
+        $date14Days = Carbon::now()->subDays(14); // Old value
+        
+        // Clear case files cache
+        Cache::forget("case_files_{$current_user->id}_limit_20_" . md5($date7Days));
+        Cache::forget("case_files_{$current_user->id}_limit_50_" . md5($date7Days));
+        Cache::forget("case_files_{$current_user->id}_limit_20_" . md5($date4Days));
+        Cache::forget("case_files_{$current_user->id}_limit_50_" . md5($date4Days));
+        
+        // Clear notes cache
+        Cache::forget("kiv_notes_{$current_user->id}_limit_10_" . md5($date7Days));
+        Cache::forget("kiv_notes_{$current_user->id}_limit_50_" . md5($date7Days));
+        Cache::forget("kiv_notes_{$current_user->id}_limit_10_" . md5($date4Days));
+        Cache::forget("kiv_notes_{$current_user->id}_limit_50_" . md5($date4Days));
+        
+        Cache::forget("pnc_notes_{$current_user->id}_limit_10_" . md5($date7Days));
+        Cache::forget("pnc_notes_{$current_user->id}_limit_50_" . md5($date7Days));
+        Cache::forget("pnc_notes_{$current_user->id}_limit_10_" . md5($date4Days));
+        Cache::forget("pnc_notes_{$current_user->id}_limit_50_" . md5($date4Days));
+        
+        Cache::forget("marketing_notes_{$current_user->id}_limit_10_" . md5($date7Days));
+        Cache::forget("marketing_notes_{$current_user->id}_limit_50_" . md5($date7Days));
+        Cache::forget("marketing_notes_{$current_user->id}_limit_10_" . md5($date14Days));
+        Cache::forget("marketing_notes_{$current_user->id}_limit_50_" . md5($date14Days));
         
         // Note: Pattern-based cache clearing would require cache tags or manual iteration
         // For now, we'll clear the most common ones

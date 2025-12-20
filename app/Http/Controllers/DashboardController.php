@@ -56,12 +56,12 @@ class DashboardController extends Controller
         Carbon::setWeekStartsAt(Carbon::SUNDAY);
         Carbon::setWeekEndsAt(Carbon::SATURDAY);
 
-        $date = Carbon::now()->subDays(4);
-        $Last7Days = Carbon::now()->subDays(14);
+        $date = Carbon::now()->subDays(7)->startOfDay();
+        $Last7Days = Carbon::now()->subDays(7)->startOfDay();
 
         if($current_user->id ==22)
         {
-            $date = Carbon::now()->subDays(30);
+            $date = Carbon::now()->subDays(30)->startOfDay();
         }
 
         // Cache access info for 5 minutes
@@ -70,20 +70,20 @@ class DashboardController extends Controller
         });
 
         // Limit initial data load - load notes via AJAX for better performance
-        // Only load last 10 notes initially, rest will load via AJAX
-        $kiv_note = $this->getKivNotes($current_user, $date, $accessInfo, 10);
+        // Load up to 100 notes initially
+        $kiv_note = $this->getKivNotes($current_user, $date, $accessInfo, 100);
 
         // Limit initial data load - load notes via AJAX
-        $pnc_note = $this->getPncNotes($current_user, $date, 10);
+        $pnc_note = $this->getPncNotes($current_user, $date, 100);
         
         // Limit marketing notes initial load
         $LoanMarketingNotes = [];
         if (in_array($current_user->menuroles, ['account', 'admin', 'sales', 'maker'])) {
-            $LoanMarketingNotes = $this->getMarketingNotes($current_user, $Last7Days, $accessInfo, 10);
+            $LoanMarketingNotes = $this->getMarketingNotes($current_user, $Last7Days, $accessInfo, 100);
         }
 
         // Load case files via AJAX for better performance - limit initial load
-        $LoanAttachmentFrame = $this->getCaseFiles($current_user, $date, $branchInfo, 20);
+        $LoanAttachmentFrame = $this->getCaseFiles($current_user, $date, $branchInfo, 100);
 
         // Case counts will be loaded via AJAX for better performance
         // Initial load with minimal data
@@ -104,10 +104,8 @@ class DashboardController extends Controller
         $LoanCaseChecklistDetails = [];
         $cases = [];
 
-        // Cache today message count for 5 minutes
-        $today_message_count = Cache::remember("today_message_count_{$current_user->id}", 300, function () use ($current_user) {
-            return $this->getTodayMessageCount($current_user);
-        });
+        // Get today message count - no caching
+        $today_message_count = $this->getTodayMessageCount($current_user);
 
 
         return view('dashboard.home', [
@@ -242,11 +240,23 @@ class DashboardController extends Controller
      */
     private function getCaseFiles($current_user, $date, $branchInfo, $limit = null)
     {
+        // Ensure date is in correct format for query - use start of day to include entire day
+        if ($date instanceof \Carbon\Carbon) {
+            $dateString = $date->copy()->startOfDay()->toDateTimeString();
+        } else {
+            $dateString = is_string($date) ? $date : Carbon::parse($date)->startOfDay()->toDateTimeString();
+        }
+        
+        // Debug: Log the date being used (check storage/logs/laravel.log after page load)
+        if (function_exists('logger')) {
+            logger()->info("Dashboard getCaseFiles - Date filter: {$dateString}, Today: " . Carbon::now()->format('Y-m-d H:i:s'));
+        }
+        
         $case_file = DB::table('loan_attachment as a')
             ->join('loan_case as l', 'l.id', '=', 'a.case_id')
             ->join('users as u', 'u.id', '=', 'a.user_id')
             ->where('a.status', '=', 1)
-            ->where('a.created_at', '>=', $date)
+            ->where('a.created_at', '>=', $dateString)
             ->select(
                 'a.id',
                 'a.s3_file_name',
@@ -263,7 +273,7 @@ class DashboardController extends Controller
             ->join('loan_case as l', 'l.id', '=', 'a.case_id')
             ->join('users as u', 'u.id', '=', 'a.created_by')
             ->where('a.status', '=', 1)
-            ->where('a.created_at', '>=', $date)
+            ->where('a.created_at', '>=', $dateString)
             ->select(
                 'a.id',
                 'a.s3_file_name',
@@ -1295,23 +1305,25 @@ class DashboardController extends Controller
     public function loadNotesData(Request $request)
     {
         $current_user = auth()->user();
-        $date = Carbon::now()->subDays(4);
-        $Last7Days = Carbon::now()->subDays(14);
+        $date = Carbon::now()->subDays(7)->startOfDay();
+        $Last7Days = Carbon::now()->subDays(7)->startOfDay();
         
         if($current_user->id == 22) {
-            $date = Carbon::now()->subDays(30);
+            $date = Carbon::now()->subDays(30)->startOfDay();
         }
 
         $accessInfo = Cache::remember("access_info_{$current_user->id}", 300, function () {
             return AccessController::manageAccess();
         });
 
-        $kiv_note = $this->getKivNotes($current_user, $date, $accessInfo);
-        $pnc_note = $this->getPncNotes($current_user, $date);
+        $limit = $request->input('limit', 100); // Allow loading more via AJAX
+        
+        $kiv_note = $this->getKivNotes($current_user, $date, $accessInfo, $limit);
+        $pnc_note = $this->getPncNotes($current_user, $date, $limit);
         
         $LoanMarketingNotes = [];
         if (in_array($current_user->menuroles, ['account', 'admin', 'sales', 'maker'])) {
-            $LoanMarketingNotes = $this->getMarketingNotes($current_user, $Last7Days, $accessInfo);
+            $LoanMarketingNotes = $this->getMarketingNotes($current_user, $Last7Days, $accessInfo, $limit);
         }
 
         return response()->json([
@@ -1327,17 +1339,17 @@ class DashboardController extends Controller
     public function loadCaseFiles(Request $request)
     {
         $current_user = auth()->user();
-        $date = Carbon::now()->subDays(4);
+        $date = Carbon::now()->subDays(7)->startOfDay();
         
         if($current_user->id == 22) {
-            $date = Carbon::now()->subDays(30);
+            $date = Carbon::now()->subDays(30)->startOfDay();
         }
 
         $branchInfo = Cache::remember("branch_access_{$current_user->id}", 3600, function () {
             return BranchController::manageBranchAccess();
         });
 
-        $limit = $request->input('limit', 50);
+        $limit = $request->input('limit', 100);
         $case_files = $this->getCaseFiles($current_user, $date, $branchInfo, $limit);
 
         return response()->json([

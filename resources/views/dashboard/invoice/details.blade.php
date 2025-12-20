@@ -833,14 +833,20 @@
                     var totalWithSst = amount;
 
                     if (isTaxable) {
-                        // Calculate SST with special rounding rule
-                        var sstCalculation = amount * (globalSstRate / 100);
-                        var sstString = sstCalculation.toFixed(3);
-                        
-                        if (sstString.slice(-1) === '5') {
-                            sstAmount = Math.floor(sstCalculation * 100) / 100; // Round down
+                        // Use custom SST from database if available, otherwise calculate
+                        if (detail.sst !== null && detail.sst !== undefined && detail.sst !== '') {
+                            // Use the saved custom SST value
+                            sstAmount = parseFloat(detail.sst || 0);
                         } else {
-                            sstAmount = Math.round(sstCalculation * 100) / 100; // Normal rounding
+                            // Calculate SST with special rounding rule
+                            var sstCalculation = amount * (globalSstRate / 100);
+                            var sstString = sstCalculation.toFixed(3);
+                            
+                            if (sstString.slice(-1) === '5') {
+                                sstAmount = Math.floor(sstCalculation * 100) / 100; // Round down
+                            } else {
+                                sstAmount = Math.round(sstCalculation * 100) / 100; // Normal rounding
+                            }
                         }
                         totalWithSst = amount + sstAmount;
                     }
@@ -1106,10 +1112,25 @@
         // Collect invoice details
         var details = [];
         $('.invoice-detail-amount').each(function() {
-            var detailId = $(this).data('detail-id');
-            var detailAmount = $(this).val();
+            var $input = $(this);
+            var detailId = $input.data('detail-id');
+            var detailAmount = $input.val();
             var $sstInput = $('.invoice-detail-sst[data-detail-id="' + detailId + '"]');
             var detailSst = $sstInput.length > 0 ? $sstInput.val() : null;
+            
+            // Debug logging for specific detail (Fax/Telephone Charges - detail ID 168726)
+            if (detailId == '168726') {
+                console.log('=== DETAIL 168726 DEBUG ===');
+                console.log('Input element:', $input);
+                console.log('Input value (raw):', detailAmount);
+                console.log('Input value (parsed):', parseFloat(detailAmount));
+                console.log('Input data attributes:', {
+                    'detail-id': $input.data('detail-id'),
+                    'category-id': $input.data('category-id'),
+                    'taxable': $input.data('taxable')
+                });
+                console.log('SST value:', detailSst);
+            }
             
             if (detailId && detailAmount !== undefined) {
                 var detailObj = {
@@ -1123,6 +1144,14 @@
                 details.push(detailObj);
             }
         });
+        
+        // Additional debug for detail 168726
+        var detail168726 = details.find(function(d) { return d.id == '168726'; });
+        if (detail168726) {
+            console.log('Detail 168726 in details array:', detail168726);
+        } else {
+            console.log('WARNING: Detail 168726 not found in details array!');
+        }
 
         $.ajaxSetup({
             headers: {
@@ -1130,6 +1159,14 @@
             }
         });
 
+        // Log the data being sent
+        console.log('Saving invoice with data:', {
+            invoiceId: invoiceId,
+            invoice_no: invoiceNo,
+            Invoice_date: invoiceDate,
+            details: details
+        });
+        
         $.ajax({
             url: '/invoice/' + invoiceId + '/update',
             type: 'POST',
@@ -1139,6 +1176,7 @@
                 details: details
             },
             success: function(response) {
+                console.log('Save response:', response);
                 if (response.status === 1) {
                     toastController('Invoice updated successfully', 'success');
                     loadInvoiceDetails(); // Reload to show updated data

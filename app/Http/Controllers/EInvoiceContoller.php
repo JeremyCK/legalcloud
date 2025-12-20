@@ -883,12 +883,28 @@ class EInvoiceContoller extends Controller
         // Build invoice_v2 array (similar to CaseController logic)
         $invoice_v2 = array();
         
+        // Check if sst column exists
+        $hasSstColumn = DB::select("SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS 
+            WHERE TABLE_SCHEMA = DATABASE() 
+            AND TABLE_NAME = 'loan_case_invoice_details' 
+            AND COLUMN_NAME = 'sst'");
+        $sstColumnExists = isset($hasSstColumn[0]) && $hasSstColumn[0]->count > 0;
+        
         for ($i = 0; $i < count($category); $i++) {
             array_push($invoice_v2, array('row' => 'title', 'category' => $category[$i], 'account_details' => []));
             
+            // Build select fields - explicitly include sst if column exists
+            $selectFields = ['qd.id', 'qd.account_item_id', 'qd.amount', 'qd.quo_amount', 'qd.ori_invoice_amt', 'qd.remark as item_remark', 'qd.quotation_item_id', 
+                'a.name as account_name', 'a.name_cn as account_name_cn', 'a.formula as account_formula', 'a.min as account_min', 'a.id as account_item_id', 'a.pfee1_item', 'a.remark as item_desc'];
+            
+            if ($sstColumnExists) {
+                // Explicitly select sst column
+                $selectFields[] = 'qd.sst';
+            }
+            
             $QuotationTemplateDetails = DB::table('loan_case_invoice_details AS qd')
                 ->leftJoin('account_item AS a', 'a.id', '=', 'qd.account_item_id')
-                ->select('qd.*', 'a.name as account_name', 'a.name_cn as account_name_cn', 'a.formula as account_formula', 'a.min as account_min', 'a.id as account_item_id', 'a.pfee1_item', 'a.remark as item_desc', 'qd.remark as item_remark')
+                ->select($selectFields)
                 ->where('qd.invoice_main_id', '=', $id)
                 ->where('qd.status', '=', 1)
                 ->where('a.account_cat_id', '=', $category[$i]->id)
@@ -974,12 +990,28 @@ class EInvoiceContoller extends Controller
             // Build invoice_v2 array
             $invoice_v2 = array();
             
+            // Check if sst column exists
+            $hasSstColumn = DB::select("SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = DATABASE() 
+                AND TABLE_NAME = 'loan_case_invoice_details' 
+                AND COLUMN_NAME = 'sst'");
+            $sstColumnExists = isset($hasSstColumn[0]) && $hasSstColumn[0]->count > 0;
+            
             for ($i = 0; $i < count($category); $i++) {
                 array_push($invoice_v2, array('row' => 'title', 'category' => $category[$i], 'account_details' => []));
                 
+                // Build select fields - explicitly include sst if column exists
+                $selectFields = ['qd.id', 'qd.account_item_id', 'qd.amount', 'qd.quo_amount', 'qd.ori_invoice_amt', 'qd.remark as item_remark', 'qd.quotation_item_id', 
+                    'a.name as account_name', 'a.name_cn as account_name_cn', 'a.formula as account_formula', 'a.min as account_min', 'a.id as account_item_id', 'a.pfee1_item', 'a.remark as item_desc'];
+                
+                if ($sstColumnExists) {
+                    // Explicitly select sst column
+                    $selectFields[] = 'qd.sst';
+                }
+                
                 $QuotationTemplateDetails = DB::table('loan_case_invoice_details AS qd')
                     ->leftJoin('account_item AS a', 'a.id', '=', 'qd.account_item_id')
-                    ->select('qd.*', 'a.name as account_name', 'a.name_cn as account_name_cn', 'a.formula as account_formula', 'a.min as account_min', 'a.id as account_item_id', 'a.pfee1_item', 'a.remark as item_desc', 'qd.remark as item_remark')
+                    ->select($selectFields)
                     ->where('qd.invoice_main_id', '=', $id)
                     ->where('qd.status', '=', 1)
                     ->where('a.account_cat_id', '=', $category[$i]->id)
