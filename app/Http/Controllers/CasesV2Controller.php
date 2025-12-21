@@ -374,10 +374,21 @@ class CasesV2Controller extends Controller
             }
 
             $case_id = $CasesNotes->case_id;
+            $oldNotes = $CasesNotes->notes;
             $CasesNotes->notes =  $request->input('notes_msg');
             $CasesNotes->updated_at = date('Y-m-d H:i:s');
             $CasesNotes->updated_by = $current_user->id;
             $CasesNotes->save();
+
+            // Log the edit action
+            LogsController::generateLog([
+                'case_id' => $case_id,
+                'object_id' => $id,
+                'action' => 'Update',
+                'desc' => ' edited case note (ID: ' . $id . ')',
+                'ori_text' => $oldNotes,
+                'edit_text' => $request->input('notes_msg')
+            ]);
         }
 
         $CasesNotes = $this->loadCaseNote($case_id);
@@ -405,8 +416,18 @@ class CasesV2Controller extends Controller
             }
 
             $case_id = $CasesNotes->case_id;
+            $noteContent = substr($CasesNotes->notes, 0, 100); // Get first 100 chars for log
             $CasesNotes->status = 99;
             $CasesNotes->save();
+
+            // Log the delete action
+            LogsController::generateLog([
+                'case_id' => $case_id,
+                'object_id' => $id,
+                'action' => 'Delete',
+                'desc' => ' deleted case note (ID: ' . $id . ')',
+                'ori_text' => $noteContent
+            ]);
         }
 
 

@@ -1005,6 +1005,16 @@ class LogsController extends Controller
         {
             $LegalCloudCaseActivityLog->object_id_2 = $param_log['object_id_2'];
         }
+
+        if(isset($param_log['ori_text']))
+        {
+            $LegalCloudCaseActivityLog->ori_text = $param_log['ori_text'];
+        }
+
+        if(isset($param_log['edit_text']))
+        {
+            $LegalCloudCaseActivityLog->edit_text = $param_log['edit_text'];
+        }
         
         // $LegalCloudCaseActivityLog->created_at = date('Y-m-d H:i:s');    
         $LegalCloudCaseActivityLog->save();

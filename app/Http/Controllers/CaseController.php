@@ -15240,10 +15240,21 @@ class CaseController extends Controller
         }
 
 
+        $oldNotes = $LoanCaseKivNotes->notes;
         $LoanCaseKivNotes->notes =  $request->input('notes_msg');
         $LoanCaseKivNotes->updated_at = date('Y-m-d H:i:s');
         $LoanCaseKivNotes->updated_by = $current_user->id;
         $LoanCaseKivNotes->save();
+
+        // Log the edit action
+        LogsController::generateLog([
+            'case_id' => $LoanCaseKivNotes->case_id,
+            'object_id' => $id,
+            'action' => 'Update',
+            'desc' => ' edited case note (ID: ' . $id . ')',
+            'ori_text' => $oldNotes,
+            'edit_text' => $request->input('notes_msg')
+        ]);
 
         $LoanCaseKIVNotes = DB::table('loan_case_kiv_notes AS n')
             ->leftJoin('users AS u', 'u.id', '=', 'n.created_by')
@@ -15278,10 +15289,21 @@ class CaseController extends Controller
         }
 
 
+        $oldNotes = $LoanCasePncNotes->notes;
         $LoanCasePncNotes->notes =  $request->input('notes_msg');
         $LoanCasePncNotes->updated_at = date('Y-m-d H:i:s');
         $LoanCasePncNotes->updated_by = $current_user->id;
         $LoanCasePncNotes->save();
+
+        // Log the edit action
+        LogsController::generateLog([
+            'case_id' => $LoanCasePncNotes->case_id,
+            'object_id' => $id,
+            'action' => 'Update',
+            'desc' => ' edited PNC case note (ID: ' . $id . ')',
+            'ori_text' => $oldNotes,
+            'edit_text' => $request->input('notes_msg')
+        ]);
 
         $LoanCasePNCNotes = DB::table('loan_case_pnc_notes AS n')
             ->leftJoin('users AS u', 'u.id', '=', 'n.created_by')
@@ -15310,10 +15332,20 @@ class CaseController extends Controller
             return response()->json(['status' => 0, 'data' => 'Notes updated', 'return_id' => $id, 'message' => 'Not allow to delete note that created more than 1 day']);
         }
 
+        $noteContent = substr($LoanCaseKivNotes->notes, 0, 100); // Get first 100 chars for log
         $LoanCaseKivNotes->status = 99;
         $LoanCaseKivNotes->deleted_at = date('Y-m-d H:i:s');
 
         $LoanCaseKivNotes->save();
+
+        // Log the delete action
+        LogsController::generateLog([
+            'case_id' => $LoanCaseKivNotes->case_id,
+            'object_id' => $id,
+            'action' => 'Delete',
+            'desc' => ' deleted case note (ID: ' . $id . ')',
+            'ori_text' => $noteContent
+        ]);
 
         $LoanCaseKIVNotes = DB::table('loan_case_kiv_notes AS n')
             ->leftJoin('users AS u', 'u.id', '=', 'n.created_by')
@@ -15344,10 +15376,20 @@ class CaseController extends Controller
             return response()->json(['status' => 0, 'data' => 'Notes updated', 'return_id' => $id, 'message' => 'Not allow to delete note that created more than 1 day']);
         }
 
+        $noteContent = substr($LoanCaseKivNotes->notes, 0, 100); // Get first 100 chars for log
         $LoanCaseKivNotes->status = 99;
         $LoanCaseKivNotes->deleted_at = date('Y-m-d H:i:s');
 
         $LoanCaseKivNotes->save();
+
+        // Log the delete action
+        LogsController::generateLog([
+            'case_id' => $LoanCaseKivNotes->case_id,
+            'object_id' => $id,
+            'action' => 'Delete',
+            'desc' => ' deleted PNC case note (ID: ' . $id . ')',
+            'ori_text' => $noteContent
+        ]);
 
         $LoanCasePNCNotes = DB::table('loan_case_pnc_notes AS n')
             ->leftJoin('users AS u', 'u.id', '=', 'n.created_by')
@@ -15377,11 +15419,21 @@ class CaseController extends Controller
             return response()->json(['status' => 0, 'data' => 'Notes updated', 'return_id' => $id, 'message' => 'Not allow to delete note that created more than 3 days']);
         }
 
+        $noteContent = substr($LoanCaseNotes->notes, 0, 100); // Get first 100 chars for log
         $LoanCaseNotes->status = 99;
         $LoanCaseNotes->deleted_at = date('Y-m-d H:i:s');
         $LoanCaseNotes->deleted_by = $current_user->id;
 
         $LoanCaseNotes->save();
+
+        // Log the delete action
+        LogsController::generateLog([
+            'case_id' => $LoanCaseNotes->case_id,
+            'object_id' => $id,
+            'action' => 'Delete',
+            'desc' => ' deleted marketing case note (ID: ' . $id . ')',
+            'ori_text' => $noteContent
+        ]);
 
         $LoanCaseNotes = DB::table('loan_case_notes AS n')
             ->leftJoin('users AS u', 'u.id', '=', 'n.created_by')
@@ -15411,10 +15463,21 @@ class CaseController extends Controller
         }
 
 
+        $oldNotes = $LoanCaseNotes->notes;
         $LoanCaseNotes->notes =  $request->input('notes_msg');
         $LoanCaseNotes->updated_at = date('Y-m-d H:i:s');
         $LoanCaseNotes->updated_by = $current_user->id;
         $LoanCaseNotes->save();
+
+        // Log the edit action
+        LogsController::generateLog([
+            'case_id' => $LoanCaseNotes->case_id,
+            'object_id' => $id,
+            'action' => 'Update',
+            'desc' => ' edited marketing case note (ID: ' . $id . ')',
+            'ori_text' => $oldNotes,
+            'edit_text' => $request->input('notes_msg')
+        ]);
 
         $LoanCaseNotes = DB::table('loan_case_notes AS n')
             ->leftJoin('users AS u', 'u.id', '=', 'n.created_by')
