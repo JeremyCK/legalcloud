@@ -96,6 +96,18 @@
 
                             <!-- DataTable -->
                             <div id="table_container" style="display: none;">
+                                <div class="row mb-3">
+                                    <div class="col-12 text-right">
+                                        <div class="btn-group" role="group">
+                                            <button class="btn btn-success" id="exportExcelBtn" type="button">
+                                                <i class="fa fa-file-excel-o mr-2"></i>Export to Excel
+                                            </button>
+                                            <button class="btn btn-danger" id="exportPdfBtn" type="button">
+                                                <i class="fa fa-file-pdf-o mr-2"></i>Export to PDF
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
                                 <div class="box-body no-padding" style="width:100%;overflow-x:auto">
                                     <table class="table table-bordered table-striped yajra-datatable" style="width:100%">
                                         <thead>
@@ -296,6 +308,48 @@
                 table.destroy();
             }
         }
+
+        // Export to Excel
+        $('#exportExcelBtn').on('click', function() {
+            if (!selectedCaseId || selectedCaseId == 0) {
+                alert('Please select a case first');
+                return;
+            }
+
+            var user = $('#ddl_user').val();
+            var actionType = $('#ddl_action_type').val();
+            
+            var url = '{{ route("audit_trail.export_excel") }}?case_id=' + selectedCaseId;
+            if (user && user != '0') {
+                url += '&user=' + user;
+            }
+            if (actionType && actionType != 'all') {
+                url += '&action_type=' + actionType;
+            }
+            
+            window.location.href = url;
+        });
+
+        // Export to PDF
+        $('#exportPdfBtn').on('click', function() {
+            if (!selectedCaseId || selectedCaseId == 0) {
+                alert('Please select a case first');
+                return;
+            }
+
+            var user = $('#ddl_user').val();
+            var actionType = $('#ddl_action_type').val();
+            
+            var url = '{{ route("audit_trail.export_pdf") }}?case_id=' + selectedCaseId;
+            if (user && user != '0') {
+                url += '&user=' + user;
+            }
+            if (actionType && actionType != 'all') {
+                url += '&action_type=' + actionType;
+            }
+            
+            window.location.href = url;
+        });
     </script>
 @endsection
 

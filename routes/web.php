@@ -867,6 +867,8 @@ Route::get('transfer-fee-create', [AccountController::class, 'transferFeeCreate'
             Route::get('audit-trail', [LogsController::class, 'auditTrail'])->name('audit_trail.index');
             Route::get('audit_trail_list', [LogsController::class, 'getAuditTrail'])->name('audit_trail.list');
             Route::get('audit_trail_search_case', [LogsController::class, 'searchCaseForAudit'])->name('audit_trail.search_case');
+            Route::get('audit_trail_export_excel', [LogsController::class, 'exportAuditTrailExcel'])->name('audit_trail.export_excel');
+            Route::get('audit_trail_export_pdf', [LogsController::class, 'exportAuditTrailPDF'])->name('audit_trail.export_pdf');
 
             
             Route::post('deleteVoucherAttachment/{parameter1}', [VoucherController::class, 'deleteVoucherAttachment']);

@@ -39,6 +39,12 @@ use Yajra\DataTables\Facades\DataTables;
 use App\Http\Controllers\CaseController;
 use App\Http\Controllers\AccessController;
 use App\Http\Controllers\PermissionController;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use Barryvdh\DomPDF\Facade\Pdf;
 
 class LogsController extends Controller
 {
@@ -393,8 +399,331 @@ class LogsController extends Controller
         }
     }
 
+    /**
+     * Export audit trail to Excel
+     */
+    public function exportAuditTrailExcel(Request $request)
+    {
+        $case_id = $request->input('case_id');
+        $current_user = auth()->user();
+        $userRoles = $current_user->menuroles;
 
+        // Check permission
+        if (AccessController::UserAccessPermissionController(PermissionController::AuditTrailPermission()) == false) {
+            abort(403, 'Unauthorized access to audit trail');
+        }
 
+        // Check if user has access to this case
+        if (!in_array($userRoles, ['admin', 'management', 'account'])) {
+            $accessCaseList = CaseController::caseManagementEngine();
+            if (empty($accessCaseList) || !in_array($case_id, $accessCaseList)) {
+                abort(403, 'You do not have access to this case');
+            }
+        }
+
+        if (empty($case_id) || $case_id == 0) {
+            return redirect()->back()->with('error', 'Please select a case first');
+        }
+
+        // Get case info
+        $case = LoanCase::where('id', $case_id)->first();
+        if (!$case) {
+            return redirect()->back()->with('error', 'Case not found');
+        }
+
+        // Get audit trail data (same query as getAuditTrail but get all records)
+        $activityLogs = DB::table('legalcloud_case_activity_log as a')
+            ->leftJoin('loan_case as l', 'l.id', '=', 'a.case_id')
+            ->leftJoin('users as u', 'u.id', '=', 'a.user_id')
+            ->select(
+                'a.id',
+                'a.created_at',
+                'a.action',
+                'a.desc',
+                'a.ori_text',
+                'a.edit_text',
+                'a.object_id',
+                'a.object_id_2',
+                'u.name as user_name',
+                'l.case_ref_no',
+                DB::raw("NULL as bill_no"),
+                DB::raw("'activity' as log_type")
+            )
+            ->where('a.case_id', '=', $case_id)
+            ->where('a.status', '<>', 99);
+
+        $accountLogs = DB::table('account_log as a')
+            ->leftJoin('loan_case as l', 'l.id', '=', 'a.case_id')
+            ->leftJoin('loan_case_bill_main as b', 'b.id', '=', 'a.bill_id')
+            ->leftJoin('users as u', 'u.id', '=', 'a.user_id')
+            ->select(
+                'a.id',
+                'a.created_at',
+                'a.action',
+                'a.desc',
+                'a.ori_amt as ori_text',
+                'a.new_amt as edit_text',
+                'a.object_id',
+                DB::raw("NULL as object_id_2"),
+                'u.name as user_name',
+                'l.case_ref_no',
+                'b.bill_no',
+                DB::raw("'account' as log_type")
+            )
+            ->where('a.case_id', '=', $case_id)
+            ->where('a.status', '<>', 99);
+
+        // Apply filters
+        if ($request->input("user") != "" && $request->input("user") != "0") {
+            $activityLogs->where('a.user_id', '=', $request->input("user"));
+            $accountLogs->where('a.user_id', '=', $request->input("user"));
+        }
+
+        if ($request->input("action_type") != "" && $request->input("action_type") != "all") {
+            $activityLogs->where('a.action', '=', $request->input("action_type"));
+            $accountLogs->where('a.action', '=', $request->input("action_type"));
+        }
+
+        $combinedLogs = $activityLogs->union($accountLogs)
+            ->orderBy('created_at', 'DESC')
+            ->get();
+
+        // Prepare data for Excel
+        $data = [];
+        $rowNum = 1;
+        foreach ($combinedLogs as $log) {
+            $changes = '';
+            if ($log->log_type == 'account') {
+                $oriAmt = !empty($log->ori_text) ? floatval($log->ori_text) : 0;
+                $newAmt = !empty($log->edit_text) ? floatval($log->edit_text) : 0;
+                if ($oriAmt != $newAmt && ($oriAmt != 0 || $newAmt != 0)) {
+                    $changes = 'From: RM ' . number_format($oriAmt, 2) . ' → To: RM ' . number_format($newAmt, 2);
+                }
+            } else {
+                $oriText = trim($log->ori_text ?? '');
+                $editText = trim($log->edit_text ?? '');
+                if (!empty($oriText) && !empty($editText) && $oriText !== $editText) {
+                    $changes = 'From: ' . $oriText . ' → To: ' . $editText;
+                } elseif (!empty($editText) && empty($oriText)) {
+                    $changes = 'New: ' . $editText;
+                } elseif (!empty($oriText) && empty($editText)) {
+                    $changes = 'Removed: ' . $oriText;
+                }
+            }
+
+            $data[] = [
+                'No' => $rowNum++,
+                'Timestamp' => Carbon::parse($log->created_at)->format('Y-m-d H:i:s'),
+                'Type' => ucfirst($log->log_type),
+                'User' => $log->user_name ?? 'N/A',
+                'Action' => $log->action,
+                'Description' => $log->desc,
+                'Changes' => $changes
+            ];
+        }
+
+        // Create Excel file
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        
+        // Set title
+        $sheet->setCellValue('A1', 'Audit Trail Report');
+        $sheet->mergeCells('A1:G1');
+        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
+        $sheet->getStyle('A1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        
+        // Case info
+        $sheet->setCellValue('A2', 'Case Reference: ' . $case->case_ref_no);
+        $sheet->mergeCells('A2:G2');
+        $sheet->getStyle('A2')->getFont()->setBold(true);
+        
+        // Headers
+        $headers = ['No', 'Timestamp', 'Type', 'User', 'Action', 'Description', 'Changes'];
+        $col = 'A';
+        $row = 4;
+        foreach ($headers as $header) {
+            $sheet->setCellValue($col . $row, $header);
+            $sheet->getStyle($col . $row)->getFont()->setBold(true);
+            $sheet->getStyle($col . $row)->getFill()
+                ->setFillType(Fill::FILL_SOLID)
+                ->getStartColor()->setRGB('E0E0E0');
+            $col++;
+        }
+        
+        // Add data
+        $row = 5;
+        foreach ($data as $item) {
+            $col = 'A';
+            foreach ($item as $value) {
+                $sheet->setCellValue($col . $row, $value);
+                $col++;
+            }
+            $row++;
+        }
+        
+        // Style data rows
+        $dataRange = 'A5:G' . ($row - 1);
+        $sheet->getStyle($dataRange)->getBorders()->getAllBorders()
+            ->setBorderStyle(Border::BORDER_THIN);
+        
+        // Auto-size columns
+        foreach (range('A', 'G') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+        
+        // Set response headers - sanitize filename to remove invalid characters
+        $sanitizedCaseRef = str_replace(['/', '\\'], '_', $case->case_ref_no);
+        $filename = 'Audit_Trail_' . $sanitizedCaseRef . '_' . date('Y-m-d') . '.xlsx';
+        $response = response()->streamDownload(function() use ($spreadsheet) {
+            $writer = new Xlsx($spreadsheet);
+            $writer->save('php://output');
+        }, $filename);
+        
+        $response->headers->set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        $response->headers->set('Content-Disposition', 'attachment; filename="' . $filename . '"');
+        $response->headers->set('Cache-Control', 'max-age=0');
+        
+        return $response;
+    }
+
+    /**
+     * Export audit trail to PDF
+     */
+    public function exportAuditTrailPDF(Request $request)
+    {
+        $case_id = $request->input('case_id');
+        $current_user = auth()->user();
+        $userRoles = $current_user->menuroles;
+
+        // Check permission
+        if (AccessController::UserAccessPermissionController(PermissionController::AuditTrailPermission()) == false) {
+            abort(403, 'Unauthorized access to audit trail');
+        }
+
+        // Check if user has access to this case
+        if (!in_array($userRoles, ['admin', 'management', 'account'])) {
+            $accessCaseList = CaseController::caseManagementEngine();
+            if (empty($accessCaseList) || !in_array($case_id, $accessCaseList)) {
+                abort(403, 'You do not have access to this case');
+            }
+        }
+
+        if (empty($case_id) || $case_id == 0) {
+            return redirect()->back()->with('error', 'Please select a case first');
+        }
+
+        // Get case info
+        $case = LoanCase::where('id', $case_id)->first();
+        if (!$case) {
+            return redirect()->back()->with('error', 'Case not found');
+        }
+
+        // Get audit trail data (same query as getAuditTrail)
+        $activityLogs = DB::table('legalcloud_case_activity_log as a')
+            ->leftJoin('loan_case as l', 'l.id', '=', 'a.case_id')
+            ->leftJoin('users as u', 'u.id', '=', 'a.user_id')
+            ->select(
+                'a.id',
+                'a.created_at',
+                'a.action',
+                'a.desc',
+                'a.ori_text',
+                'a.edit_text',
+                'a.object_id',
+                'a.object_id_2',
+                'u.name as user_name',
+                'l.case_ref_no',
+                DB::raw("NULL as bill_no"),
+                DB::raw("'activity' as log_type")
+            )
+            ->where('a.case_id', '=', $case_id)
+            ->where('a.status', '<>', 99);
+
+        $accountLogs = DB::table('account_log as a')
+            ->leftJoin('loan_case as l', 'l.id', '=', 'a.case_id')
+            ->leftJoin('loan_case_bill_main as b', 'b.id', '=', 'a.bill_id')
+            ->leftJoin('users as u', 'u.id', '=', 'a.user_id')
+            ->select(
+                'a.id',
+                'a.created_at',
+                'a.action',
+                'a.desc',
+                'a.ori_amt as ori_text',
+                'a.new_amt as edit_text',
+                'a.object_id',
+                DB::raw("NULL as object_id_2"),
+                'u.name as user_name',
+                'l.case_ref_no',
+                'b.bill_no',
+                DB::raw("'account' as log_type")
+            )
+            ->where('a.case_id', '=', $case_id)
+            ->where('a.status', '<>', 99);
+
+        // Apply filters
+        if ($request->input("user") != "" && $request->input("user") != "0") {
+            $activityLogs->where('a.user_id', '=', $request->input("user"));
+            $accountLogs->where('a.user_id', '=', $request->input("user"));
+        }
+
+        if ($request->input("action_type") != "" && $request->input("action_type") != "all") {
+            $activityLogs->where('a.action', '=', $request->input("action_type"));
+            $accountLogs->where('a.action', '=', $request->input("action_type"));
+        }
+
+        $combinedLogs = $activityLogs->union($accountLogs)
+            ->orderBy('created_at', 'DESC')
+            ->get();
+
+        // Prepare data for PDF
+        $data = [];
+        $rowNum = 1;
+        foreach ($combinedLogs as $log) {
+            $changes = '';
+            if ($log->log_type == 'account') {
+                $oriAmt = !empty($log->ori_text) ? floatval($log->ori_text) : 0;
+                $newAmt = !empty($log->edit_text) ? floatval($log->edit_text) : 0;
+                if ($oriAmt != $newAmt && ($oriAmt != 0 || $newAmt != 0)) {
+                    $changes = 'From: RM ' . number_format($oriAmt, 2) . ' → To: RM ' . number_format($newAmt, 2);
+                }
+            } else {
+                $oriText = trim($log->ori_text ?? '');
+                $editText = trim($log->edit_text ?? '');
+                if (!empty($oriText) && !empty($editText) && $oriText !== $editText) {
+                    $changes = 'From: ' . $oriText . ' → To: ' . $editText;
+                } elseif (!empty($editText) && empty($oriText)) {
+                    $changes = 'New: ' . $editText;
+                } elseif (!empty($oriText) && empty($editText)) {
+                    $changes = 'Removed: ' . $oriText;
+                }
+            }
+
+            $data[] = [
+                'no' => $rowNum++,
+                'timestamp' => Carbon::parse($log->created_at)->format('Y-m-d H:i:s'),
+                'type' => ucfirst($log->log_type),
+                'user' => $log->user_name ?? 'N/A',
+                'action' => $log->action,
+                'description' => $log->desc,
+                'changes' => $changes
+            ];
+        }
+
+        // Generate PDF - sanitize filename to remove invalid characters
+        $sanitizedCaseRef = str_replace(['/', '\\'], '_', $case->case_ref_no);
+        $filename = 'Audit_Trail_' . $sanitizedCaseRef . '_' . date('Y-m-d') . '.pdf';
+        
+        $pdf = Pdf::loadView('dashboard.logs.audit_trail.export-pdf', [
+            'data' => $data,
+            'case' => $case,
+            'generated_at' => Carbon::now()->format('Y-m-d H:i:s'),
+            'generated_by' => $current_user->name
+        ]);
+        
+        $pdf->setPaper('A4', 'landscape');
+        
+        return $pdf->download($filename);
+    }
 
     function view($id)
     {
