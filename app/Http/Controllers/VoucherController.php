@@ -2143,8 +2143,16 @@ class VoucherController extends Controller
 
         $voucherMain = VoucherMain::where('id', '=', $id)->first();
 
-        // $LoanCaseBillMain = LoanCaseBillMain::where('id', '=', $voucherMain->case_bill_main_id)->where('status', '=', 1)->first();
-
+        // Get bill number for bill vouchers
+        $billNo = null;
+        $isCancelled = ($voucherMain->status == 99);
+        
+        if ($voucherMain->voucher_type == 1 && $voucherMain->case_bill_main_id) {
+            $LoanCaseBillMain = LoanCaseBillMain::where('id', '=', $voucherMain->case_bill_main_id)->first();
+            if ($LoanCaseBillMain) {
+                $billNo = $LoanCaseBillMain->bill_no;
+            }
+        }
 
         // voucher_type = 1: bill voucher
         // voucher_type = 2: trust voucher
@@ -2274,7 +2282,9 @@ class VoucherController extends Controller
             'bank_list' => $bank_list,
             'AccountItem' => $AccountItem,
             'parameters' => $parameters,
-            'requestName' => $requestName
+            'requestName' => $requestName,
+            'billNo' => $billNo,
+            'isCancelled' => $isCancelled
         ]);
     }
 
@@ -2285,6 +2295,15 @@ class VoucherController extends Controller
         $oriAccountItemName = '';
         $oriAccountItemAmt = 0;
         $newAccountItemName = '';
+
+        // Get voucher main to check status
+        $voucherDetail = VoucherDetails::where('id', '=', $request->input('current_id'))->first();
+        if ($voucherDetail) {
+            $VoucherMainCheck = VoucherMain::where('id', '=', $voucherDetail->voucher_main_id)->first();
+            if ($VoucherMainCheck && $VoucherMainCheck->status == 99) {
+                return response()->json(['status' => 0, 'message' => 'Cannot update cancelled voucher. This voucher has been cancelled and cannot be edited.']);
+            }
+        }
 
         $LoanCaseBillDetails = LoanCaseBillDetails::where('id', '=', $request->input('accountItem'))->first();
 
@@ -2416,6 +2435,11 @@ class VoucherController extends Controller
         }
 
         $VoucherMain = VoucherMain::where('id', '=', $id)->first();
+        
+        // Check if voucher is cancelled (status = 99)
+        if ($VoucherMain && $VoucherMain->status == 99) {
+            return response()->json(['status' => 0, 'message' => 'Cannot update cancelled voucher. This voucher has been cancelled and cannot be edited.']);
+        }
 
         if ($this->checkTrustBalance($VoucherMain, $voucher) == false) {
             return response()->json(['status' => 2, 'message' => 'No enough trust fund']);
@@ -2558,6 +2582,12 @@ class VoucherController extends Controller
         $message = '';
 
         $type = $request->input('type');
+
+        // Check if voucher is cancelled (status = 99)
+        $VoucherMainCheck = VoucherMain::where('id', '=', $id)->first();
+        if ($VoucherMainCheck && $VoucherMainCheck->status == 99) {
+            return response()->json(['status' => 0, 'message' => 'Cannot update cancelled voucher. This voucher has been cancelled and cannot be edited.']);
+        }
 
         if ($type == "1") {
             $VoucherMain = VoucherMain::where('id', '=', $id)->first();

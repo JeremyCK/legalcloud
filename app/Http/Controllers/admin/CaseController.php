@@ -14647,6 +14647,15 @@ class CaseController extends Controller
 
         $LoanCaseKivNotes = LoanCaseKivNotes::where('id', '=', $id)->first();
 
+        // Check if this is a system-created note (has non-empty label)
+        // System-created notes include: 'operation|dispatch', 'setkiv', 'case_status', etc.
+        if (!empty($LoanCaseKivNotes->label) && !empty(trim($LoanCaseKivNotes->label))) {
+            // Only admin and management can delete system-created notes
+            if (!in_array($current_user->menuroles, ['admin', 'management'])) {
+                return response()->json(['status' => 0, 'data' => 'Notes updated', 'return_id' => $id, 'message' => 'System-created notes cannot be deleted. Only administrators can delete these notes.']);
+            }
+        }
+
         $date = new DateTime($LoanCaseKivNotes->created_at);
         $diff = (new DateTime)->diff($date)->days;
 

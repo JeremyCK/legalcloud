@@ -226,10 +226,16 @@
                                     <div class="col-md-6 col-lg-6"><b>Case Ref No: </b><a target="_blank"
                                             href="/case/{{ $case->id }}">{{ $case->case_ref_no }}</a> <br />
                                         <b>Client Name: </b>{{ $customer->name }}
+                                        @if ($billNo)
+                                            <br /><b>Bill No: </b>{{ $billNo }}
+                                        @endif
                                     </div>
                                     <div class="col-md-6 col-lg-6 pull-right">
                                         <span class="pull-right"><b>Transaction ID:</b>
                                             {{ isset($voucherMain->transaction_id) ? $voucherMain->transaction_id : '-' }}</span>
+                                        @if ($isCancelled)
+                                            <br /><span class="pull-right" style="color: red; font-weight: bold;">Status: CANCELLED</span>
+                                        @endif
                                     </div>
                                 </div>
 
@@ -264,7 +270,7 @@
                                                 <tr>
                                                     <td>{{ $index + 1 }}</td>
                                                     <td>
-                                                        @if ($voucherMain->transaction_id == null)
+                                                        @if ($voucherMain->transaction_id == null && !$isCancelled)
                                                             @if ($voucherMain->voucher_type == 1)
                                                                 @if (in_array($current_user->menuroles, ['admin', 'account', 'clerk', 'lawyer', 'management', 'maker']) ||
                                                                         in_array($current_user->id, [51]))
@@ -290,7 +296,7 @@
                                                         @endif
 
                                                     </td>
-                                                    @if ($voucherMain->transaction_id == null)
+                                                    @if ($voucherMain->transaction_id == null && !$isCancelled)
                                                         @if (in_array($current_user->menuroles, ['admin', 'account', 'clerk', 'lawyer', 'management', 'maker']) ||
                                                                 in_array($current_user->id, [51]))
                                                             <td class="text-right td_item_price no-print">
@@ -329,7 +335,7 @@
                                     <h3><b>Total :</b><span id="span_total_amount" class="">RM
                                             {{ number_format($total_amt, 2, '.', ',') }}</span> </h3>
                                 </div>
-                                @if ($voucherMain->transaction_id == null)
+                                        @if ($voucherMain->transaction_id == null && !$isCancelled)
                                     @if (in_array($current_user->menuroles, ['admin', 'account', 'clerk', 'lawyer', 'management', 'maker']) ||
                                             in_array($current_user->id, [51]))
                                         <button type="button" onclick="updateVoucherValue()"
@@ -624,7 +630,8 @@
                                                     <label>Payee name</label>
                                                     <input class="form-control" id="payee" name="payee"
                                                         type="text"
-                                                        value="{{ isset($voucherMain->payee) ? $voucherMain->payee : '' }}" />
+                                                        value="{{ isset($voucherMain->payee) ? $voucherMain->payee : '' }}"
+                                                        @if ($isCancelled) readonly disabled @endif />
                                                 </div>
                                             </div>
 
@@ -638,7 +645,8 @@
                                             <div class="form-group row">
                                                 <div class="col">
                                                     <label>Payment Description</label>
-                                                    <textarea class="form-control" id="remark" name="remark" rows="3">{{ isset($voucherMain->remark) ? $voucherMain->remark : '' }}</textarea>
+                                                    <textarea class="form-control" id="remark" name="remark" rows="3"
+                                                        @if ($isCancelled) readonly disabled @endif>{{ isset($voucherMain->remark) ? $voucherMain->remark : '' }}</textarea>
                                                 </div>
                                             </div>
 
@@ -653,7 +661,8 @@
                                                         <label>Transaction ID</label>
                                                         <input class="form-control" id="transaction_id"
                                                             name="transaction_id" type="text"
-                                                            value="{{ isset($voucherMain->transaction_id) ? $voucherMain->transaction_id : '' }}" />
+                                                            value="{{ isset($voucherMain->transaction_id) ? $voucherMain->transaction_id : '' }}"
+                                                            @if ($isCancelled) readonly disabled @endif />
                                                     </div>
                                                 </div>
 
@@ -662,7 +671,8 @@
                                                         <label>Payment Date</label>
                                                         <input class="form-control" type="date" id="payment_date"
                                                             name="payment_date"
-                                                            value="{{ isset($voucherMain->payment_date) ? $voucherMain->payment_date : '' }}">
+                                                            value="{{ isset($voucherMain->payment_date) ? $voucherMain->payment_date : '' }}"
+                                                            @if ($isCancelled) readonly disabled @endif>
                                                     </div>
                                                 </div>
                                             @endif
@@ -673,7 +683,7 @@
                                                 <div class="col">
                                                     <label>Transaction Type</label>
                                                     <select class="form-control" id="payment_type" name="payment_type"
-                                                        required>
+                                                        required @if ($isCancelled) disabled @endif>
                                                         <option value="">-- Please select the payment type --
                                                         </option>
                                                         @foreach ($parameters as $index => $parameter)
@@ -694,7 +704,7 @@
                                                     <div class="col">
                                                         <label>Office bank account</label>
                                                         <select class="form-control" id="office_account_id"
-                                                            name="office_account_id" required>
+                                                            name="office_account_id" required @if ($isCancelled) disabled @endif>
                                                             <option value="0">-- Please select a bank -- </option>
                                                             @foreach ($OfficeBankAccount as $index => $bank)
                                                                 <option value="{{ $bank->id }}"
@@ -711,7 +721,8 @@
                                                     <label>Payee Email (Max 2 emails)</label>
                                                     <input class="form-control" id="email" name="email"
                                                         type="text"
-                                                        value="{{ isset($voucherMain->email) ? $voucherMain->email : '' }}" />
+                                                        value="{{ isset($voucherMain->email) ? $voucherMain->email : '' }}"
+                                                        @if ($isCancelled) readonly disabled @endif />
                                                 </div>
                                             </div>
 
@@ -720,14 +731,16 @@
                                                     <label>Payee Bank Account</label>
                                                     <input class="form-control" id="bank_account" name="bank_account"
                                                         type="text"
-                                                        value="{{ isset($voucherMain->bank_account) ? $voucherMain->bank_account : '' }}" />
+                                                        value="{{ isset($voucherMain->bank_account) ? $voucherMain->bank_account : '' }}"
+                                                        @if ($isCancelled) readonly disabled @endif />
                                                 </div>
                                             </div>
 
                                             <div class="form-group row">
                                                 <div class="col">
                                                     <label>Payee Bank</label>
-                                                    <select id="payee_bank" class="form-control" name="payee_bank">
+                                                    <select id="payee_bank" class="form-control" name="payee_bank"
+                                                        @if ($isCancelled) disabled @endif>
                                                         <option value="0">-- Select bank --</option>
                                                         @foreach ($bank_list as $index => $bank)
                                                             <option value="{{ $bank->id }}"
@@ -745,7 +758,8 @@
                                                     <label>Credit Card No</label>
                                                     <input class="form-control" id="credit_card_no" name="credit_card_no"
                                                         type="text"
-                                                        value="{{ isset($voucherMain->credit_card_no) ? $voucherMain->credit_card_no : '' }}" />
+                                                        value="{{ isset($voucherMain->credit_card_no) ? $voucherMain->credit_card_no : '' }}"
+                                                        @if ($isCancelled) readonly disabled @endif />
                                                 </div>
                                             </div>
 
@@ -754,7 +768,8 @@
                                                     <label>Adjudication/Smartbox No/ID Pemfailan</label>
                                                     <input class="form-control" id="adjudication_no"
                                                         name="adjudication_no" type="text"
-                                                        value="{{ isset($voucherMain->adjudication_no) ? $voucherMain->adjudication_no : '' }}" />
+                                                        value="{{ isset($voucherMain->adjudication_no) ? $voucherMain->adjudication_no : '' }}"
+                                                        @if ($isCancelled) readonly disabled @endif />
                                                 </div>
                                             </div>
 
@@ -807,27 +822,31 @@
                                                 <div class="col">
                                                     <label>Current Status</label>
 
-                                                    @switch($voucherMain->account_approval)
-                                                        @case(0)
-                                                            <span class="label bg-warning">Pending</span>
-                                                        @break
+                                                    @if ($isCancelled)
+                                                        <span class="label bg-danger" style="font-size: 14px; padding: 5px 10px;">CANCELLED</span>
+                                                    @else
+                                                        @switch($voucherMain->account_approval)
+                                                            @case(0)
+                                                                <span class="label bg-warning">Pending</span>
+                                                            @break
 
-                                                        @case(1)
-                                                            <span class="label bg-success">Approved</span>
-                                                        @break
+                                                            @case(1)
+                                                                <span class="label bg-success">Approved</span>
+                                                            @break
 
-                                                        @case(2)
-                                                            <span class="label bg-danger">Rejected</span>
-                                                        @break
+                                                            @case(2)
+                                                                <span class="label bg-danger">Rejected</span>
+                                                            @break
 
-                                                        @case(5)
-                                                            <span class="label bg-info">Resubmit</span>
-                                                        @break
+                                                            @case(5)
+                                                                <span class="label bg-info">Resubmit</span>
+                                                            @break
 
-                                                        @case(6)
-                                                            <span class="label bg-warning">In Progress</span>
-                                                        @break
-                                                    @endswitch
+                                                            @case(6)
+                                                                <span class="label bg-warning">In Progress</span>
+                                                            @break
+                                                        @endswitch
+                                                    @endif
 
                                                 </div>
                                             </div>
@@ -853,7 +872,7 @@
                                 {{-- new section============================================================== --}}
 
                                 @if (in_array($userRoles, ['lawyer', 'admin', 'management']))
-                                    @if ($voucherMain->lawyer_approval == 0)
+                                    @if ($voucherMain->lawyer_approval == 0 && !$isCancelled)
                                         {{-- <button type="button" class="btn btn-info pull-left"
                                             onclick="updateVoucherStatus('{{ $voucherMain->id }}',2)"
                                             style="margin-right: 5px;">
@@ -873,7 +892,7 @@
                                         </button>
                                     @endif
 
-                                    @if ($voucherMain->account_approval == 2 && $voucherMain->status != 5)
+                                    @if ($voucherMain->account_approval == 2 && $voucherMain->status != 5 && !$isCancelled)
                                         <button type="button" class="btn btn-info pull-left"
                                             onclick="resubmitVoucher('{{ $voucherMain->id }}')"
                                             style="margin-right: 5px;">
@@ -883,7 +902,7 @@
                                 @endif
 
                                 @if ($userRoles == 'clerk')
-                                    @if ($voucherMain->account_approval == 2 && $voucherMain->status != 5)
+                                    @if ($voucherMain->account_approval == 2 && $voucherMain->status != 5 && !$isCancelled)
                                         <button type="button" class="btn btn-info pull-left"
                                             onclick="resubmitVoucher('{{ $voucherMain->id }}')"
                                             style="margin-right: 5px;">
@@ -893,7 +912,7 @@
                                 @endif
 
                                 {{-- @if ($userRoles == 'account') --}}
-                                @if (in_array($current_user->menuroles, ['account', 'maker']) || in_array($current_user->id, [51]))
+                                @if ((in_array($current_user->menuroles, ['account', 'maker']) || in_array($current_user->id, [51])) && !$isCancelled)
                                     <div class="btn-group">
                                         <button type="button" class="btn btn-info btn-flat">Action</button>
                                         <button type="button" class="btn btn-info btn-flat dropdown-toggle"
@@ -948,14 +967,14 @@
                                 @endif
                                 {{-- @if ($userRoles != 'sales') --}}
                                 @if (in_array($current_user->menuroles, ['admin', 'account', 'maker']))
-                                    @if ($voucherMain->account_approval != 1)
+                                    @if ($voucherMain->account_approval != 1 && !$isCancelled)
                                         <button type="button" onclick="updateVoucherStatus('{{ $voucherMain->id }}',1)"
                                             class="btn btn-success pull-right"><i class="fa fa-credit-card"></i>
                                             Update</button>
                                     @endif
                                 @else
                                     @if ($voucherMain->transaction_id == null)
-                                        @if ($voucherMain->account_approval != 1)
+                                        @if ($voucherMain->account_approval != 1 && !$isCancelled)
                                             <button type="button"
                                                 onclick="updateVoucherStatus('{{ $voucherMain->id }}',1)"
                                                 class="btn btn-success pull-right"><i class="fa fa-credit-card"></i>

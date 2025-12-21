@@ -67,21 +67,55 @@
                                     @if ($notes->updated_by != null)
                                         (Edited)
                                     @endif
-                                    @if ($notes->created_by == $current_user->id)
+                                    @php
+                                        // Check if this is a system-created note (has non-empty label)
+                                        // System notes have labels like: 'operation|dispatch', 'setkiv', 'case_status', etc.
+                                        // Handle null, empty string, or whitespace-only labels
+                                        $labelValue = isset($notes->label) ? trim($notes->label) : '';
+                                        $isSystemNote = $labelValue !== '';
+                                        
+                                        // Check if user is admin/management
+                                        $isAdmin = in_array($current_user->menuroles, ['admin', 'management']);
+                                        
+                                        // Check if user can delete
+                                        $canDelete = false;
+                                        if ($isSystemNote) {
+                                            // For system notes, only admin/management can delete
+                                            $canDelete = $isAdmin;
+                                        } else {
+                                            // For user-created notes, only the creator can delete
+                                            $canDelete = $notes->created_by == $current_user->id;
+                                        }
+                                        
+                                        // Check if user can edit (only for non-system notes that they created)
+                                        // System notes cannot be edited by anyone
+                                        $canEdit = !$isSystemNote && $notes->created_by == $current_user->id;
+                                        
+                                        // Only show dropdown if user has permission to delete or edit
+                                        $showDropdown = $canDelete || $canEdit;
+                                    @endphp
+                                    @if ($showDropdown)
                                         <div class="btn-group"  style="padding-left:5px">
-                                            <button type="button" class="btn btn-info btn-xs btn-flat dropdown-toggle"
-                                                data-toggle="dropdown">
-                                                <span class="caret"></span>
+                                            <button type="button" class="btn btn-info btn-sm dropdown-toggle"
+                                                data-toggle="dropdown" aria-haspopup="true" aria-expanded="false"
+                                                style="min-width: 35px; padding: 5px 10px; font-size: 14px; line-height: 1.2;">
+                                                <span class="caret" style="border-width: 5px 4px 0 4px;"></span>
                                                 <span class="sr-only">Toggle Dropdown</span>
                                             </button>
                                             <div class="dropdown-menu">
-                                                <a class="dropdown-item" href="javascript:void(0)"
-                                                    onclick="notesEditMode('{{ $notes->id }}')"><i
-                                                        class="cil-pencil"></i>Edit</a>
-                                                <div class="dropdown-divider"></div>
-                                                <a class="dropdown-item" href="javascript:void(0)"
-                                                    onclick="deleteNotes('{{ $notes->id }}')"><i
-                                                        class="cil-x"></i>Delete</a>
+                                                @if ($canEdit)
+                                                    <a class="dropdown-item" href="javascript:void(0)"
+                                                        onclick="notesEditMode('{{ $notes->id }}')"><i
+                                                            class="cil-pencil"></i>Edit</a>
+                                                    @if ($canDelete)
+                                                        <div class="dropdown-divider"></div>
+                                                    @endif
+                                                @endif
+                                                @if ($canDelete)
+                                                    <a class="dropdown-item" href="javascript:void(0)"
+                                                        onclick="deleteNotes('{{ $notes->id }}')"><i
+                                                            class="cil-x"></i>Delete</a>
+                                                @endif
                                             </div>
                                         </div>
                                     @endif
