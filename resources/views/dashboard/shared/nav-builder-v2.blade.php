@@ -340,17 +340,15 @@
                         class="c-sidebar-nav-icon"></span>CHKT<div id="side_66"></div></a></li>
         </ul>
     </li>
-    {{-- <li class="c-sidebar-nav-dropdown"><a class="c-sidebar-nav-dropdown-toggle" href="#"><i
-                class="cil-bank c-sidebar-nav-icon"></i>Logs <div id="side_Logs"></div></a>
-        <ul class="c-sidebar-nav-dropdown-items">
-            <li class="c-sidebar-nav-item"><a class="c-sidebar-nav-link" href="http://127.0.0.1:8000/audit-log"><span
-                        class="c-sidebar-nav-icon"></span>Audit Log<div id="side_24"></div></a></li>
-            <li class="c-sidebar-nav-item"><a class="c-sidebar-nav-link"
-                    href="http://127.0.0.1:8000/activity-log"><span class="c-sidebar-nav-icon"></span>Activities Log
-                    <div id="side_25"></div>
-                </a></li>
-        </ul>
-    </li> --}}
+    @if (AccessController::UserAccessPermissionController(PermissionController::AuditTrailPermission()) == true)
+        <li class="c-sidebar-nav-item">
+            <a class="c-sidebar-nav-link" href="{{ url('audit-trail') }}">
+                <i class="cil-history c-sidebar-nav-icon"></i>
+                Audit Trail
+                <div id="side_audit_trail"></div>
+            </a>
+        </li>
+    @endif
     @if (AccessController::UserAccessPermissionController(PermissionController::QuotationGeneratorPermission()) == true)
         <li class="c-sidebar-nav-item">
             <a class="c-sidebar-nav-link" href="{{ url('quotation-generator') }}">

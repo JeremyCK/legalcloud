@@ -358,4 +358,9 @@ class PermissionController extends Controller
         return 'AccountToolPermission';
     }
 
+    public static function AuditTrailPermission()
+    {
+        return 'AuditTrailPermission';
+    }
+
 }

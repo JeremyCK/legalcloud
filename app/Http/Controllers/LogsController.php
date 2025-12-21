@@ -36,6 +36,9 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Yajra\DataTables\Facades\DataTables;
+use App\Http\Controllers\CaseController;
+use App\Http\Controllers\AccessController;
+use App\Http\Controllers\PermissionController;
 
 class LogsController extends Controller
 {
@@ -138,6 +141,255 @@ class LogsController extends Controller
                 })
                 ->rawColumns(['action', 'case_ref_no', 'desc'])
                 ->make(true);
+        }
+    }
+
+    /**
+     * Display audit trail page
+     */
+    public function auditTrail()
+    {
+        $current_user = auth()->user();
+        
+        // Check permission using UserAccessControl table
+        if (AccessController::UserAccessPermissionController(PermissionController::AuditTrailPermission()) == false) {
+            return redirect()->route('dashboard.index')->with('error', 'You do not have permission to access audit trail.');
+        }
+        
+        $users = User::whereIn('menuroles', ['clerk','account','chambering','lawyer','admin','management'])->orderBy('name', 'ASC')->get();
+
+        return view('dashboard.logs.audit_trail.index', [
+            'users' => $users,
+            'current_user' => $current_user
+        ]);
+    }
+
+    /**
+     * Get audit trail data (unified from both tables)
+     */
+    public function getAuditTrail(Request $request)
+    {
+        if ($request->ajax()) {
+            $case_id = $request->input('case_id');
+            $current_user = auth()->user();
+            $userRoles = $current_user->menuroles;
+            
+            // Require case_id to be provided
+            if (empty($case_id) || $case_id == 0) {
+                return DataTables::of(collect([]))
+                    ->addIndexColumn()
+                    ->make(true);
+            }
+
+            // Check if user has access to this case
+            if (!in_array($userRoles, ['admin', 'management', 'account'])) {
+                $accessCaseList = CaseController::caseManagementEngine();
+                
+                if (!empty($accessCaseList) && !in_array($case_id, $accessCaseList)) {
+                    // User doesn't have access to this case
+                    return DataTables::of(collect([]))
+                        ->addIndexColumn()
+                        ->make(true);
+                } elseif (empty($accessCaseList)) {
+                    // User has no accessible cases
+                    return DataTables::of(collect([]))
+                        ->addIndexColumn()
+                        ->make(true);
+                }
+            }
+
+            // Get activity logs
+            $activityLogs = DB::table('legalcloud_case_activity_log as a')
+                ->leftJoin('loan_case as l', 'l.id', '=', 'a.case_id')
+                ->leftJoin('users as u', 'u.id', '=', 'a.user_id')
+                ->select(
+                    'a.id',
+                    'a.created_at',
+                    'a.action',
+                    'a.desc',
+                    'a.ori_text',
+                    'a.edit_text',
+                    'a.object_id',
+                    'a.object_id_2',
+                    'u.name as user_name',
+                    'l.case_ref_no',
+                    DB::raw("NULL as bill_no"),
+                    DB::raw("'activity' as log_type")
+                )
+                ->where('a.case_id', '=', $case_id)
+                ->where('a.status', '<>', 99);
+
+            // Get account logs
+            $accountLogs = DB::table('account_log as a')
+                ->leftJoin('loan_case as l', 'l.id', '=', 'a.case_id')
+                ->leftJoin('loan_case_bill_main as b', 'b.id', '=', 'a.bill_id')
+                ->leftJoin('users as u', 'u.id', '=', 'a.user_id')
+                ->select(
+                    'a.id',
+                    'a.created_at',
+                    'a.action',
+                    'a.desc',
+                    'a.ori_amt as ori_text',
+                    'a.new_amt as edit_text',
+                    'a.object_id',
+                    DB::raw("NULL as object_id_2"),
+                    'u.name as user_name',
+                    'l.case_ref_no',
+                    'b.bill_no',
+                    DB::raw("'account' as log_type")
+                )
+                ->where('a.case_id', '=', $case_id)
+                ->where('a.status', '<>', 99);
+
+            // Apply user filter
+            if ($request->input("user") != "" && $request->input("user") != "0") {
+                $activityLogs->where('a.user_id', '=', $request->input("user"));
+                $accountLogs->where('a.user_id', '=', $request->input("user"));
+            }
+
+            // Apply action filter
+            if ($request->input("action_type") != "" && $request->input("action_type") != "all") {
+                $activityLogs->where('a.action', '=', $request->input("action_type"));
+                $accountLogs->where('a.action', '=', $request->input("action_type"));
+            }
+
+            // Union both queries and order by created_at DESC
+            $combinedLogs = $activityLogs->union($accountLogs)
+                ->orderBy('created_at', 'DESC')
+                ->get();
+
+            return DataTables::of($combinedLogs)
+                ->addIndexColumn()
+                ->addColumn('log_type_badge', function ($row) {
+                    if ($row->log_type == 'activity') {
+                        return '<span class="badge badge-primary">Activity</span>';
+                    } else {
+                        return '<span class="badge badge-info">Account</span>';
+                    }
+                })
+                ->addColumn('changes', function ($row) {
+                    $changes = '';
+                    
+                    if ($row->log_type == 'account') {
+                        // For account logs, show amount changes only if meaningful
+                        $oriAmt = !empty($row->ori_text) ? floatval($row->ori_text) : 0;
+                        $newAmt = !empty($row->edit_text) ? floatval($row->edit_text) : 0;
+                        
+                        // Only show if amounts are different and at least one is not zero
+                        if ($oriAmt != $newAmt && ($oriAmt != 0 || $newAmt != 0)) {
+                            $changes = '<small class="text-muted">From: RM ' . number_format($oriAmt, 2) . ' → To: RM ' . number_format($newAmt, 2) . '</small>';
+                        } elseif ($oriAmt != 0 && $newAmt != 0 && $oriAmt == $newAmt) {
+                            // If both are the same non-zero value, show it once
+                            $changes = '<small class="text-info">Amount: RM ' . number_format($oriAmt, 2) . '</small>';
+                        }
+                        // If both are 0 or empty, don't show anything
+                    } else {
+                        // For activity logs, show text changes only if meaningful
+                        $oriText = trim($row->ori_text ?? '');
+                        $editText = trim($row->edit_text ?? '');
+                        
+                        if (!empty($oriText) && !empty($editText)) {
+                            if ($oriText !== $editText) {
+                                // Different values - show change
+                                $changes = '<small class="text-muted">From: ' . htmlspecialchars($oriText) . ' → To: ' . htmlspecialchars($editText) . '</small>';
+                            }
+                            // If same, don't show
+                        } elseif (!empty($editText) && empty($oriText)) {
+                            // New value added
+                            $changes = '<small class="text-success">New: ' . htmlspecialchars($editText) . '</small>';
+                        } elseif (!empty($oriText) && empty($editText)) {
+                            // Value removed
+                            $changes = '<small class="text-danger">Removed: ' . htmlspecialchars($oriText) . '</small>';
+                        }
+                        // If both empty, don't show anything
+                    }
+                    
+                    return $changes;
+                })
+                ->addColumn('action_badge', function ($row) {
+                    $badgeClass = 'badge-secondary';
+                    $actionText = $row->action;
+                    
+                    // Color code based on action type
+                    if (strpos(strtolower($actionText), 'create') !== false || strpos(strtolower($actionText), 'add') !== false) {
+                        $badgeClass = 'badge-success';
+                    } elseif (strpos(strtolower($actionText), 'update') !== false || strpos(strtolower($actionText), 'edit') !== false) {
+                        $badgeClass = 'badge-warning';
+                    } elseif (strpos(strtolower($actionText), 'delete') !== false || strpos(strtolower($actionText), 'remove') !== false) {
+                        $badgeClass = 'badge-danger';
+                    }
+                    
+                    return '<span class="badge ' . $badgeClass . '">' . htmlspecialchars($actionText) . '</span>';
+                })
+                ->editColumn('desc', function ($row) {
+                    $desc = $row->desc;
+                    if ($row->log_type == 'account' && isset($row->bill_no) && !empty($row->bill_no)) {
+                        $desc .= ' <small class="text-muted">(Bill: ' . $row->bill_no . ')</small>';
+                    }
+                    return '<div>' . $desc . '</div>';
+                })
+                ->editColumn('created_at', function ($row) {
+                    return Carbon::parse($row->created_at)->format('Y-m-d H:i:s');
+                })
+                ->rawColumns(['log_type_badge', 'action_badge', 'desc', 'changes'])
+                ->make(true);
+        }
+    }
+
+    /**
+     * Search cases for autocomplete (with access control)
+     */
+    public function searchCaseForAudit(Request $request)
+    {
+        if ($request->ajax()) {
+            $searchTerm = $request->input('term', '');
+            
+            if (empty($searchTerm)) {
+                return response()->json([]);
+            }
+
+            $current_user = auth()->user();
+            $userRoles = $current_user->menuroles;
+
+            $cases = DB::table('loan_case as l')
+                ->leftJoin('client as c', 'c.id', '=', 'l.customer_id')
+                ->select('l.id', 'l.case_ref_no', 'l.bank_ref', 'c.name as client_name')
+                ->where('l.status', '<>', 99)
+                ->where(function($query) use ($searchTerm) {
+                    $query->where('l.case_ref_no', 'like', '%' . $searchTerm . '%')
+                          ->orWhere('l.bank_ref', 'like', '%' . $searchTerm . '%')
+                          ->orWhere('c.name', 'like', '%' . $searchTerm . '%');
+                });
+
+            // Apply access control - only show cases user can access
+            if (!in_array($userRoles, ['admin', 'management', 'account'])) {
+                $accessCaseList = CaseController::caseManagementEngine();
+                
+                if (!empty($accessCaseList)) {
+                    $cases = $cases->whereIn('l.id', $accessCaseList);
+                } else {
+                    // If user has no accessible cases, return empty
+                    return response()->json([]);
+                }
+            }
+
+            $cases = $cases->orderBy('l.case_ref_no', 'ASC')
+                ->limit(20)
+                ->get();
+
+            $results = [];
+            foreach ($cases as $case) {
+                $results[] = [
+                    'id' => $case->id,
+                    'value' => $case->case_ref_no,
+                    'label' => $case->case_ref_no . ' - ' . ($case->client_name ?? 'N/A') . ($case->bank_ref ? ' (' . $case->bank_ref . ')' : ''),
+                    'case_ref_no' => $case->case_ref_no,
+                    'client_name' => $case->client_name,
+                    'bank_ref' => $case->bank_ref
+                ];
+            }
+
+            return response()->json($results);
         }
     }
 

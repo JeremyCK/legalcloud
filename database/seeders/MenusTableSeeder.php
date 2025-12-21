@@ -405,6 +405,7 @@ class MenusTableSeeder extends Seeder
         $id = $this->beginDropdown('admin,management', 'Logs', 'cil-bank');
         $id = $this->insertLink('admin,management', 'Audit Log', '/audit-log', 'cil-user');
         $id = $this->insertLink('admin,management', 'Activities Log', '/activity-log', 'cil-user');
+        $id = $this->insertLink('admin,management', 'Audit Trail', '/audit-trail', 'cil-history');
         $this->endDropdown();
 
         // $id = $this->insertLink('admin,management', 'Case Template', '/case-template', 'cil-file');
