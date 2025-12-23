@@ -130,6 +130,7 @@ use App\Models\ReferralFee;
 use App\Models\ReferralFormula;
 use App\Models\Roles;
 use App\Models\TransferFeeDetails;
+use App\Models\TransferFeeMain;
 use App\Models\UserAccessControl;
 use DateTime;
 use Illuminate\Support\Facades\Log;
@@ -7465,13 +7466,25 @@ class CaseController extends Controller
                 AND COLUMN_NAME = 'sst'");
             $sstColumnExists = isset($hasSstColumn[0]) && $hasSstColumn[0]->count > 0;
             
-            // Build select fields - explicitly include sst if column exists
+            // Build select fields - explicitly include sst and ori_invoice_sst if columns exist
             $selectFields = ['qd.id', 'qd.account_item_id', 'qd.amount', 'qd.quo_amount', 'qd.ori_invoice_amt', 'qd.remark as item_remark', 'qd.quotation_item_id', 
                 'a.name as account_name', 'a.name_cn as account_name_cn', 'a.formula as account_formula', 'a.min as account_min', 'a.id as account_item_id', 'a.pfee1_item', 'a.remark as item_desc'];
             
             if ($sstColumnExists) {
                 // Explicitly select sst column
                 $selectFields[] = 'qd.sst';
+            }
+            
+            // Check if ori_invoice_sst column exists
+            $hasOriSstColumn = DB::select("SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = DATABASE() 
+                AND TABLE_NAME = 'loan_case_invoice_details' 
+                AND COLUMN_NAME = 'ori_invoice_sst'");
+            
+            if (isset($hasOriSstColumn[0]) && $hasOriSstColumn[0]->count > 0) {
+                $selectFields[] = 'qd.ori_invoice_sst';
+            } else {
+                $selectFields[] = DB::raw('NULL as ori_invoice_sst');
             }
             
             $QuotationTemplateDetails = DB::table('loan_case_invoice_details AS qd')
@@ -7482,6 +7495,42 @@ class CaseController extends Controller
                 ->where('qd.status', '=',  1)
                 ->where('a.account_cat_id', '=',  $category[$i]->id)
                 ->get();
+            
+            // For split invoices, ensure ori_invoice_sst is set correctly
+            // The view will use ori_invoice_sst directly, so we don't need to recalculate here
+            // If ori_invoice_sst is NULL, we can calculate it from ori_invoice_amt for display purposes
+            if ($invoice_main_id) {
+                // Check if this is a split invoice
+                $invoiceCount = LoanCaseInvoiceMain::where('loan_case_main_bill_id', $id)
+                    ->where('status', '<>', 99)
+                    ->count();
+                $isSplitInvoice = $invoiceCount > 1;
+                
+                if ($isSplitInvoice) {
+                    // Get bill for SST rate
+                    $bill = LoanCaseBillMain::where('id', $id)->first();
+                    $sstRate = $bill ? ($bill->sst_rate ?? 8) : 8;
+                    
+                    // For split invoices, if ori_invoice_sst is NULL, calculate it from ori_invoice_amt
+                    // This ensures the view has a value to display
+                    foreach ($QuotationTemplateDetails as $detail) {
+                        // Only process taxable items
+                        if (in_array($detail->account_cat_id ?? 0, [1, 4])) {
+                            // If ori_invoice_sst is NULL or 0, calculate from ori_invoice_amt
+                            if (!isset($detail->ori_invoice_sst) || $detail->ori_invoice_sst === null || $detail->ori_invoice_sst == 0) {
+                                $sst_calculation = $detail->ori_invoice_amt * ($sstRate / 100);
+                                $sst_string = number_format($sst_calculation, 3, '.', '');
+                                
+                                if (substr($sst_string, -1) == '5') {
+                                    $detail->ori_invoice_sst = floor($sst_calculation * 100) / 100; // Round down
+                                } else {
+                                    $detail->ori_invoice_sst = round($sst_calculation, 2); // Normal rounding
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             
             // Debug: Log SST values for detail 168726 (Fax/Telephone Charges)
             foreach ($QuotationTemplateDetails as $detail) {
@@ -13640,12 +13689,34 @@ class CaseController extends Controller
                     \Log::info("  Invoice {$inv->id} (invoice_no: {$inv->invoice_no})");
                 }
 
-                // Update ori_invoice_amt for ALL split invoices with the same account_item_id
-                // This ensures all split invoices have the same base amount
+                // Calculate total SST from total amount
+                $bill = LoanCaseBillMain::where('id', $bill_main_id)->first();
+                $sstRate = $bill ? ($bill->sst_rate ?? 8) : 8;
+                $totalSstRaw = $newAmount * ($sstRate / 100);
+                $totalSstString = number_format($totalSstRaw, 3, '.', '');
+                if (substr($totalSstString, -1) == '5') {
+                    $newTotalSst = floor($totalSstRaw * 100) / 100; // Round down
+                } else {
+                    $newTotalSst = round($totalSstRaw, 2); // Normal rounding
+                }
+                
+                // Check if ori_invoice_sst column exists
+                $hasOriSstColumn = DB::select("SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE() 
+                    AND TABLE_NAME = 'loan_case_invoice_details' 
+                    AND COLUMN_NAME = 'ori_invoice_sst'");
+                
+                $updateFields = ['ori_invoice_amt' => $newAmount];
+                if (isset($hasOriSstColumn[0]) && $hasOriSstColumn[0]->count > 0) {
+                    $updateFields['ori_invoice_sst'] = $newTotalSst;
+                }
+                
+                // Update ori_invoice_amt and ori_invoice_sst for ALL split invoices with the same account_item_id
+                // This ensures all split invoices have the same base amount and SST total
                 LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $bill_main_id)
                     ->where('account_item_id', $account_item_id)
                     ->where('status', '<>', 99)
-                    ->update(['ori_invoice_amt' => $newAmount]);
+                    ->update($updateFields);
                 
                 \Log::info("Updated ori_invoice_amt for account_item_id {$account_item_id} to {$newAmount} across all invoices in bill {$bill_main_id}");
 
@@ -13677,11 +13748,405 @@ class CaseController extends Controller
                 // This will recalculate pfee1_inv, pfee2_inv, sst_inv for all invoices and bill main
                 $this->updatePfeeDisbAmountINV($bill_main_id);
                 
+                // Update transfer fee details and ledger v2 for all invoices affected by this change
+                // Get all invoices for this bill that might have transfer fees
+                $allInvoices = LoanCaseInvoiceMain::where('loan_case_main_bill_id', $bill_main_id)
+                    ->where('status', '<>', 99)
+                    ->get();
+                
+                foreach ($allInvoices as $invoice) {
+                    $this->updateTransferFeeAndLedgerForInvoice($invoice->id);
+                }
+                
                 \Log::info("=== updateInvoiceValue END - SUCCESS ===");
             }
 
             return response()->json(['status' => 1, 'message' => 'yes']);
         }
+    }
+
+    public function updateInvoiceSST(Request $request)
+    {
+        \Log::info("=== updateInvoiceSST START ===");
+        \Log::info("Request data: " . json_encode($request->all()));
+        
+        $current_user = auth()->user();
+        
+        if ($request->input('NewSST') !== null) {
+            $LoanCaseInvoiceDetails = LoanCaseInvoiceDetails::where('id', '=', $request->input('details_id'))->first();
+
+            if ($LoanCaseInvoiceDetails) {
+                $newSST = $request->input('NewSST');
+                $oldSST = $request->input('OriginalSST');
+                $account_item_id = $LoanCaseInvoiceDetails->account_item_id;
+                $bill_main_id = $LoanCaseInvoiceDetails->loan_case_main_bill_id;
+                
+                \Log::info("Editing SST for detail ID {$LoanCaseInvoiceDetails->id}, account_item_id={$account_item_id}, bill_main_id={$bill_main_id}, old_sst={$oldSST}, new_sst={$newSST}");
+
+                // Get bill and invoice info
+                $bill = LoanCaseBillMain::where('id', $bill_main_id)->first();
+                if (!$bill) {
+                    return response()->json(['status' => 0, 'message' => 'Bill not found.']);
+                }
+                
+                $invoice = LoanCaseInvoiceMain::where('id', $LoanCaseInvoiceDetails->invoice_main_id)->first();
+                if (!$invoice) {
+                    return response()->json(['status' => 0, 'message' => 'Invoice not found.']);
+                }
+
+                // Get account item name for logging
+                $accountItem = \App\Models\AccountItem::where('id', $account_item_id)->first();
+                $itemName = $accountItem ? ($accountItem->name ?? 'N/A') : 'N/A';
+
+                // Check if ori_invoice_sst column exists
+                $hasOriSstColumn = DB::select("SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE() 
+                    AND TABLE_NAME = 'loan_case_invoice_details' 
+                    AND COLUMN_NAME = 'ori_invoice_sst'");
+                
+                // Format SST to 2 decimal places
+                $newSSTFormatted = number_format((float)$newSST, 2, '.', '');
+                
+                // Check if this is a split invoice
+                $invoiceCount = LoanCaseInvoiceMain::where('loan_case_main_bill_id', $bill_main_id)
+                    ->where('status', '<>', 99)
+                    ->count();
+                $isSplitInvoice = $invoiceCount > 1;
+                
+                if ($isSplitInvoice) {
+                    // For split invoices, update ori_invoice_sst for ALL invoices with the same account_item_id
+                    if (isset($hasOriSstColumn[0]) && $hasOriSstColumn[0]->count > 0) {
+                        LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $bill_main_id)
+                            ->where('account_item_id', $account_item_id)
+                            ->where('status', '<>', 99)
+                            ->update(['ori_invoice_sst' => $newSSTFormatted]);
+                        
+                        \Log::info("Updated ori_invoice_sst for account_item_id {$account_item_id} to {$newSSTFormatted} across all invoices in bill {$bill_main_id}");
+                    }
+                    
+                    // Get all invoice details for this account_item_id across all split invoices
+                    $allInvoices = LoanCaseInvoiceMain::where('loan_case_main_bill_id', $bill_main_id)
+                        ->where('status', '<>', 99)
+                        ->orderBy('id')
+                        ->get();
+                    
+                    // Get all details for this account_item_id
+                    $allDetails = LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $bill_main_id)
+                        ->where('account_item_id', $account_item_id)
+                        ->where('status', '<>', 99)
+                        ->get();
+                    
+                    // Calculate total amount across all split invoices for this account_item_id
+                    $totalAmount = $allDetails->sum('amount');
+                    
+                    // Distribute the new SST proportionally based on each detail's amount
+                    $distributedSst = [];
+                    $totalDistributedSst = 0;
+                    
+                    foreach ($allDetails as $index => $detail) {
+                        if ($totalAmount > 0) {
+                            // Calculate proportional SST
+                            $proportionalSst = ($newSSTFormatted * $detail->amount) / $totalAmount;
+                            $distributedSst[$detail->id] = round($proportionalSst, 2);
+                            $totalDistributedSst += $distributedSst[$detail->id];
+                        }
+                    }
+                    
+                    // Adjust for rounding differences - add difference to first detail
+                    $difference = $newSSTFormatted - $totalDistributedSst;
+                    if (abs($difference) > 0.001 && count($distributedSst) > 0) {
+                        $firstDetailId = array_key_first($distributedSst);
+                        $distributedSst[$firstDetailId] = round($distributedSst[$firstDetailId] + $difference, 2);
+                    }
+                    
+                    // Update sst column for each detail
+                    $hasSstColumn = DB::select("SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS 
+                        WHERE TABLE_SCHEMA = DATABASE() 
+                        AND TABLE_NAME = 'loan_case_invoice_details' 
+                        AND COLUMN_NAME = 'sst'");
+                    
+                    if (isset($hasSstColumn[0]) && $hasSstColumn[0]->count > 0) {
+                        foreach ($distributedSst as $detailId => $sstValue) {
+                            // Use direct DB update to preserve exact value
+                            DB::table('loan_case_invoice_details')
+                                ->where('id', $detailId)
+                                ->update(['sst' => $sstValue]);
+                            
+                            \Log::info("Updated SST for split invoice detail", [
+                                'detail_id' => $detailId,
+                                'sst_value' => $sstValue,
+                                'account_item_id' => $account_item_id
+                            ]);
+                        }
+                    }
+                } else {
+                    // For single invoices, update ori_invoice_sst and sst directly
+                    if (isset($hasOriSstColumn[0]) && $hasOriSstColumn[0]->count > 0) {
+                        $LoanCaseInvoiceDetails->ori_invoice_sst = $newSSTFormatted;
+                        $LoanCaseInvoiceDetails->save();
+                    }
+                    
+                    // Also update sst column if it exists
+                    $hasSstColumn = DB::select("SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS 
+                        WHERE TABLE_SCHEMA = DATABASE() 
+                        AND TABLE_NAME = 'loan_case_invoice_details' 
+                        AND COLUMN_NAME = 'sst'");
+                    
+                    if (isset($hasSstColumn[0]) && $hasSstColumn[0]->count > 0) {
+                        // Use direct DB update to preserve exact value
+                        DB::table('loan_case_invoice_details')
+                            ->where('id', $LoanCaseInvoiceDetails->id)
+                            ->update(['sst' => $newSSTFormatted]);
+                    }
+                }
+
+                // Create AccountLog entry
+                $AccountLog = new AccountLog();
+                $AccountLog->user_id = $current_user->id;
+                $AccountLog->case_id = $bill->case_id;
+                $AccountLog->bill_id = $bill_main_id;
+                $AccountLog->object_id = $LoanCaseInvoiceDetails->id;
+                $AccountLog->ori_amt = $oldSST;
+                $AccountLog->new_amt = $newSSTFormatted;
+                $AccountLog->action = 'Update';
+                $AccountLog->desc = $current_user->name . ' update invoice SST for item (' . $itemName . ') for invoice ' . $invoice->invoice_no . ' from ' . number_format($oldSST, 2) . ' to ' . number_format($newSSTFormatted, 2);
+                $AccountLog->status = 1;
+                $AccountLog->created_at = date('Y-m-d H:i:s');
+                $AccountLog->save();
+                
+                \Log::info("AccountLog created: {$AccountLog->desc}");
+
+                // Recalculate invoice totals
+                $this->updatePfeeDisbAmountINV($bill_main_id);
+                
+                // Update transfer fee details and ledger v2 for all invoices affected by this change
+                // Get all invoices for this bill that might have transfer fees
+                $allInvoices = LoanCaseInvoiceMain::where('loan_case_main_bill_id', $bill_main_id)
+                    ->where('status', '<>', 99)
+                    ->get();
+                
+                foreach ($allInvoices as $invoice) {
+                    $this->updateTransferFeeAndLedgerForInvoice($invoice->id);
+                }
+                
+                \Log::info("=== updateInvoiceSST END - SUCCESS ===");
+            }
+
+            return response()->json(['status' => 1, 'message' => 'yes']);
+        }
+        
+        return response()->json(['status' => 0, 'message' => 'Invalid request']);
+    }
+
+    /**
+     * Update transfer fee details, transfer fee main, and ledger v2 for an invoice
+     * This is called after invoice amounts or SST are updated
+     */
+    private function updateTransferFeeAndLedgerForInvoice($invoiceId)
+    {
+        // Get current invoice values
+        $invoice = LoanCaseInvoiceMain::find($invoiceId);
+        if (!$invoice) {
+            return;
+        }
+        
+        // Find all transfer fee details that include this invoice
+        $transferFeeDetails = \App\Models\TransferFeeDetails::where('loan_case_invoice_main_id', $invoiceId)
+            ->where('status', '<>', 99)
+            ->get();
+        
+        if ($transferFeeDetails->isEmpty()) {
+            return;
+        }
+        
+        // Calculate current invoice totals
+        $currentPfee = ($invoice->pfee1_inv ?? 0) + ($invoice->pfee2_inv ?? 0);
+        $currentSst = $invoice->sst_inv ?? 0;
+        $currentReimbursement = $invoice->reimbursement_amount ?? 0;
+        $currentReimbursementSst = $invoice->reimbursement_sst ?? 0;
+        
+        // Calculate total transferred amounts from transfer_fee_details
+        $totalTransferredPfee = $transferFeeDetails->sum('transfer_amount');
+        $totalTransferredSst = $transferFeeDetails->sum('sst_amount');
+        $totalTransferredReimbursement = $transferFeeDetails->sum('reimbursement_amount');
+        $totalTransferredReimbursementSst = $transferFeeDetails->sum('reimbursement_sst_amount');
+        
+        // If there are transferred amounts, update them to reflect current invoice values
+        if ($totalTransferredPfee > 0 || $totalTransferredSst > 0 || $totalTransferredReimbursement > 0 || $totalTransferredReimbursementSst > 0) {
+            // Get unique transfer fee main IDs
+            $transferFeeMainIds = $transferFeeDetails->pluck('transfer_fee_main_id')->unique();
+            
+            // Update each transfer fee detail to reflect current invoice values
+            foreach ($transferFeeDetails as $tfd) {
+                $oldReimbursementSst = $tfd->reimbursement_sst_amount ?? 0;
+                $oldSst = $tfd->sst_amount ?? 0;
+                
+                // If reimbursement SST was transferred, update it to match current invoice value
+                // Use proportion to distribute if there are multiple transfer records
+                if ($totalTransferredReimbursementSst > 0 && $currentReimbursementSst > 0) {
+                    // Calculate proportion of total transferred reimbursement SST that this detail represents
+                    $proportion = $totalTransferredReimbursementSst > 0 ? ($oldReimbursementSst / $totalTransferredReimbursementSst) : 0;
+                    $newReimbursementSst = round($currentReimbursementSst * $proportion, 2);
+                    
+                    // If this is the only transfer or it's the full amount, use the current invoice value directly
+                    if ($transferFeeDetails->count() == 1 || abs($oldReimbursementSst - $totalTransferredReimbursementSst) < 0.01) {
+                        $newReimbursementSst = $currentReimbursementSst;
+                    }
+                    
+                    $tfd->reimbursement_sst_amount = $newReimbursementSst;
+                }
+                
+                // Update SST if it changed
+                if ($totalTransferredSst > 0 && $currentSst > 0) {
+                    $proportion = $totalTransferredSst > 0 ? ($oldSst / $totalTransferredSst) : 0;
+                    $newSst = round($currentSst * $proportion, 2);
+                    
+                    if ($transferFeeDetails->count() == 1 || abs($oldSst - $totalTransferredSst) < 0.01) {
+                        $newSst = $currentSst;
+                    }
+                    
+                    $tfd->sst_amount = $newSst;
+                }
+                
+                $tfd->save();
+            }
+            
+            // Recalculate transfer fee main amount for each transfer fee
+            foreach ($transferFeeMainIds as $transferFeeMainId) {
+                $this->updateTransferFeeMainAmt($transferFeeMainId);
+            }
+            
+            // Update ledger entries V2 to reflect updated transfer fee details
+            $this->updateLedgerEntriesForTransferFeeDetails($invoiceId, $transferFeeDetails);
+            
+            \Log::info("Updated transfer fee details and main amounts for invoice", [
+                'invoice_id' => $invoiceId,
+                'transfer_fee_main_ids' => $transferFeeMainIds->toArray(),
+                'details_updated' => $transferFeeDetails->count()
+            ]);
+        }
+    }
+
+    /**
+     * Update transfer_fee_main transfer_amount from sum of all transfer_fee_details
+     */
+    private function updateTransferFeeMainAmt($transferFeeMainId)
+    {
+        $sumTransferFee = 0;
+        $transferFeeMain = \App\Models\TransferFeeMain::find($transferFeeMainId);
+        
+        if (!$transferFeeMain) {
+            return;
+        }
+        
+        $transferFeeDetailsSum = \App\Models\TransferFeeDetails::where('transfer_fee_main_id', $transferFeeMainId)
+            ->where('status', '<>', 99)
+            ->get();
+        
+        foreach ($transferFeeDetailsSum as $tfd) {
+            $sumTransferFee += ($tfd->transfer_amount ?? 0);
+            $sumTransferFee += ($tfd->sst_amount ?? 0);
+            $sumTransferFee += ($tfd->reimbursement_amount ?? 0);
+            $sumTransferFee += ($tfd->reimbursement_sst_amount ?? 0);
+        }
+        
+        $oldAmount = $transferFeeMain->transfer_amount;
+        if (abs($oldAmount - $sumTransferFee) > 0.001) {
+            $transferFeeMain->transfer_amount = $sumTransferFee;
+            $transferFeeMain->save();
+            
+            \Log::info("Updated transfer_fee_main amount", [
+                'transfer_fee_main_id' => $transferFeeMainId,
+                'old_amount' => $oldAmount,
+                'new_amount' => $sumTransferFee
+            ]);
+        }
+    }
+
+    /**
+     * Update ledger entries V2 when transfer fee details are updated
+     */
+    private function updateLedgerEntriesForTransferFeeDetails($invoiceId, $transferFeeDetails)
+    {
+        $updatedCount = 0;
+        $createdCount = 0;
+        
+        // Get invoice and bill information
+        $invoice = LoanCaseInvoiceMain::find($invoiceId);
+        if (!$invoice) {
+            return;
+        }
+        
+        $bill = LoanCaseBillMain::find($invoice->loan_case_main_bill_id);
+        if (!$bill) {
+            return;
+        }
+        
+        foreach ($transferFeeDetails as $tfd) {
+            // Get TransferFeeMain for transaction details
+            $transferFeeMain = \App\Models\TransferFeeMain::find($tfd->transfer_fee_main_id);
+            if (!$transferFeeMain) {
+                continue;
+            }
+            
+            // Update LedgerEntriesV2 - TRANSFER_OUT/IN (professional fee)
+            $count = DB::table('ledger_entries_v2')
+                ->where('key_id_2', $tfd->id)
+                ->where('status', '<>', 99)
+                ->whereIn('type', ['TRANSFER_OUT', 'TRANSFER_IN'])
+                ->update(['amount' => $tfd->transfer_amount ?? 0, 'updated_at' => now()]);
+            $updatedCount += $count;
+            
+            // Update LedgerEntriesV2 - SST_OUT/IN (professional fee SST)
+            $count = DB::table('ledger_entries_v2')
+                ->where('key_id_2', $tfd->id)
+                ->where('status', '<>', 99)
+                ->whereIn('type', ['SST_OUT', 'SST_IN'])
+                ->update(['amount' => $tfd->sst_amount ?? 0, 'updated_at' => now()]);
+            $updatedCount += $count;
+            
+            // Update or Create LedgerEntriesV2 - REIMB_OUT/IN (reimbursement amount)
+            if (($tfd->reimbursement_amount ?? 0) > 0) {
+                $reimbOutExists = DB::table('ledger_entries_v2')
+                    ->where('key_id_2', $tfd->id)
+                    ->where('status', '<>', 99)
+                    ->where('type', 'REIMB_OUT')
+                    ->exists();
+                
+                if ($reimbOutExists) {
+                    $count = DB::table('ledger_entries_v2')
+                        ->where('key_id_2', $tfd->id)
+                        ->where('status', '<>', 99)
+                        ->where('type', 'REIMB_OUT')
+                        ->update(['amount' => $tfd->reimbursement_amount, 'updated_at' => now()]);
+                    $updatedCount += $count;
+                }
+            }
+            
+            // Update or Create LedgerEntriesV2 - REIMB_SST_OUT/IN (reimbursement SST)
+            if (($tfd->reimbursement_sst_amount ?? 0) > 0) {
+                $reimbSstOutExists = DB::table('ledger_entries_v2')
+                    ->where('key_id_2', $tfd->id)
+                    ->where('status', '<>', 99)
+                    ->where('type', 'REIMB_SST_OUT')
+                    ->exists();
+                
+                if ($reimbSstOutExists) {
+                    $count = DB::table('ledger_entries_v2')
+                        ->where('key_id_2', $tfd->id)
+                        ->where('status', '<>', 99)
+                        ->where('type', 'REIMB_SST_OUT')
+                        ->update(['amount' => $tfd->reimbursement_sst_amount, 'updated_at' => now()]);
+                    $updatedCount += $count;
+                }
+            }
+        }
+        
+        \Log::info("Updated ledger entries V2 for transfer fee details", [
+            'invoice_id' => $invoiceId,
+            'updated_count' => $updatedCount,
+            'created_count' => $createdCount
+        ]);
     }
 
 

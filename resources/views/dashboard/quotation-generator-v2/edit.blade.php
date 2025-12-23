@@ -237,6 +237,10 @@
                                     <h4>Quotation Generator</h4>
                                 </div>
                                 <div class="col-6">
+                                    <button class="btn btn-success float-right btnQuotation mr-3"
+                                        type="button" onclick="showGenerateQuotationModal({{ $QuotationGeneratorMain->id }});">
+                                        <i class="cil-cloud-download"></i> Download Quotation
+                                    </button>
                                     <button id="btnPrintQuotation" class="btn btn-warning float-right btnQuotation"
                                         type="button" onclick="generateQuotation();">
                                         <i class="cil-print"></i> Print Quotation
@@ -1000,6 +1004,12 @@
             $("#total_sum_bill").html(numberWithCommas(sum_total.toFixed(2)));
             $("#span_total_create_bill").html(numberWithCommas(sum_total.toFixed(2)));
 
+        }
+
+        function showGenerateQuotationModal(quotationId) {
+            // Generate quotation PDF directly
+            var url = '/quotation-generator/generate/' + quotationId;
+            window.open(url, '_blank');
         }
     </script>
 @endsection

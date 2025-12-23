@@ -179,16 +179,16 @@
                         <?php
                         $row_sst = 0;
                         if ($cat['category']->id == 1 || $cat['category']->id == 4) {
-                            // Use custom SST if available, otherwise calculate
-                            $hasCustomSst = false;
-                            if (property_exists($details, 'sst') && isset($details->sst) && $details->sst !== null && trim((string)$details->sst) !== '') {
-                                $row_sst = (float) $details->sst;
-                                $hasCustomSst = true;
-                            }
+                            // Priority order:
+                            // 1. Use ori_invoice_sst if available (this is the stored original SST total)
+                            // 2. Otherwise calculate from ori_invoice_amt * sst_rate
                             
-                            // If no custom SST, calculate it
-                            if (!$hasCustomSst) {
-                                // Apply special rounding rule for SST: round DOWN if 3rd decimal is 5
+                            // Check if ori_invoice_sst exists (for split invoices, this stores the total SST)
+                            if (property_exists($details, 'ori_invoice_sst') && isset($details->ori_invoice_sst) && $details->ori_invoice_sst !== null && trim((string)$details->ori_invoice_sst) !== '') {
+                                // Use ori_invoice_sst (total SST across all split invoices)
+                                $row_sst = (float) $details->ori_invoice_sst;
+                            } else {
+                                // Calculate from ori_invoice_amt (fallback for backward compatibility)
                                 $sst_calculation = $details->ori_invoice_amt * $sst_rate;
                                 $sst_string = number_format($sst_calculation, 3, '.', '');
                                 
@@ -262,6 +262,12 @@
                                 <td class="text-right" id="amt_sst_{{ $details->id }}">
                                     @if ($cat['category']->id == 1 || $cat['category']->id == 4)
                                         {{ number_format($row_sst, 2, '.', ',') }}
+                                        @if ($LoanCaseBillMain->bln_sst == 0 && $LoanCaseBillMain->transferred_pfee_amt <= 0)
+                                            <a href="javascript:void(0)" data-backdrop="static" data-keyboard="false"
+                                                onclick="editInvoiceSSTModal('{{ $row_sst }}','{{ $details->id }}','{{ $cat['category']->id }}',1,'{{ $details->account_name }}','{{ $details->ori_invoice_amt }}','{{ $sst_rate }}')"
+                                                data-toggle="modal" data-target="#myModalInvoiceSST"
+                                                class="btn btn-xs btn-primary"><i class="cil-pencil"></i></a>
+                                        @endif
                                     @else
                                         -
                                     @endif

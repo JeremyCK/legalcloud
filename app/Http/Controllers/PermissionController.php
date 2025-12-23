@@ -243,6 +243,11 @@ class PermissionController extends Controller
         return 'StaffCaseReportPermission';
     }
 
+    public static function BankReportPermission()
+    {
+        return 'BankReportPermission';
+    }
+
     public static function AccountCodeSettingPermission()
     {
         return 'AccountCodeSettingPermission';

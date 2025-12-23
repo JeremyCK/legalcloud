@@ -994,6 +994,73 @@
     </div>
 </div>
 
+<!-- Modal for Editing Invoice SST -->
+<div id="myModalInvoiceSST" class="modal fade" role="dialog">
+    <div class="modal-dialog">
+
+        <!-- Modal content-->
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title">Edit Invoice SST</h4>
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="form_edit_invoice_sst">
+                    <div class="form-group row ">
+                        <div class="col">
+                            <label>Item Name</label>
+                            <input type="text" value="" id="item_nameInvoiceSST" name="item_name"
+                                class="form-control" disabled />
+                        </div>
+                    </div>
+
+                    <div class="form-group row ">
+                        <div class="col">
+                            <label>Original SST</label>
+                            <input type="number" value="0" id="txtOriginalSSTInvoice"
+                                name="txtOriginalSST" class="form-control" disabled />
+                            <input type="hidden" value="" id="txtIDInvoiceSST" name="txtID"
+                                class="form-control" disabled />
+                            <input type="hidden" value="" id="catIDInvoiceSST" name="catID"
+                                class="form-control" disabled />
+                            <input type="hidden" value="" id="typeIDInvoiceSST" name="typeID"
+                                class="form-control" disabled />
+                        </div>
+                    </div>
+
+                    <div class="form-group row ">
+                        <div class="col">
+                            <label>New SST</label>
+                            <div class="input-group">
+                                <input type="number" step="0.01" value="0" id="txtNewSSTInvoice" name="txtNewSSTInvoice"
+                                    class="form-control" />
+                                <div class="input-group-append">
+                                    <button type="button" class="btn btn-info" onclick="calculateInvoiceSST()">
+                                        <i class="cil-calculator"></i> Calculate
+                                    </button>
+                                </div>
+                            </div>
+                            <small class="form-text text-muted">Click Calculate to auto-calculate SST from invoice amount × SST rate</small>
+                            <input type="hidden" value="0" id="txtInvoiceAmountSST" name="txtInvoiceAmount" />
+                            <input type="hidden" value="0" id="txtSSTRateSST" name="txtSSTRate" />
+                        </div>
+                    </div>
+            </div>
+            </form>
+            <div class="modal-footer">
+                <button type="button" id="btnCloseInvSST" class="btn btn-default"
+                    data-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-success float-right" onclick="updateInvoiceSST()">Save
+                    <div class="overlay" style="display:none">
+                        <i class="fa fa-refresh fa-spin"></i>
+                    </div>
+                </button>
+            </div>
+        </div>
+
+    </div>
+</div>
+
 <!-- Modal for Editing Description -->
 <div id="editDescriptionModal" class="modal fade" role="dialog">
     <div class="modal-dialog">

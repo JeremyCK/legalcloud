@@ -5297,6 +5297,97 @@
             }
         }
 
+        function editInvoiceSSTModal(sst, id, catId, type, item_name, invoiceAmount, sstRate) {
+            $("#txtNewSSTInvoice").val(sst);
+            $("#txtOriginalSSTInvoice").val(sst);
+            $("#txtIDInvoiceSST").val(id);
+            $("#catIDInvoiceSST").val(catId);
+            $("#typeIDInvoiceSST").val(type);
+            $("#item_nameInvoiceSST").val(item_name);
+            $("#txtInvoiceAmountSST").val(invoiceAmount || 0);
+            $("#txtSSTRateSST").val(sstRate || 8);
+        }
+
+        function calculateInvoiceSST() {
+            var invoiceAmount = parseFloat($("#txtInvoiceAmountSST").val()) || 0;
+            var sstRate = parseFloat($("#txtSSTRateSST").val()) || 0.08;
+            
+            if (invoiceAmount <= 0) {
+                Swal.fire('Notice!', 'Invoice amount is required for calculation', 'warning');
+                return;
+            }
+            
+            // Note: sstRate is already a decimal (0.08 for 8%), not a percentage (8)
+            // So we multiply directly: amount * sst_rate
+            var sstRaw = invoiceAmount * sstRate;
+            
+            // Apply special rounding rule: round DOWN if 3rd decimal is 5
+            var sstString = sstRaw.toFixed(3);
+            var calculatedSST;
+            
+            if (sstString.charAt(sstString.length - 1) === '5') {
+                // Round down if ends in 5
+                calculatedSST = Math.floor(sstRaw * 100) / 100;
+            } else {
+                // Normal rounding
+                calculatedSST = Math.round(sstRaw * 100) / 100;
+            }
+            
+            // Set the calculated value
+            $("#txtNewSSTInvoice").val(calculatedSST.toFixed(2));
+            
+            // Show a brief success message
+            toastController('SST calculated: ' + calculatedSST.toFixed(2));
+        }
+
+        function updateInvoiceSST() {
+            $("#span_update").hide();
+            $("#myModalInvoiceSST .overlay").show();
+
+            var formData = new FormData();
+            formData.append('details_id', $("#txtIDInvoiceSST").val());
+            formData.append('catID', $("#catIDInvoiceSST").val());
+            formData.append('NewSST', $("#txtNewSSTInvoice").val());
+            formData.append('typeID', $("#typeIDInvoiceSST").val());
+            formData.append('item_name', $("#item_nameInvoiceSST").val());
+            formData.append('OriginalSST', $("#txtOriginalSSTInvoice").val());
+
+            $(".btn").attr("disabled", true);
+
+            $.ajaxSetup({
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                }
+            });
+
+            $.ajax({
+                type: 'POST',
+                url: '/updateInvoiceSST',
+                data: formData,
+                processData: false,
+                contentType: false,
+                success: function(data) {
+                    console.log(data);
+                    $(".btn").attr("disabled", false);
+                    $("#span_update").show();
+                    $("#myModalInvoiceSST .overlay").hide();
+                    if (data.status == 1) {
+                        toastController('SST updated');
+                        loadCaseBill($("#selected_bill_id").val());
+                        $('#btnCloseInvSST').click();
+                        $(".modal-backdrop").remove();
+                    } else {
+                        Swal.fire('Notice!', data.message, 'warning')
+                    }
+                },
+                error: function(xhr, status, error) {
+                    $(".btn").attr("disabled", false);
+                    $("#myModalInvoiceSST .overlay").hide();
+                    Swal.fire('Error!', 'Failed to update SST: ' + error, 'error');
+                }
+            });
+        }
+
         document.getElementById("ddlAccountItem").onchange = function() {
             $("#txtCalculateAccountAmount").val(0);
             $("#txtAmount").val(0);

@@ -394,7 +394,8 @@
                 true ||
             AccessController::UserAccessPermissionController(PermissionController::QuotationReportPermission()) == true ||
             AccessController::UserAccessPermissionController(PermissionController::CaseReportPermission()) == true ||
-            AccessController::UserAccessPermissionController(PermissionController::StaffCaseReportPermission()) == true)
+            AccessController::UserAccessPermissionController(PermissionController::StaffCaseReportPermission()) == true ||
+            AccessController::UserAccessPermissionController(PermissionController::BankReportPermission()) == true)
 
 
         <li class="c-sidebar-nav-dropdown"><a class="c-sidebar-nav-dropdown-toggle" href="#"><i
@@ -463,6 +464,12 @@
                 @if (AccessController::UserAccessPermissionController(PermissionController::CaseReportPermission()) == true)
                     <li class="c-sidebar-nav-item"><a class="c-sidebar-nav-link"
                             href="{{ url('case-report') }}"><span class="c-sidebar-nav-icon"></span>Cases Report<div id="side_85"></div>
+                        </a></li>
+                @endif
+
+                @if (AccessController::UserAccessPermissionController(PermissionController::BankReportPermission()) == true)
+                    <li class="c-sidebar-nav-item"><a class="c-sidebar-nav-link"
+                            href="{{ url('bank-report') }}"><span class="c-sidebar-nav-icon"></span>Bank Report<div id="side_89"></div>
                         </a></li>
                 @endif
 

@@ -536,6 +536,7 @@ Route::group(['middleware' => ['get.menu']], function () {
             Route::post('generateQuotationPrint', [QuotationGeneratorController::class, 'generateQuotationPrint']);
             Route::post('quotationGenAddAccountItem/{parameter1}', [QuotationGeneratorController::class, 'quotationGenAddAccountItem']);
             Route::get('copyTemplate/{parameter1}', [QuotationGeneratorController::class, 'copyTemplate']);
+            Route::get('quotation-generator/generate/{id}', [QuotationGeneratorController::class, 'generateQuotation']);
             
             Route::get('getQuotationGeneratorList', [QuotationGeneratorController::class, 'getQuotationGeneratorList'])->name('quotationGeneratorList.list');
 
@@ -573,6 +574,7 @@ Route::group(['middleware' => ['get.menu']], function () {
             Route::post('updateAllcheckListDate', [CaseController::class, 'updateAllcheckListDate']);
             Route::post('loadQuotationToInvoice/{parameter1}', [CaseController::class, 'loadQuotationToInvoice']);
             Route::post('updateInvoiceValue', [CaseController::class, 'updateInvoiceValue']);
+            Route::post('updateInvoiceSST', [CaseController::class, 'updateInvoiceSST']);
             Route::post('addInvoiceItem/{parameter1}', [CaseController::class, 'addInvoiceItem']);
             Route::post('deleteInvoiceItem/{parameter1}', [CaseController::class, 'deleteInvoiceItem']);
             // Invoice List Page Routes
@@ -788,6 +790,9 @@ Route::get('transfer-fee-create', [AccountController::class, 'transferFeeCreate'
             Route::post('getStaffCaseReport', [ReportController::class, 'getStaffCaseReport']);
             Route::get('case-report', [ReportController::class, 'ReportCases']);
             Route::post('getCaseReport', [ReportController::class, 'getCaseReport']);
+            Route::get('bank-report', [ReportController::class, 'ReportBank']);
+            Route::post('getBankReport', [ReportController::class, 'getBankReport']);
+            Route::post('exportBankReportPDF', [ReportController::class, 'exportBankReportPDF']);
             Route::get('staff-detail-report', [ReportController::class, 'ReportStaffDetails']);
             Route::post('get-staff-details=report', [ReportController::class, 'getStaffDetailsReport']);
             

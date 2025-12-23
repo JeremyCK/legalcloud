@@ -43,12 +43,14 @@ use App\Models\VoucherMain;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Log;
 // use Maatwebsite\Excel\Excel;
 use Maatwebsite\Excel\Facades\Excel;
 use PhpOffice\PhpSpreadsheet\Reader\Xls;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xls as WriterXls;
 use Yajra\DataTables\Facades\DataTables;
+use Barryvdh\DomPDF\Facade\Pdf;
 
 class ReportController extends Controller
 {
@@ -3017,6 +3019,190 @@ class ReportController extends Controller
             'case_label' => $case_label,
             'case_count' => $case_count
         ]);
+    }
+
+    public function ReportBank()
+    {
+        if (AccessController::UserAccessPermissionController(PermissionController::BankReportPermission()) == false) {
+            return redirect()->route('dashboard.index');
+        }
+
+        $current_user = auth()->user();
+        $branchInfo = BranchController::manageBranchAccess();
+        $fiscal_year = SettingsController::getFiscalYear();
+        
+        // Get all active banks (Portfolio)
+        $Portfolio = Portfolio::where('status', 1)->orderBy('name', 'asc')->get();
+
+        return view('dashboard.reports.bank.index', [
+            'Portfolio' => $Portfolio,
+            'branchs' => $branchInfo['branch'],
+            'fiscal_year' => $fiscal_year,
+        ]);
+    }
+
+    public function getBankReport(Request $request)
+    {
+        if (AccessController::UserAccessPermissionController(PermissionController::BankReportPermission()) == false) {
+            return response()->json(['error' => 'Unauthorized access'], 403);
+        }
+
+        $current_user = auth()->user();
+        $accessInfo = AccessController::manageAccess();
+        
+        // Decode JSON string from frontend
+        $banks_input = $request->input('banks', '[]');
+        $bank_ids = is_string($banks_input) ? json_decode($banks_input, true) : $banks_input;
+        if (!is_array($bank_ids)) {
+            $bank_ids = [];
+        }
+        
+        $year = $request->input('year', 0);
+        $month = $request->input('month', 0);
+        
+        $bank_label = [];
+        $bank_count = [];
+        $bank_names = [];
+        
+        // Get loan cases filtered by selected banks, year, and month
+        $LoanCase = DB::table('loan_case as l')
+            ->leftJoin('client as c', 'l.customer_id', '=', 'c.id')
+            ->leftJoin('portfolio as p', 'p.id', '=', 'l.bank_id')
+            ->select('l.*', 'p.name as portfolio_name', 'c.name as customer_name')
+            ->where('l.bank_id', '<>', 0)
+            ->where('l.status', '<>', 99)
+            ->orderBy('l.id', 'asc');
+        
+        // Chart data - count cases by bank
+        $Chart_data = DB::table('loan_case as l')
+            ->leftJoin('portfolio as p', 'p.id', '=', 'l.bank_id')
+            ->select('l.bank_id', 'p.name', DB::raw('count(*) as total'))
+            ->where('l.status', '<>', 99)
+            ->where('l.bank_id', '<>', 0)
+            ->groupBy('l.bank_id', 'p.name')
+            ->orderBy('p.name', 'asc');
+        
+        // Apply branch access
+        $LoanCase = $LoanCase->whereIn('l.branch_id', $accessInfo['brancAccessList']);
+        $Chart_data = $Chart_data->whereIn('l.branch_id', $accessInfo['brancAccessList']);
+        
+        // Filter by selected banks - MUST filter if banks are selected
+        if (!empty($bank_ids) && is_array($bank_ids) && count($bank_ids) > 0) {
+            // Convert string IDs to integers if needed
+            $bank_ids = array_map('intval', $bank_ids);
+            $LoanCase = $LoanCase->whereIn('l.bank_id', $bank_ids);
+            $Chart_data = $Chart_data->whereIn('l.bank_id', $bank_ids);
+        } else {
+            // If no banks selected, return empty result
+            return response()->json([
+                'view' => view('dashboard.reports.bank.tbl-bank-report', compact('LoanCase', 'bank_names'))->render(),
+                'bank_label' => [],
+                'bank_count' => []
+            ]);
+        }
+        
+        // Filter by year
+        if ($year != 0) {
+            $LoanCase = $LoanCase->whereYear('l.created_at', $year);
+            $Chart_data = $Chart_data->whereYear('l.created_at', $year);
+        }
+        
+        // Filter by month
+        if ($month != 0) {
+            $LoanCase = $LoanCase->whereMonth('l.created_at', $month);
+            $Chart_data = $Chart_data->whereMonth('l.created_at', $month);
+        }
+        
+        $Chart_data = $Chart_data->get();
+        $LoanCase = $LoanCase->get();
+        
+        // Build chart data
+        foreach ($Chart_data as $data) {
+            $bank_label[] = $data->name;
+            $bank_count[] = $data->total;
+            $bank_names[$data->bank_id] = $data->name;
+        }
+        
+        return response()->json([
+            'view' => view('dashboard.reports.bank.tbl-bank-report', compact('LoanCase', 'bank_names'))->render(),
+            'bank_label' => $bank_label,
+            'bank_count' => $bank_count
+        ]);
+    }
+
+    public function exportBankReportPDF(Request $request)
+    {
+        if (AccessController::UserAccessPermissionController(PermissionController::BankReportPermission()) == false) {
+            return redirect()->route('dashboard.index');
+        }
+
+        try {
+            $current_user = auth()->user();
+            $accessInfo = AccessController::manageAccess();
+            
+            $bank_ids = json_decode($request->input('banks', '[]'), true);
+            $year = $request->input('year', 0);
+            $month = $request->input('month', 0);
+            
+            // Get loan cases filtered by selected banks, year, and month
+            $LoanCase = DB::table('loan_case as l')
+                ->leftJoin('client as c', 'l.customer_id', '=', 'c.id')
+                ->leftJoin('portfolio as p', 'p.id', '=', 'l.bank_id')
+                ->select('l.*', 'p.name as portfolio_name', 'c.name as customer_name')
+                ->where('l.bank_id', '<>', 0)
+                ->where('l.status', '<>', 99)
+                ->orderBy('l.id', 'asc');
+            
+            // Apply branch access
+            $LoanCase = $LoanCase->whereIn('l.branch_id', $accessInfo['brancAccessList']);
+            
+            // Filter by selected banks
+            if (!empty($bank_ids) && is_array($bank_ids)) {
+                $LoanCase = $LoanCase->whereIn('l.bank_id', $bank_ids);
+            }
+            
+            // Filter by year
+            if ($year != 0) {
+                $LoanCase = $LoanCase->whereYear('l.created_at', $year);
+            }
+            
+            // Filter by month (0 means all months)
+            if ($month != 0) {
+                $LoanCase = $LoanCase->whereMonth('l.created_at', $month);
+            }
+            
+            $LoanCase = $LoanCase->get();
+            
+            // Get bank names
+            $bank_names = [];
+            if (!empty($bank_ids)) {
+                $banks = Portfolio::whereIn('id', $bank_ids)->get();
+                foreach ($banks as $bank) {
+                    $bank_names[$bank->id] = $bank->name;
+                }
+            }
+            
+            // Generate filename
+            $filename = 'Bank_Report_' . date('Y-m-d') . '.pdf';
+            
+            // Generate PDF
+            $pdf = Pdf::loadView('dashboard.reports.bank.export-pdf', [
+                'LoanCase' => $LoanCase,
+                'bank_names' => $bank_names,
+                'year' => $year,
+                'month' => $month
+            ]);
+            
+            $pdf->setPaper('A4', 'landscape');
+            return $pdf->download($filename);
+            
+        } catch (\Exception $e) {
+            Log::error('Bank Report PDF Export Error: ' . $e->getMessage());
+            return response()->json([
+                'status' => 0,
+                'message' => 'Error generating PDF: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     public function ReportBonus()

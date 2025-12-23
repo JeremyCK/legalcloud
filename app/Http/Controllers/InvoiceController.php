@@ -108,7 +108,13 @@ class InvoiceController extends Controller
         // Apply access control
         if (!in_array($current_user->menuroles, ['admin', 'management', 'account'])) {
             $accessCaseList = $this->caseManagementEngine();
-            $query->whereIn('l.id', $accessCaseList);
+            // Only apply filter if there are accessible cases, otherwise return empty result
+            if (!empty($accessCaseList)) {
+                $query->whereIn('l.id', $accessCaseList);
+            } else {
+                // User has no accessible cases, return empty result
+                $query->whereRaw('1 = 0'); // This ensures no results are returned
+            }
         }
 
         // Apply SST status filter (default to unpaid)
@@ -271,6 +277,77 @@ class InvoiceController extends Controller
                 ->orderBy('ac.order', 'ASC')
                 ->orderBy('ai.name', 'ASC')
                 ->get();
+            
+            // IMPORTANT: Do NOT recalculate SST when loading - just read what's in the database
+            // SST recalculation should only happen when saving, not when loading
+            // This preserves manually entered SST values like 11.21
+            // Only for split invoices, we might need to recalculate, but even then, we should preserve manual values
+            // For now, just read SST values directly from database without recalculation
+            // if ($isSplitInvoice && isset($hasSstColumn[0]) && $hasSstColumn[0]->count > 0) {
+            if (false && $isSplitInvoice && isset($hasSstColumn[0]) && $hasSstColumn[0]->count > 0) {
+                // Get all account_item_ids that exist in any invoice for this bill
+                $allAccountItemIds = DB::table('loan_case_invoice_details as ild')
+                    ->leftJoin('account_item as ai', 'ild.account_item_id', '=', 'ai.id')
+                    ->where('ild.loan_case_main_bill_id', $bill->id)
+                    ->where('ild.status', '<>', 99)
+                    ->whereIn('ai.account_cat_id', [1, 4]) // Professional fees and reimbursement
+                    ->distinct()
+                    ->pluck('ild.account_item_id')
+                    ->toArray();
+                
+                // For each account_item_id, calculate total amount across all invoices and distribute SST
+                foreach ($allAccountItemIds as $accountItemId) {
+                    // Get total amount for this account_item_id across all invoices
+                    $totalAmountForItem = DB::table('loan_case_invoice_details as ild')
+                        ->where('ild.loan_case_main_bill_id', $bill->id)
+                        ->where('ild.account_item_id', $accountItemId)
+                        ->where('ild.status', '<>', 99)
+                        ->sum('ild.amount');
+                    
+                    // Calculate total SST from total amount
+                    $totalSstRaw = $totalAmountForItem * ($sstRate / 100);
+                    $totalSstString = number_format($totalSstRaw, 3, '.', '');
+                    if (substr($totalSstString, -1) == '5') {
+                        $totalSstForItem = floor($totalSstRaw * 100) / 100; // Round down
+                    } else {
+                        $totalSstForItem = round($totalSstRaw, 2); // Normal rounding
+                    }
+                    
+                    // Get all detail records for this account_item_id across all invoices
+                    $allDetailsForItem = DB::table('loan_case_invoice_details as ild')
+                        ->where('ild.loan_case_main_bill_id', $bill->id)
+                        ->where('ild.account_item_id', $accountItemId)
+                        ->where('ild.status', '<>', 99)
+                        ->select('ild.id', 'ild.amount', 'ild.invoice_main_id')
+                        ->get();
+                    
+                    // Distribute SST proportionally to each detail
+                    $distributedSst = [];
+                    $totalDistributedSst = 0;
+                    
+                    foreach ($allDetailsForItem as $detail) {
+                        if ($totalAmountForItem > 0) {
+                            $proportionalSst = ($totalSstForItem * $detail->amount) / $totalAmountForItem;
+                            $distributedSst[$detail->id] = round($proportionalSst, 2);
+                            $totalDistributedSst += $distributedSst[$detail->id];
+                        }
+                    }
+                    
+                    // Adjust for rounding differences - add difference to first detail
+                    $difference = $totalSstForItem - $totalDistributedSst;
+                    if (abs($difference) > 0.001 && count($distributedSst) > 0) {
+                        $firstDetailId = array_key_first($distributedSst);
+                        $distributedSst[$firstDetailId] = round($distributedSst[$firstDetailId] + $difference, 2);
+                    }
+                    
+                    // Update SST values in the invoiceDetails collection for display
+                    foreach ($invoiceDetails as $detail) {
+                        if ($detail->account_item_id == $accountItemId && isset($distributedSst[$detail->id])) {
+                            $detail->sst = $distributedSst[$detail->id];
+                        }
+                    }
+                }
+            }
             
             // Group details by category
             $groupedDetails = [];
@@ -476,8 +553,20 @@ class InvoiceController extends Controller
                         $sstColumnExists = isset($hasSstColumn[0]) && $hasSstColumn[0]->count > 0;
                         $oldSst = $sstColumnExists ? ($existingDetail->sst ?? null) : null;
                         
-                        // Round to 2 decimal places to avoid floating point precision issues
-                        $newAmount = round(floatval($detail['amount']), 2);
+                        // Preserve exact value entered by user (no rounding)
+                        // Parse the value and format to exactly 2 decimal places to preserve precision
+                        // This ensures values like 11.21 stay as 11.21, not 11.20
+                        $amountValue = $detail['amount'];
+                        
+                        // Validate it's a valid number
+                        if (!is_numeric($amountValue)) {
+                            return response()->json(['status' => 0, 'message' => 'Invalid amount value: ' . $amountValue], 400);
+                        }
+                        
+                        // Format to exactly 2 decimal places using number_format to preserve exact value
+                        // This prevents floating point precision issues
+                        $newAmount = number_format((float)$amountValue, 2, '.', '');
+                        $newAmountFloat = (float)$newAmount;
                         
                         // Store custom SST if provided - save it to database
                         // Check if sst column exists first
@@ -490,7 +579,13 @@ class InvoiceController extends Controller
                         $customSst = null;
                         $sstChanged = false;
                         if (isset($detail['sst']) && $detail['sst'] !== null && $detail['sst'] !== '') {
-                            $customSst = round(floatval($detail['sst']), 2);
+                            // Preserve exact SST value entered by user (no rounding)
+                            // Format to 2 decimal places to preserve precision
+                            $sstValue = $detail['sst'];
+                            if (!is_numeric($sstValue)) {
+                                return response()->json(['status' => 0, 'message' => 'Invalid SST value: ' . $sstValue], 400);
+                            }
+                            $customSst = number_format((float)$sstValue, 2, '.', '');
                             $customSstValues[$detail['id']] = $customSst;
                             
                             // Only save to database if column exists
@@ -501,12 +596,15 @@ class InvoiceController extends Controller
                                 }
                                 
                                 // Save custom SST to database
+                                // Set SST value - will save together with amount below (line 677)
                                 $existingDetail->sst = $customSst;
-                                Log::info("Saving custom SST value", [
+                                Log::info("Setting custom SST value (will save below)", [
                                     'detail_id' => $existingDetail->id,
                                     'old_sst' => $oldSst,
                                     'new_sst' => $customSst,
-                                    'sst_changed' => $sstChanged
+                                    'sst_changed' => $sstChanged,
+                                    'customSstValues_array' => $customSstValues,
+                                    'sst_in_model_before_save' => $existingDetail->sst
                                 ]);
                             } else {
                                 Log::warning("SST column does not exist, cannot save custom SST value", [
@@ -527,7 +625,8 @@ class InvoiceController extends Controller
                         }
                         
                         // Update if amount changed OR SST changed
-                        $amountChanged = abs($oldAmount - $newAmount) > 0.001;
+                        // Compare using float values, but save the exact string value
+                        $amountChanged = abs($oldAmount - $newAmountFloat) > 0.001;
                         if ($amountChanged || $sstChanged) {
                             // Get account item name for logging
                             $accountItem = DB::table('account_item')
@@ -546,14 +645,75 @@ class InvoiceController extends Controller
                                 'party_count' => $partyCount
                             ]);
                             
-                            // Update the detail with rounded amount
+                            // Update the detail with exact amount (preserve user input)
                             if ($amountChanged) {
+                                // Save the exact value entered by user
                                 $existingDetail->amount = $newAmount;
                             }
-                            // SST is already set above if provided
-                            $existingDetail->save();
                             
-                            // If this is a split invoice, update ori_invoice_amt to reflect the new total
+                            // CRITICAL: For manual SST values, save them even for split invoices
+                            // They will be preserved during split invoice recalculation below
+                            if ($sstChanged && isset($customSst) && $sstColumnExists) {
+                                // Use direct DB update to preserve exact SST value (bypasses Eloquent)
+                                DB::table('loan_case_invoice_details')
+                                    ->where('id', $existingDetail->id)
+                                    ->update(['sst' => $customSst]);
+                                
+                                Log::info("SST saved via direct DB update", [
+                                    'detail_id' => $existingDetail->id,
+                                    'sst_value' => $customSst,
+                                    'is_split_invoice' => $isSplitInvoice,
+                                    'will_be_preserved' => $isSplitInvoice
+                                ]);
+                                
+                                // Refresh model to get updated SST
+                                $existingDetail->refresh();
+                            }
+                            
+                            // For split invoices, DON'T save SST here - it will be recalculated below
+                            // For single invoices, save amount (SST already saved above if manual)
+                            if (!$isSplitInvoice || !$sstColumnExists) {
+                                // Single invoice: save amount (SST already saved via direct DB update if manual)
+                                if ($amountChanged) {
+                                    $existingDetail->save();
+                                } else if (!$sstChanged) {
+                                    // Only save if nothing changed (shouldn't happen, but safety check)
+                                    $existingDetail->save();
+                                }
+                                
+                                // CRITICAL: Final verification after all saves
+                                if ($sstChanged && isset($customSst)) {
+                                    $existingDetail->refresh();
+                                    $actualSst = (string)$existingDetail->sst;
+                                    $expectedSst = (string)$customSst;
+                                    $matches = $actualSst === $expectedSst;
+                                    
+                                    Log::info("Final SST verification", [
+                                        'detail_id' => $existingDetail->id,
+                                        'sst_in_db' => $actualSst,
+                                        'expected' => $expectedSst,
+                                        'match' => $matches
+                                    ]);
+                                    
+                                    if (!$matches) {
+                                        Log::error("SST STILL MISMATCHED AFTER DIRECT DB UPDATE!", [
+                                            'detail_id' => $existingDetail->id,
+                                            'expected' => $expectedSst,
+                                            'actual' => $actualSst
+                                        ]);
+                                    }
+                                }
+                            } else {
+                                // Split invoice: save amount
+                                // SST will be handled by recalculation below (which will preserve manual values)
+                                if ($amountChanged) {
+                                    $existingDetail->save();
+                                }
+                                // Note: SST is NOT saved here for split invoices - it will be recalculated below
+                                // But manual SST values will be preserved during recalculation
+                            }
+                            
+                            // If this is a split invoice, update ori_invoice_amt and ori_invoice_sst to reflect the new total
                             // Sum all split invoice amounts for this account_item_id to get the new total
                             if ($isSplitInvoice) {
                                 $newTotalAmount = LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $bill->id)
@@ -561,15 +721,36 @@ class InvoiceController extends Controller
                                     ->where('status', '<>', 99)
                                     ->sum('amount');
                                 
-                                // Update ori_invoice_amt for ALL split invoices with this account_item_id
+                                // Calculate total SST from total amount (same logic as case details)
+                                $totalSstRaw = $newTotalAmount * ($sstRate / 100);
+                                $totalSstString = number_format($totalSstRaw, 3, '.', '');
+                                if (substr($totalSstString, -1) == '5') {
+                                    $newTotalSst = floor($totalSstRaw * 100) / 100; // Round down
+                                } else {
+                                    $newTotalSst = round($totalSstRaw, 2); // Normal rounding
+                                }
+                                
+                                // Check if ori_invoice_sst column exists
+                                $hasOriSstColumn = DB::select("SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS 
+                                    WHERE TABLE_SCHEMA = DATABASE() 
+                                    AND TABLE_NAME = 'loan_case_invoice_details' 
+                                    AND COLUMN_NAME = 'ori_invoice_sst'");
+                                
+                                $updateFields = ['ori_invoice_amt' => round($newTotalAmount, 2)];
+                                if (isset($hasOriSstColumn[0]) && $hasOriSstColumn[0]->count > 0) {
+                                    $updateFields['ori_invoice_sst'] = $newTotalSst;
+                                }
+                                
+                                // Update ori_invoice_amt and ori_invoice_sst for ALL split invoices with this account_item_id
                                 LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $bill->id)
                                     ->where('account_item_id', $existingDetail->account_item_id)
                                     ->where('status', '<>', 99)
-                                    ->update(['ori_invoice_amt' => round($newTotalAmount, 2)]);
+                                    ->update($updateFields);
                                 
-                                Log::info("Updated ori_invoice_amt for split invoice", [
+                                Log::info("Updated ori_invoice_amt and ori_invoice_sst for split invoice", [
                                     'account_item_id' => $existingDetail->account_item_id,
                                     'new_total_amount' => $newTotalAmount,
+                                    'new_total_sst' => $newTotalSst,
                                     'bill_id' => $bill->id
                                 ]);
                             }
@@ -628,6 +809,186 @@ class InvoiceController extends Controller
             }
         }
 
+        // For split invoices, ALWAYS recalculate SST from total across all invoices
+        // For single invoices, ONLY recalculate SST if NO manual SST values were provided
+        // If manual SST values exist, skip recalculation entirely to preserve user input
+        // (isSplitInvoice already defined above)
+        
+        // Check if any manual SST values were provided
+        $hasAnyManualSst = !empty($customSstValues);
+        
+        if ($sstColumnExists) {
+            if ($isSplitInvoice) {
+                // For split invoices, ALWAYS recalculate SST from total (ignore custom SST inputs)
+            // Get all account_item_ids that exist in any invoice for this bill
+            $allAccountItemIds = DB::table('loan_case_invoice_details as ild')
+                ->leftJoin('account_item as ai', 'ild.account_item_id', '=', 'ai.id')
+                ->where('ild.loan_case_main_bill_id', $bill->id)
+                ->where('ild.status', '<>', 99)
+                ->whereIn('ai.account_cat_id', [1, 4]) // Professional fees and reimbursement
+                ->distinct()
+                ->pluck('ild.account_item_id')
+                ->toArray();
+            
+            // For each account_item_id, calculate total amount across all invoices and distribute SST
+            foreach ($allAccountItemIds as $accountItemId) {
+                // Get total amount for this account_item_id across all invoices
+                $totalAmountForItem = DB::table('loan_case_invoice_details as ild')
+                    ->where('ild.loan_case_main_bill_id', $bill->id)
+                    ->where('ild.account_item_id', $accountItemId)
+                    ->where('ild.status', '<>', 99)
+                    ->sum('ild.amount');
+                
+                // Calculate total SST from total amount
+                $totalSstRaw = $totalAmountForItem * ($sstRate / 100);
+                $totalSstString = number_format($totalSstRaw, 3, '.', '');
+                if (substr($totalSstString, -1) == '5') {
+                    $totalSstForItem = floor($totalSstRaw * 100) / 100; // Round down
+                } else {
+                    $totalSstForItem = round($totalSstRaw, 2); // Normal rounding
+                }
+                
+                // Get all detail records for this account_item_id across all invoices
+                $allDetailsForItem = DB::table('loan_case_invoice_details as ild')
+                    ->where('ild.loan_case_main_bill_id', $bill->id)
+                    ->where('ild.account_item_id', $accountItemId)
+                    ->where('ild.status', '<>', 99)
+                    ->select('ild.id', 'ild.amount', 'ild.invoice_main_id', 'ild.sst')
+                    ->get();
+                
+                // For split invoices, recalculate SST from total BUT preserve manual SST values
+                // Check if any detail has a manual SST value that should be preserved
+                $manualSstDetails = [];
+                $detailsToRecalculate = [];
+                
+                foreach ($allDetailsForItem as $index => $detail) {
+                    // Check if this detail has a manual SST value in customSstValues
+                    if (isset($customSstValues[$detail->id])) {
+                        // This detail has a manual SST - preserve it
+                        $manualSstDetails[$detail->id] = $customSstValues[$detail->id];
+                        Log::info("Preserving manual SST for split invoice detail", [
+                            'detail_id' => $detail->id,
+                            'manual_sst' => $customSstValues[$detail->id],
+                            'account_item_id' => $accountItemId
+                        ]);
+                    } else {
+                        // This detail should be recalculated
+                        $detailsToRecalculate[] = $detail;
+                    }
+                }
+                
+                // Calculate total SST for items that need recalculation
+                $manualSstTotal = array_sum($manualSstDetails);
+                $remainingSst = $totalSstForItem - $manualSstTotal;
+                
+                // Distribute remaining SST proportionally to details that need recalculation
+                $distributedSst = [];
+                $totalDistributedSst = 0;
+                
+                if (count($detailsToRecalculate) > 0 && $remainingSst > 0) {
+                    $totalAmountForRecalc = array_sum(array_column($detailsToRecalculate, 'amount'));
+                    
+                    foreach ($detailsToRecalculate as $detail) {
+                        if ($totalAmountForRecalc > 0) {
+                            $proportionalSst = ($remainingSst * $detail->amount) / $totalAmountForRecalc;
+                            $distributedSst[$detail->id] = round($proportionalSst, 2);
+                            $totalDistributedSst += $distributedSst[$detail->id];
+                        }
+                    }
+                    
+                    // Adjust for rounding differences - add difference to first detail that needs recalculation
+                    $difference = $remainingSst - $totalDistributedSst;
+                    if (abs($difference) > 0.001 && count($distributedSst) > 0) {
+                        $firstDetailId = array_key_first($distributedSst);
+                        $distributedSst[$firstDetailId] = round($distributedSst[$firstDetailId] + $difference, 2);
+                    }
+                }
+                
+                // Merge manual SST values with recalculated ones
+                $finalSstValues = array_merge($manualSstDetails, $distributedSst);
+                
+                // Update SST values in database
+                foreach ($finalSstValues as $detailId => $sstValue) {
+                    DB::table('loan_case_invoice_details')
+                        ->where('id', $detailId)
+                        ->update(['sst' => $sstValue]);
+                }
+                
+                Log::info("Updated SST for split invoice account_item", [
+                    'account_item_id' => $accountItemId,
+                    'total_amount' => $totalAmountForItem,
+                    'total_sst' => $totalSstForItem,
+                    'distributed_sst' => $distributedSst
+                ]);
+            }
+            } else {
+                // Single invoice: ONLY recalculate SST if NO manual SST values were provided
+                // If ANY manual SST was provided, skip recalculation entirely to preserve user input
+                if ($hasAnyManualSst) {
+                    Log::info("Skipping ALL SST recalculation for single invoice - manual SST values provided", [
+                        'invoice_id' => $invoiceId,
+                        'manual_sst_count' => count($customSstValues),
+                        'manual_sst_values' => $customSstValues,
+                        'hasAnyManualSst' => $hasAnyManualSst
+                    ]);
+                    
+                    // CRITICAL: Verify SST values are still correct in database
+                    foreach ($customSstValues as $detailId => $expectedSst) {
+                        $savedDetail = LoanCaseInvoiceDetails::find($detailId);
+                        if ($savedDetail) {
+                            $actualSst = $savedDetail->sst;
+                            $matches = (string)$actualSst === (string)$expectedSst;
+                            Log::info("Verifying manual SST preserved", [
+                                'detail_id' => $detailId,
+                                'expected' => $expectedSst,
+                                'actual' => $actualSst,
+                                'match' => $matches
+                            ]);
+                            
+                            if (!$matches) {
+                                Log::error("MANUAL SST WAS OVERWRITTEN!", [
+                                    'detail_id' => $detailId,
+                                    'expected' => $expectedSst,
+                                    'actual' => $actualSst
+                                ]);
+                            }
+                        }
+                    }
+                } else {
+                    // No manual SST provided - recalculate from amounts
+                    // Get all details for this invoice
+                    $invoiceDetails = LoanCaseInvoiceDetails::where('invoice_main_id', $invoiceId)
+                        ->where('status', '<>', 99)
+                        ->get();
+                    
+                    foreach ($invoiceDetails as $detail) {
+                        // Get account item to check if taxable
+                        $accountItem = DB::table('account_item')
+                            ->where('id', $detail->account_item_id)
+                            ->first();
+                        
+                        if ($accountItem && in_array($accountItem->account_cat_id, [1, 4])) {
+                            // Calculate SST from individual amount
+                            $sstRaw = $detail->amount * ($sstRate / 100);
+                            $sstString = number_format($sstRaw, 3, '.', '');
+                            if (substr($sstString, -1) == '5') {
+                                $sstValue = floor($sstRaw * 100) / 100; // Round down
+                            } else {
+                                $sstValue = round($sstRaw, 2); // Normal rounding
+                            }
+                            
+                            $detail->sst = $sstValue;
+                            $detail->save();
+                        } else {
+                            // Non-taxable items: clear SST
+                            $detail->sst = null;
+                            $detail->save();
+                        }
+                    }
+                }
+            }
+        }
+        
         // Recalculate invoice amounts from details (same as case details)
         // Pass custom SST values if any were provided
         $calculated = $this->calculateInvoiceAmountsFromDetails($invoiceId, $sstRate, $customSstValues);
@@ -674,7 +1035,8 @@ class InvoiceController extends Controller
         }
         
         // Update bill totals (same as case details)
-        $this->updatePfeeDisbAmountINVFromDetails($bill->id);
+        // Pass customSstValues to preserve manually entered SST values
+        $this->updatePfeeDisbAmountINVFromDetails($bill->id, $customSstValues);
         
         // Recalculate transfer fee main amounts for all transfer fees that include this invoice
         $this->updateTransferFeeMainAmountsForInvoice($invoiceId);
@@ -721,12 +1083,29 @@ class InvoiceController extends Controller
 
     /**
      * Calculate invoice amounts from details (same logic as CaseController)
+     * For split invoices: calculates SST from total pfee/reimbursement to ensure correct distribution
      * @param int $invoiceId
      * @param float $sstRate
      * @param array $customSstValues Optional array of custom SST values keyed by detail_id
      */
     private function calculateInvoiceAmountsFromDetails($invoiceId, $sstRate, $customSstValues = [])
     {
+        // Get invoice and bill info
+        $invoice = LoanCaseInvoiceMain::find($invoiceId);
+        if (!$invoice) {
+            return ['pfee1' => 0, 'pfee2' => 0, 'sst' => 0, 'reimbursement_amount' => 0, 'reimbursement_sst' => 0, 'total' => 0];
+        }
+        
+        $billId = $invoice->loan_case_main_bill_id;
+        $sstRateDecimal = $sstRate / 100;
+        
+        // Check if this is a split invoice
+        $invoiceCount = LoanCaseInvoiceMain::where('loan_case_main_bill_id', $billId)
+            ->where('status', '<>', 99)
+            ->count();
+        
+        $isSplitInvoice = $invoiceCount > 1;
+        
         // Check if sst column exists
         $hasSstColumn = DB::select("SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS 
             WHERE TABLE_SCHEMA = DATABASE() 
@@ -739,6 +1118,7 @@ class InvoiceController extends Controller
             $selectFields[] = 'ild.sst';
         }
         
+        // Get individual invoice details
         $details = DB::table('loan_case_invoice_details as ild')
             ->leftJoin('account_item as ai', 'ild.account_item_id', '=', 'ai.id')
             ->where('ild.invoice_main_id', $invoiceId)
@@ -748,90 +1128,127 @@ class InvoiceController extends Controller
 
         $pfee1 = 0;
         $pfee2 = 0;
-        $sst = 0;
         $reimbursement_amount = 0;
-        $reimbursement_sst = 0;
-        $total = 0;
 
-        // Calculate using the same method as invoice display: from each detail item, then sum
+        // Calculate pfee1, pfee2, and reimbursement_amount first
         foreach ($details as $detail) {
             if ($detail->account_cat_id == 1) {
-                // Calculate pfee1 and pfee2 for professional fees
                 if ($detail->pfee1_item == 1) {
                     $pfee1 += $detail->amount;
                 } else {
                     $pfee2 += $detail->amount;
                 }
-                
-                // Use custom SST if provided in request, otherwise check database, otherwise calculate
-                if (isset($customSstValues[$detail->detail_id])) {
-                    $row_sst = floatval($customSstValues[$detail->detail_id]);
-                } elseif ($sstColumnExists && isset($detail->sst) && $detail->sst !== null && $detail->sst !== '') {
-                    // Use the saved custom SST from database
-                    $row_sst = floatval($detail->sst);
-                } else {
-                    // Apply special rounding rule for SST: round DOWN if 3rd decimal is 5
-                    $sst_calculation = $detail->amount * ($sstRate / 100);
-                    $sst_string = number_format($sst_calculation, 3, '.', '');
-                    
-                    if (substr($sst_string, -1) == '5') {
-                        $row_sst = floor($sst_calculation * 100) / 100; // Round down
-                    } else {
-                        $row_sst = round($sst_calculation, 2); // Normal rounding
-                    }
-                }
-                
-                $sst += $row_sst;
-                $total += $detail->amount + $row_sst;
             } elseif ($detail->account_cat_id == 4) {
-                // Calculate reimbursement amounts for account_cat_id == 4
                 $reimbursement_amount += $detail->amount;
-                
-                // Use custom SST if provided in request, otherwise check database, otherwise calculate
-                if (isset($customSstValues[$detail->detail_id])) {
-                    $row_sst = floatval($customSstValues[$detail->detail_id]);
-                } elseif ($sstColumnExists && isset($detail->sst) && $detail->sst !== null && $detail->sst !== '') {
-                    // Use the saved custom SST from database (already selected in query)
-                    $row_sst = floatval($detail->sst);
-                } else {
-                    // Apply special rounding rule for reimbursement SST too
-                    $sst_calculation = $detail->amount * ($sstRate / 100);
-                    $sst_string = number_format($sst_calculation, 3, '.', '');
-                    
-                    if (substr($sst_string, -1) == '5') {
-                        $row_sst = floor($sst_calculation * 100) / 100; // Round down
-                    } else {
-                        $row_sst = round($sst_calculation, 2); // Normal rounding
-                    }
-                }
-                
-                $reimbursement_sst += $row_sst;
-                $total += $detail->amount + $row_sst;
-                
-                // Debug logging for reimbursement SST (Fax/Telephone Charges - detail ID 168726)
-                if ($detail->detail_id == 168726) {
-                    Log::info("Reimbursement SST calculation - Fax/Telephone Charges", [
-                        'detail_id' => $detail->detail_id,
-                        'amount' => $detail->amount,
-                        'sst_column_exists' => $sstColumnExists,
-                        'detail_has_sst' => isset($detail->sst),
-                        'detail_sst_value' => $detail->sst ?? 'NULL',
-                        'custom_sst_from_request' => isset($customSstValues[$detail->detail_id]) ? $customSstValues[$detail->detail_id] : 'NOT_SET',
-                        'row_sst' => $row_sst,
-                        'reimbursement_sst_so_far' => $reimbursement_sst
-                    ]);
-                }
-            } else {
-                // For other account categories, add amount directly to total
-                $total += $detail->amount;
             }
         }
 
+        $pfee1 = round($pfee1, 2);
+        $pfee2 = round($pfee2, 2);
+        $totalPfee = $pfee1 + $pfee2;
+        $reimbursement_amount = round($reimbursement_amount, 2);
+
+        // Calculate SST based on whether it's a split invoice
+        $sst = 0;
+        $reimbursement_sst = 0;
+        
+        if ($isSplitInvoice) {
+            // For split invoices: Calculate SST from stored SST values in database (which were recalculated above)
+            // Sum up the SST values from detail items
+            foreach ($details as $detail) {
+                if ($detail->account_cat_id == 1) {
+                    // Check if there's a custom SST value first (manually entered)
+                    if (isset($customSstValues[$detail->detail_id])) {
+                        $sst += floatval($customSstValues[$detail->detail_id]);
+                    } elseif ($sstColumnExists && isset($detail->sst) && $detail->sst !== null && $detail->sst !== '') {
+                        // For split invoices, use the stored SST value (which was recalculated from total)
+                        $sst += floatval($detail->sst);
+                    } else {
+                        // Fallback: calculate from this invoice's amount (shouldn't happen if recalc worked)
+                        $sst_calculation = $detail->amount * $sstRateDecimal;
+                        $sst_string = number_format($sst_calculation, 3, '.', '');
+                        if (substr($sst_string, -1) == '5') {
+                            $row_sst = floor($sst_calculation * 100) / 100;
+                        } else {
+                            $row_sst = round($sst_calculation, 2);
+                        }
+                        $sst += $row_sst;
+                    }
+                } elseif ($detail->account_cat_id == 4) {
+                    // Check if there's a custom SST value first (manually entered)
+                    if (isset($customSstValues[$detail->detail_id])) {
+                        $reimbursement_sst += floatval($customSstValues[$detail->detail_id]);
+                    } elseif ($sstColumnExists && isset($detail->sst) && $detail->sst !== null && $detail->sst !== '') {
+                        // For split invoices, use the stored SST value (which was recalculated from total)
+                        $reimbursement_sst += floatval($detail->sst);
+                    } else {
+                        // Fallback: calculate from this invoice's amount (shouldn't happen if recalc worked)
+                        $sst_calculation = $detail->amount * $sstRateDecimal;
+                        $sst_string = number_format($sst_calculation, 3, '.', '');
+                        if (substr($sst_string, -1) == '5') {
+                            $row_sst = floor($sst_calculation * 100) / 100;
+                        } else {
+                            $row_sst = round($sst_calculation, 2);
+                        }
+                        $reimbursement_sst += $row_sst;
+                    }
+                }
+            }
+        } else {
+            // For single invoice: calculate SST from individual detail items
+            // Check for custom SST values first
+            foreach ($details as $detail) {
+                if ($detail->account_cat_id == 1) {
+                    // Use custom SST if provided, otherwise check database, otherwise calculate
+                    if (isset($customSstValues[$detail->detail_id])) {
+                        $row_sst = floatval($customSstValues[$detail->detail_id]);
+                    } elseif ($sstColumnExists && isset($detail->sst) && $detail->sst !== null && $detail->sst !== '') {
+                        $row_sst = floatval($detail->sst);
+                    } else {
+                        // Apply special rounding rule for SST: round DOWN if 3rd decimal is 5
+                        $sst_calculation = $detail->amount * $sstRateDecimal;
+                        $sst_string = number_format($sst_calculation, 3, '.', '');
+                        
+                        if (substr($sst_string, -1) == '5') {
+                            $row_sst = floor($sst_calculation * 100) / 100; // Round down
+                        } else {
+                            $row_sst = round($sst_calculation, 2); // Normal rounding
+                        }
+                    }
+                    $sst += $row_sst;
+                } elseif ($detail->account_cat_id == 4) {
+                    // Use custom SST if provided, otherwise check database, otherwise calculate
+                    if (isset($customSstValues[$detail->detail_id])) {
+                        $row_sst = floatval($customSstValues[$detail->detail_id]);
+                    } elseif ($sstColumnExists && isset($detail->sst) && $detail->sst !== null && $detail->sst !== '') {
+                        $row_sst = floatval($detail->sst);
+                    } else {
+                        // Apply special rounding rule for reimbursement SST
+                        $sst_calculation = $detail->amount * $sstRateDecimal;
+                        $sst_string = number_format($sst_calculation, 3, '.', '');
+                        
+                        if (substr($sst_string, -1) == '5') {
+                            $row_sst = floor($sst_calculation * 100) / 100; // Round down
+                        } else {
+                            $row_sst = round($sst_calculation, 2); // Normal rounding
+                        }
+                    }
+                    $reimbursement_sst += $row_sst;
+                }
+            }
+        }
+
+        $sst = round($sst, 2);
+        $reimbursement_sst = round($reimbursement_sst, 2);
+        $total = round($totalPfee + $sst + $reimbursement_amount + $reimbursement_sst, 2);
+
         Log::info("Final calculated amounts", [
             'invoice_id' => $invoiceId,
-            'reimbursement_sst' => round($reimbursement_sst, 2),
-            'reimbursement_amount' => round($reimbursement_amount, 2),
-            'sst' => round($sst, 2)
+            'is_split_invoice' => $isSplitInvoice,
+            'reimbursement_sst' => $reimbursement_sst,
+            'reimbursement_amount' => $reimbursement_amount,
+            'sst' => $sst,
+            'total_pfee' => $totalPfee
         ]);
 
         return [
@@ -846,8 +1263,10 @@ class InvoiceController extends Controller
 
     /**
      * Update bill totals from invoice details (same logic as CaseController)
+     * @param int $billId
+     * @param array $customSstValues Optional array of custom SST values to preserve (keyed by detail_id)
      */
-    private function updatePfeeDisbAmountINVFromDetails($billId)
+    private function updatePfeeDisbAmountINVFromDetails($billId, $customSstValues = [])
     {
         $bill = LoanCaseBillMain::where('id', $billId)->first();
         if (!$bill) {
@@ -869,7 +1288,8 @@ class InvoiceController extends Controller
 
         // Update each invoice from its details
         foreach ($invoices as $invoice) {
-            $invoiceCalculations = $this->calculateInvoiceAmountsFromDetails($invoice->id, $bill->sst_rate ?? 6);
+            // Pass customSstValues to preserve manually entered SST values
+            $invoiceCalculations = $this->calculateInvoiceAmountsFromDetails($invoice->id, $bill->sst_rate ?? 6, $customSstValues);
 
             // Update the invoice record
             DB::table('loan_case_invoice_main')
@@ -1103,6 +1523,16 @@ class InvoiceController extends Controller
         
         $remainingCount = $remainingInvoices->count();
         
+        // Get SST rate from bill
+        $sstRate = $bill->sst_rate ?? 8;
+        
+        // Check if sst column exists
+        $hasSstColumn = DB::select("SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS 
+            WHERE TABLE_SCHEMA = DATABASE() 
+            AND TABLE_NAME = 'loan_case_invoice_details' 
+            AND COLUMN_NAME = 'sst'");
+        $sstColumnExists = isset($hasSstColumn[0]) && $hasSstColumn[0]->count > 0;
+        
         if ($remainingCount > 0) {
             // Get all details for this bill and redistribute
             $allDetails = LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $billId)
@@ -1123,6 +1553,106 @@ class InvoiceController extends Controller
                         if ($detail->invoice_main_id == $remainingInvoice->id) {
                             $detail->amount = $distributedAmount;
                             $detail->save();
+                        }
+                    }
+                }
+            }
+            
+            // Recalculate SST for remaining invoices
+            // If only one invoice remains, calculate SST from individual amounts
+            // If multiple invoices remain, calculate from total across all invoices
+            if ($sstColumnExists) {
+                if ($remainingCount == 1) {
+                    // Single invoice: Calculate SST from individual item amounts
+                    $singleInvoice = $remainingInvoices->first();
+                    $singleInvoiceDetails = LoanCaseInvoiceDetails::where('invoice_main_id', $singleInvoice->id)
+                        ->where('status', '<>', 99)
+                        ->get();
+                    
+                    foreach ($singleInvoiceDetails as $detail) {
+                        // Get account item to check if taxable
+                        $accountItem = DB::table('account_item')
+                            ->where('id', $detail->account_item_id)
+                            ->first();
+                        
+                        if ($accountItem && in_array($accountItem->account_cat_id, [1, 4])) {
+                            // Calculate SST from individual amount
+                            $sstRaw = $detail->amount * ($sstRate / 100);
+                            $sstString = number_format($sstRaw, 3, '.', '');
+                            if (substr($sstString, -1) == '5') {
+                                $sstValue = floor($sstRaw * 100) / 100; // Round down
+                            } else {
+                                $sstValue = round($sstRaw, 2); // Normal rounding
+                            }
+                            
+                            $detail->sst = $sstValue;
+                            $detail->save();
+                        } else {
+                            // Non-taxable items: clear SST
+                            $detail->sst = null;
+                            $detail->save();
+                        }
+                    }
+                } else {
+                    // Still split: Recalculate SST from total across all remaining invoices
+                    $allAccountItemIds = DB::table('loan_case_invoice_details as ild')
+                        ->leftJoin('account_item as ai', 'ild.account_item_id', '=', 'ai.id')
+                        ->where('ild.loan_case_main_bill_id', $billId)
+                        ->where('ild.status', '<>', 99)
+                        ->whereIn('ai.account_cat_id', [1, 4]) // Professional fees and reimbursement
+                        ->distinct()
+                        ->pluck('ild.account_item_id')
+                        ->toArray();
+                    
+                    foreach ($allAccountItemIds as $accountItemId) {
+                        // Get total amount for this account_item_id across all remaining invoices
+                        $totalAmountForItem = DB::table('loan_case_invoice_details as ild')
+                            ->where('ild.loan_case_main_bill_id', $billId)
+                            ->where('ild.account_item_id', $accountItemId)
+                            ->where('ild.status', '<>', 99)
+                            ->sum('ild.amount');
+                        
+                        // Calculate total SST from total amount
+                        $totalSstRaw = $totalAmountForItem * ($sstRate / 100);
+                        $totalSstString = number_format($totalSstRaw, 3, '.', '');
+                        if (substr($totalSstString, -1) == '5') {
+                            $totalSstForItem = floor($totalSstRaw * 100) / 100; // Round down
+                        } else {
+                            $totalSstForItem = round($totalSstRaw, 2); // Normal rounding
+                        }
+                        
+                        // Get all detail records for this account_item_id across all remaining invoices
+                        $allDetailsForItem = DB::table('loan_case_invoice_details as ild')
+                            ->where('ild.loan_case_main_bill_id', $billId)
+                            ->where('ild.account_item_id', $accountItemId)
+                            ->where('ild.status', '<>', 99)
+                            ->select('ild.id', 'ild.amount')
+                            ->get();
+                        
+                        // Distribute SST proportionally to each detail
+                        $distributedSst = [];
+                        $totalDistributedSst = 0;
+                        
+                        foreach ($allDetailsForItem as $detail) {
+                            if ($totalAmountForItem > 0) {
+                                $proportionalSst = ($totalSstForItem * $detail->amount) / $totalAmountForItem;
+                                $distributedSst[$detail->id] = round($proportionalSst, 2);
+                                $totalDistributedSst += $distributedSst[$detail->id];
+                            }
+                        }
+                        
+                        // Adjust for rounding differences
+                        $difference = $totalSstForItem - $totalDistributedSst;
+                        if (abs($difference) > 0.001 && count($distributedSst) > 0) {
+                            $firstDetailId = array_key_first($distributedSst);
+                            $distributedSst[$firstDetailId] = round($distributedSst[$firstDetailId] + $difference, 2);
+                        }
+                        
+                        // Update SST values in database
+                        foreach ($distributedSst as $detailId => $sstValue) {
+                            DB::table('loan_case_invoice_details')
+                                ->where('id', $detailId)
+                                ->update(['sst' => $sstValue]);
                         }
                     }
                 }
@@ -1629,17 +2159,23 @@ class InvoiceController extends Controller
     private function caseManagementEngine()
     {
         $current_user = auth()->user();
-        $accessCaseList = [];
+        
+        // Use the same case access logic as CaseController
+        $accessCaseList = CaseController::caseManagementEngine();
 
-        // Get cases based on user role and access
+        // For maker, lawyer, clerk, receptionist, chambering roles, also check cases_pic table
+        // This ensures users can see invoices for cases they are assigned as PIC
         if (in_array($current_user->menuroles, ['lawyer', 'sales', 'clerk', 'receptionist', 'chambering', 'maker'])) {
-            $accessCaseList = DB::table('cases_pic')
-                ->where('user_id', $current_user->id)
+            $picCaseList = DB::table('cases_pic')
+                ->where('pic_id', $current_user->id)
+                ->where('status', 1)
                 ->pluck('case_id')
                 ->toArray();
+            $accessCaseList = array_merge($accessCaseList, $picCaseList);
         }
 
-        return $accessCaseList;
+        // Remove duplicates and return
+        return array_unique($accessCaseList);
     }
 }
 

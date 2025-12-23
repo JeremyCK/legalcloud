@@ -204,6 +204,12 @@
 
         }
 
+        function showGenerateQuotationModal(quotationId) {
+            // Generate quotation PDF directly
+            var url = '/quotation-generator/generate/' + quotationId;
+            window.open(url, '_blank');
+        }
+
         $(function() {
             reloadTable();
         });

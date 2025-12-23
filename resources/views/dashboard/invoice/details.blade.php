@@ -1114,22 +1114,30 @@
         $('.invoice-detail-amount').each(function() {
             var $input = $(this);
             var detailId = $input.data('detail-id');
-            var detailAmount = $input.val();
+            var detailAmountRaw = $input.val();
+            // Ensure amount is formatted to 2 decimal places to preserve precision
+            var detailAmount = detailAmountRaw !== '' && detailAmountRaw !== undefined ? 
+                parseFloat(detailAmountRaw).toFixed(2) : '0.00';
             var $sstInput = $('.invoice-detail-sst[data-detail-id="' + detailId + '"]');
-            var detailSst = $sstInput.length > 0 ? $sstInput.val() : null;
+            var detailSstRaw = $sstInput.length > 0 ? $sstInput.val() : null;
+            // Ensure SST is formatted to 2 decimal places if provided
+            var detailSst = detailSstRaw !== null && detailSstRaw !== undefined && detailSstRaw !== '' ? 
+                parseFloat(detailSstRaw).toFixed(2) : null;
             
             // Debug logging for specific detail (Fax/Telephone Charges - detail ID 168726)
             if (detailId == '168726') {
                 console.log('=== DETAIL 168726 DEBUG ===');
                 console.log('Input element:', $input);
-                console.log('Input value (raw):', detailAmount);
+                console.log('Input value (raw):', detailAmountRaw);
+                console.log('Input value (formatted):', detailAmount);
                 console.log('Input value (parsed):', parseFloat(detailAmount));
                 console.log('Input data attributes:', {
                     'detail-id': $input.data('detail-id'),
                     'category-id': $input.data('category-id'),
                     'taxable': $input.data('taxable')
                 });
-                console.log('SST value:', detailSst);
+                console.log('SST value (raw):', detailSstRaw);
+                console.log('SST value (formatted):', detailSst);
             }
             
             if (detailId && detailAmount !== undefined) {

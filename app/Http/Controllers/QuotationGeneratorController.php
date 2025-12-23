@@ -33,6 +33,8 @@ use App\Models\User;
 use App\Models\Voucher;
 use Illuminate\Support\Facades\DB;
 use Yajra\DataTables\Facades\DataTables;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Support\Facades\Log;
 
 class QuotationGeneratorController extends Controller
 {
@@ -140,6 +142,9 @@ class QuotationGeneratorController extends Controller
                     <div class="dropdown-menu" style="padding:0">
                       <a class="dropdown-item btn-info" href="/quotation-generator-edit/' . $row->id . '"  style="color:white;margin:0"><i style="margin-right: 10px;"  class="cil-pencil"></i>Edit</a>
                       <a class="dropdown-item btn-success"  href="javascript:void(0)" onclick="copyTemplate(' . $row->id . ')"  style="color:white;margin:0"><i style="margin-right: 10px;"  class="cil-search"></i>Copy</a>
+                      <div class="dropdown-divider" style="margin:0"></div>
+                      <a class="dropdown-item btn-success" href="javascript:void(0)" onclick="showGenerateQuotationModal(' . $row->id . ')"  style="color:white;margin:0"><i style="margin-right: 10px;"  class="cil-cloud-download"></i>Download Quotation</a>
+                      <div class="dropdown-divider" style="margin:0"></div>
                       <a class="dropdown-item btn-danger"  href="javascript:void(0)" onclick="deleteSavedQuotation(' . $row->id . ')"  style="color:white;margin:0"><i style="margin-right: 10px;"  class="cil-x"></i>Delete</a>
                       ';
                     return $actionBtn;
@@ -1070,6 +1075,376 @@ class QuotationGeneratorController extends Controller
                     return view('dashboard.shared.universal-info');
                 }
             }
+        }
+    }
+
+    /**
+     * Generate Quotation PDF from quotation generator
+     */
+    public function generateQuotation($id)
+    {
+        try {
+            $QuotationGeneratorMain = QuotationGeneratorMain::where('id', '=', $id)->where('status', '=', 1)->first();
+            
+            if (!$QuotationGeneratorMain) {
+                return response()->json([
+                    'status' => 0,
+                    'message' => 'Quotation not found'
+                ], 404);
+            }
+
+            $current_user = auth()->user();
+            $category = AccountCategory::where('status', '=', 1)->orderBy('order', 'asc')->get();
+            
+            // Get branch info
+            $Branch = Branch::where('id', '=', $current_user->branch_id)->first();
+            if (!$Branch) {
+                $Branch = Branch::where('id', '=', 1)->first();
+            }
+            
+            // Organize quotation details by category (similar to how print works)
+            $account_list_1 = []; // Professional fees
+            $account_list_2 = []; // Stamp duties
+            $account_list_3 = []; // Disbursement
+            $account_list_4 = []; // Reimbursement
+            
+            $sst_rate = $QuotationGeneratorMain->sst_rate ?? 6;
+            
+            for ($i = 0; $i < count($category); $i++) {
+                $QuotationGeneratorDetails = DB::table('quotation_generator_details AS qd')
+                    ->leftJoin('account_item AS a', 'a.id', '=', 'qd.account_item_id')
+                    ->select('qd.*', 'a.name as account_name', 'a.formula as account_formula', 'a.min as account_min', 'a.max as max', 'a.amount as account_amt', 'a.id as account_item_id', 'a.remark as item_desc')
+                    ->where('qd.quo_gen_main_template_id', '=', $id)
+                    ->where('a.account_cat_id', '=', $category[$i]->id)
+                    ->orderBy('order_no', 'ASC')
+                    ->get();
+                
+                foreach ($QuotationGeneratorDetails as $detail) {
+                    $item = [
+                        'account_name' => $detail->account_name,
+                        'amount' => $detail->amount,
+                        'item_desc' => $detail->remark ?? $detail->item_desc ?? ''
+                    ];
+                    
+                    // Categorize by account category
+                    if ($category[$i]->id == 1) { // Professional fees
+                        $account_list_1[] = $item;
+                    } else if ($category[$i]->id == 2) { // Stamp duties
+                        $account_list_2[] = $item;
+                    } else if ($category[$i]->id == 3) { // Disbursement
+                        $account_list_3[] = $item;
+                    } else if ($category[$i]->id == 4) { // Reimbursement
+                        $account_list_4[] = $item;
+                    }
+                }
+            }
+            
+            // Generate filename
+            $filename = 'Quotation_' . str_replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], '_', $QuotationGeneratorMain->name) . '_' . date('Y-m-d') . '.pdf';
+            
+            // Get quotation number
+            $parameter = Parameter::where('parameter_type', '=', 'quotation_running_no')->first();
+            $quotation_no = $current_user->nick_name . '_' . $parameter->parameter_value_1;
+            
+            // Build table HTML for quotation PDF
+            $bln_discount = $QuotationGeneratorMain->bln_discount ?? 0;
+            $discount = $QuotationGeneratorMain->discount ?? 0;
+            
+            $tableHtml = view('dashboard.quotation-generator-v2.table.tbl-quotation-p', compact(
+                'account_list_1',
+                'account_list_2',
+                'account_list_3',
+                'account_list_4',
+                'sst_rate',
+                'bln_discount',
+                'discount'
+            ))->render();
+            
+            // Get quotation number
+            $parameter = Parameter::where('parameter_type', '=', 'quotation_running_no')->first();
+            $quotation_no = $current_user->nick_name . '_' . $parameter->parameter_value_1;
+            
+            // Create simplified quotation HTML
+            $fullHtml = '<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Quotation</title>
+    <style>
+        @page {
+            margin: 15mm;
+            size: A4 portrait;
+        }
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 0;
+            padding: 0;
+            font-size: 12px;
+        }
+        .page-header { 
+            border-bottom: 2px solid #333; 
+            padding-bottom: 10px; 
+            margin-bottom: 20px; 
+        }
+        .invoice-info { 
+            margin-bottom: 20px; 
+        }
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin-top: 20px;
+            table-layout: fixed;
+        }
+        thead {
+            display: table-header-group;
+        }
+        tbody {
+            display: table-row-group;
+        }
+        th, td { 
+            border: 1px solid #000; 
+            padding: 8px; 
+            word-wrap: break-word;
+        }
+        th { 
+            background-color: #9fcff0; 
+            font-weight: bold; 
+        }
+        .text-right { 
+            text-align: right; 
+        }
+        address { 
+            margin: 0; 
+        }
+    </style>
+</head>
+<body>
+    <div class="page-header">
+        <h2>Quotation <small style="float: right;">Date: ' . date('d/m/Y') . '</small></h2>
+    </div>
+    
+    <div class="invoice-info">
+        <div style="width: 50%; float: left;">
+            <b>From</b>
+            <address>
+                <strong style="color: #2d659d">' . htmlspecialchars($Branch->office_name) . '</strong><br>
+                Advocates & Solicitors<br>
+                ' . strip_tags($Branch->address) . '<br>
+                <b>Phone</b>: ' . htmlspecialchars($Branch->tel_no) . ' <b>Fax</b>: ' . htmlspecialchars($Branch->fax) . '<br>
+                <b>Email</b>: ' . htmlspecialchars($Branch->email) . '
+            </address>
+        </div>
+        <div style="width: 50%; float: right; text-align: right;">
+            <b>To</b>
+            <address>
+                <strong style="color: #0066cc">' . htmlspecialchars($QuotationGeneratorMain->bill_to ?? '') . '</strong>
+            </address>
+        </div>
+        <div style="clear: both;"></div>
+        <div style="margin-top: 20px;">
+            <div style="float: left;"><b>Quotation No: </b>' . htmlspecialchars($quotation_no) . '</div>
+            <div style="clear: both;"></div>
+        </div>
+    </div>
+    
+    <table class="table table-striped" style="width: 100%; border-collapse: collapse;">
+    ' . $tableHtml . '
+    </table>
+</body>
+</html>';
+            
+            try {
+                $pdf = Pdf::loadHTML($fullHtml)->setOptions([
+                    'isHtml5ParserEnabled' => true,
+                    'isRemoteEnabled' => false,
+                    'chroot' => public_path(),
+                ]);
+            } catch (\Exception $pdfError) {
+                Log::error('Quotation PDF Generation Error: ' . $pdfError->getMessage());
+                return response()->json([
+                    'status' => 0,
+                    'message' => 'Error generating PDF: ' . $pdfError->getMessage()
+                ], 500);
+            }
+            
+            $pdf->setPaper('A4', 'portrait');
+            return $pdf->download($filename);
+            
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'Error generating PDF: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Generate Invoice PDF from quotation
+     */
+    public function generateInvoice($id)
+    {
+        try {
+            $QuotationGeneratorMain = QuotationGeneratorMain::where('id', '=', $id)->where('status', '=', 1)->first();
+            
+            if (!$QuotationGeneratorMain) {
+                return response()->json([
+                    'status' => 0,
+                    'message' => 'Quotation not found'
+                ], 404);
+            }
+
+            $current_user = auth()->user();
+            $category = AccountCategory::where('status', '=', 1)->orderBy('order', 'asc')->get();
+            
+            $quotation_v3 = array();
+            
+            for ($i = 0; $i < count($category); $i++) {
+                $QuotationGeneratorDetails = DB::table('quotation_generator_details AS qd')
+                    ->leftJoin('account_item AS a', 'a.id', '=', 'qd.account_item_id')
+                    ->select('qd.*', 'a.name as account_name', 'a.name_cn as account_name_cn', 'a.formula as account_formula', 'a.min as account_min', 'a.id as account_item_id', 'a.pfee1_item', 'a.remark as item_desc', 'qd.remark as item_remark')
+                    ->where('qd.quo_gen_main_template_id', '=', $id)
+                    ->where('a.account_cat_id', '=', $category[$i]->id)
+                    ->orderBy('order_no', 'ASC')
+                    ->get();
+                
+                if (count($QuotationGeneratorDetails) > 0) {
+                    array_push($quotation_v3, array('row' => 'title', 'category' => $category[$i], 'account_details' => []));
+                    
+                    for ($j = 0; $j < count($QuotationGeneratorDetails); $j++) {
+                        array_push($quotation_v3, array('row' => 'item', 'category' => $category[$i], 'account_details' => $QuotationGeneratorDetails[$j]));
+                    }
+                    
+                    array_push($quotation_v3, array('row' => 'subtotal', 'category' => $category[$i], 'account_details' => []));
+                }
+            }
+            
+            $pieces = array_chunk($quotation_v3, 30);
+            
+            // Get branch info
+            $Branch = Branch::where('id', '=', $current_user->branch_id)->first();
+            if (!$Branch) {
+                $Branch = Branch::where('id', '=', 1)->first();
+            }
+            
+            // Generate filename
+            $filename = 'Invoice_' . $QuotationGeneratorMain->name . '_' . date('Y-m-d') . '.pdf';
+            
+            // Use invoice print template
+            $fullHtml = view('dashboard.case.d-invoice-print-simple', compact(
+                'current_user', 
+                'Branch', 
+                'quotation_v3', 
+                'pieces',
+                'QuotationGeneratorMain'
+            ))->render();
+            
+            try {
+                $pdf = Pdf::loadHTML($fullHtml)->setOptions([
+                    'isHtml5ParserEnabled' => true,
+                    'isRemoteEnabled' => false,
+                    'chroot' => public_path(),
+                ]);
+            } catch (\Exception $pdfError) {
+                Log::error('Invoice PDF Generation Error: ' . $pdfError->getMessage());
+                return response()->json([
+                    'status' => 0,
+                    'message' => 'Error generating PDF: ' . $pdfError->getMessage()
+                ], 500);
+            }
+            
+            $pdf->setPaper('A4', 'portrait');
+            return $pdf->download($filename);
+            
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'Error generating PDF: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Generate Proforma Invoice PDF from quotation
+     */
+    public function generateProformaInvoice($id)
+    {
+        try {
+            $QuotationGeneratorMain = QuotationGeneratorMain::where('id', '=', $id)->where('status', '=', 1)->first();
+            
+            if (!$QuotationGeneratorMain) {
+                return response()->json([
+                    'status' => 0,
+                    'message' => 'Quotation not found'
+                ], 404);
+            }
+
+            $current_user = auth()->user();
+            $category = AccountCategory::where('status', '=', 1)->orderBy('order', 'asc')->get();
+            
+            $quotation_v3 = array();
+            
+            for ($i = 0; $i < count($category); $i++) {
+                $QuotationGeneratorDetails = DB::table('quotation_generator_details AS qd')
+                    ->leftJoin('account_item AS a', 'a.id', '=', 'qd.account_item_id')
+                    ->select('qd.*', 'a.name as account_name', 'a.name_cn as account_name_cn', 'a.formula as account_formula', 'a.min as account_min', 'a.id as account_item_id', 'a.pfee1_item', 'a.remark as item_desc', 'qd.remark as item_remark')
+                    ->where('qd.quo_gen_main_template_id', '=', $id)
+                    ->where('a.account_cat_id', '=', $category[$i]->id)
+                    ->orderBy('order_no', 'ASC')
+                    ->get();
+                
+                if (count($QuotationGeneratorDetails) > 0) {
+                    array_push($quotation_v3, array('row' => 'title', 'category' => $category[$i], 'account_details' => []));
+                    
+                    for ($j = 0; $j < count($QuotationGeneratorDetails); $j++) {
+                        array_push($quotation_v3, array('row' => 'item', 'category' => $category[$i], 'account_details' => $QuotationGeneratorDetails[$j]));
+                    }
+                    
+                    array_push($quotation_v3, array('row' => 'subtotal', 'category' => $category[$i], 'account_details' => []));
+                }
+            }
+            
+            $pieces = array_chunk($quotation_v3, 30);
+            
+            // Get branch info
+            $Branch = Branch::where('id', '=', $current_user->branch_id)->first();
+            if (!$Branch) {
+                $Branch = Branch::where('id', '=', 1)->first();
+            }
+            
+            // Generate filename
+            $filename = 'Proforma_Invoice_' . $QuotationGeneratorMain->name . '_' . date('Y-m-d') . '.pdf';
+            
+            // Use proforma invoice print template
+            $fullHtml = view('dashboard.case.d-quotation-print-simple', compact(
+                'current_user', 
+                'Branch', 
+                'quotation_v3', 
+                'pieces',
+                'QuotationGeneratorMain'
+            ))->render();
+            
+            try {
+                $pdf = Pdf::loadHTML($fullHtml)->setOptions([
+                    'isHtml5ParserEnabled' => true,
+                    'isRemoteEnabled' => false,
+                    'chroot' => public_path(),
+                ]);
+            } catch (\Exception $pdfError) {
+                Log::error('Proforma Invoice PDF Generation Error: ' . $pdfError->getMessage());
+                return response()->json([
+                    'status' => 0,
+                    'message' => 'Error generating PDF: ' . $pdfError->getMessage()
+                ], 500);
+            }
+            
+            $pdf->setPaper('A4', 'portrait');
+            return $pdf->download($filename);
+            
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'Error generating PDF: ' . $e->getMessage()
+            ], 500);
         }
     }
 }
