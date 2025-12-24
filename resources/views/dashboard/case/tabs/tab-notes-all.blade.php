@@ -70,9 +70,11 @@
                                     @php
                                         // Check if this is a system-created note (has non-empty label)
                                         // System notes have labels like: 'operation|dispatch', 'setkiv', 'case_status', etc.
+                                        // EXCEPTION: 'createcase' is NOT a system note - it's user-created and should be editable
                                         // Handle null, empty string, or whitespace-only labels
                                         $labelValue = isset($notes->label) ? trim($notes->label) : '';
-                                        $isSystemNote = $labelValue !== '';
+                                        // Exclude 'createcase' from being treated as a system note
+                                        $isSystemNote = $labelValue !== '' && $labelValue !== 'createcase';
                                         
                                         // Check if user is admin/management
                                         $isAdmin = in_array($current_user->menuroles, ['admin', 'management']);
@@ -83,12 +85,13 @@
                                             // For system notes, only admin/management can delete
                                             $canDelete = $isAdmin;
                                         } else {
-                                            // For user-created notes, only the creator can delete
+                                            // For user-created notes (including 'createcase'), only the creator can delete
                                             $canDelete = $notes->created_by == $current_user->id;
                                         }
                                         
                                         // Check if user can edit (only for non-system notes that they created)
                                         // System notes cannot be edited by anyone
+                                        // 'createcase' notes can be edited by their creator
                                         $canEdit = !$isSystemNote && $notes->created_by == $current_user->id;
                                         
                                         // Only show dropdown if user has permission to delete or edit

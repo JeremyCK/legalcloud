@@ -15792,7 +15792,9 @@ class CaseController extends Controller
 
         // Check if this is a system-created note (has non-empty label)
         // System-created notes include: 'operation|dispatch', 'setkiv', 'case_status', etc.
-        if (!empty($LoanCaseKivNotes->label) && !empty(trim($LoanCaseKivNotes->label))) {
+        // EXCEPTION: 'createcase' is NOT a system note - it's user-created and can be deleted by the creator
+        $labelValue = !empty($LoanCaseKivNotes->label) ? trim($LoanCaseKivNotes->label) : '';
+        if ($labelValue !== '' && $labelValue !== 'createcase') {
             // Only admin and management can delete system-created notes
             if (!in_array($current_user->menuroles, ['admin', 'management'])) {
                 return response()->json(['status' => 0, 'data' => 'Notes updated', 'return_id' => $id, 'message' => 'System-created notes cannot be deleted. Only administrators can delete these notes.']);
