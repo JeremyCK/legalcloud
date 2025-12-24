@@ -275,7 +275,7 @@ class InvoiceController extends Controller
                 ->where('id.invoice_main_id', '=', $invoiceId)
                 ->where('id.status', '<>', 99)
                 ->orderBy('ac.order', 'ASC')
-                ->orderBy('ai.name', 'ASC')
+                ->orderBy('id.id', 'ASC')
                 ->get();
             
             // IMPORTANT: Do NOT recalculate SST when loading - just read what's in the database
