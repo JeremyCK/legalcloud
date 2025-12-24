@@ -1425,6 +1425,18 @@ Dropzone.autoDiscover = false;
         }
 
         function fileMode(id, case_id) {
+            // Clear any previously selected files
+            if (typeof myDropzone !== 'undefined' && myDropzone != null) {
+                myDropzone.removeAllFiles(true);
+            }
+            if (typeof filesData !== 'undefined') {
+                filesData = {};
+                fileCounter = 0;
+            }
+            $('#file-list-tbody').empty();
+            $('#file-list-container').hide();
+            document.getElementById("form_file").reset();
+            
             $(".nav-tabs-custom-ctr").hide();
             $("#case_id").val(case_id);
             $("#selected_id").val(id);
@@ -1437,6 +1449,18 @@ Dropzone.autoDiscover = false;
         }
 
         function marketingBillMode(id, case_id) {
+            // Clear any previously selected files
+            if (typeof myDropzone !== 'undefined' && myDropzone != null) {
+                myDropzone.removeAllFiles(true);
+            }
+            if (typeof filesData !== 'undefined') {
+                filesData = {};
+                fileCounter = 0;
+            }
+            $('#file-list-tbody').empty();
+            $('#file-list-container').hide();
+            document.getElementById("form_file").reset();
+            
             $(".nav-tabs-custom-ctr").hide();
             // $("#case_id").val(case_id);
             // $("#selected_id").val(id);
