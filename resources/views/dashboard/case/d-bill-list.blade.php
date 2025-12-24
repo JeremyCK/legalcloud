@@ -405,6 +405,22 @@
                             <i class="fa fa-file-excel-o"> </i>Download as Excel
                         </a>
                     </div>
+                    <div class="col-12 mb-3">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <label for="filter_account_type">Filter by Account Type:</label>
+                                <select id="filter_account_type" class="form-control" onchange="filterDisbursementTable()">
+                                    <option value="">All</option>
+                                    <option value="OA">OA (Office Account)</option>
+                                    <option value="CA">CA (Client Account)</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label for="filter_item_name">Search Item Name:</label>
+                                <input type="text" id="filter_item_name" class="form-control" placeholder="e.g., Transport" onkeyup="filterDisbursementTable()">
+                            </div>
+                        </div>
+                    </div>
                     <?php $total_amt = 0; ?>
                     <div class="col-12 table-responsive" style="height:500px">
                         <table id="tbl-disb-case" class="table table-striped">

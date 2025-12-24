@@ -1013,6 +1013,36 @@
             return (sa);
         }
 
+        function filterDisbursementTable() {
+            var accountTypeFilter = $('#filter_account_type').val();
+            var itemNameFilter = $('#filter_item_name').val().toLowerCase();
+            var totalAmount = 0;
+            
+            // Filter rows in the tbody (either #tbl-bill-disburse or #tbl-disb-case tbody)
+            var $rows = $('#tbl-disb-case tbody tr, #tbl-bill-disburse tr');
+            
+            $rows.each(function() {
+                var $row = $(this);
+                var accountType = $row.data('account-type') || '';
+                var itemName = $row.data('item-name') || '';
+                var amount = parseFloat($row.data('amount')) || 0;
+                
+                // Check if row matches filters
+                var matchesAccountType = !accountTypeFilter || accountType === accountTypeFilter;
+                var matchesItemName = !itemNameFilter || itemName.indexOf(itemNameFilter) !== -1;
+                
+                if (matchesAccountType && matchesItemName) {
+                    $row.show();
+                    totalAmount += amount;
+                } else {
+                    $row.hide();
+                }
+            });
+            
+            // Update total amount
+            $('#span_total_disb').text(numberWithCommas(totalAmount.toFixed(2)));
+        }
+
         function exportTableToExcelDisb() {
             var tab_text = "<table border='2px'><tr bgcolor='#87AFC6'>";
             var textRange;
@@ -3044,6 +3074,11 @@
                     $('#div-invoice-summary-details').html(data.InvoiceSummary);
                     $('#tbl-case-bill').html(data.view);
                     loadMasterListPrint();
+                    
+                    // Apply filters if any are set
+                    if ($('#filter_account_type').length && ($('#filter_account_type').val() || $('#filter_item_name').val())) {
+                        filterDisbursementTable();
+                    }
 
                     try {
 

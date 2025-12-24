@@ -7363,6 +7363,7 @@ class CaseController extends Controller
                 'vm.voucher_no',
                 'b.name as client_bank_name',
                 'b.short_code as bank_short_code',
+                'b.account_type as account_type',
                 'vm.lawyer_approval as lawyer_approval',
                 'vm.account_approval as account_approval',
                 'vm.remark as remark',

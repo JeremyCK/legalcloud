@@ -26,7 +26,7 @@
                     $total_disb += $disb->amount;
                 } 
             @endphp
-            <tr>
+            <tr data-account-type="{{ $disb->account_type ?? '' }}" data-item-name="{{ strtolower($disb->account_name ?? '') }}" data-amount="{{ $disb->account_approval != 2 ? $disb->amount : 0 }}">
                 <td>{{ $index + 1 }}</td>
                 <td><a target="_blank" href="/voucher/{{ $disb->voucher_id }}/edit">{{ $disb->voucher_no }}</a> </td>
                 <td>{{ $disb->transaction_id }}</td>
