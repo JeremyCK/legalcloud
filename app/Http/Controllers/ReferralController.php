@@ -102,7 +102,7 @@ class ReferralController extends Controller
             else {
                 if (in_array($current_user->id, [118,127, 179, 182,202]))
                 {
-                    $referral = $referral->where('status', '=', 1)->whereIn('created_by', [$current_user->id,32,141,118,127,143])->get();
+                    $referral = $referral->where('status', '=', 1)->whereIn('created_by', [$current_user->id,32,141,118,127,143, 182,179])->get();
                 }
                 else if (in_array($current_user->id, [14]))
                 {

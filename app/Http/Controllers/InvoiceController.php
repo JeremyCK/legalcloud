@@ -1063,6 +1063,9 @@ class InvoiceController extends Controller
         // Pass customSstValues to preserve manually entered SST values
         $this->updatePfeeDisbAmountINVFromDetails($bill->id, $customSstValues);
         
+        // Refresh invoice to get latest values after updatePfeeDisbAmountINVFromDetails
+        $invoice->refresh();
+        
         // Recalculate transfer fee main amounts for all transfer fees that include this invoice
         $this->updateTransferFeeMainAmountsForInvoice($invoiceId);
         
@@ -1943,11 +1946,13 @@ class InvoiceController extends Controller
      */
     private function updateTransferFeeMainAmountsForInvoice($invoiceId)
     {
-        // Get current invoice values
+        // Get current invoice values (refresh to ensure latest data)
         $invoice = LoanCaseInvoiceMain::find($invoiceId);
         if (!$invoice) {
             return;
         }
+        // Refresh to ensure we have the latest values after any updates
+        $invoice->refresh();
         
         // Find all transfer fee details that include this invoice
         $transferFeeDetails = TransferFeeDetails::where('loan_case_invoice_main_id', $invoiceId)
@@ -1959,10 +1964,10 @@ class InvoiceController extends Controller
         }
         
         // Calculate current invoice totals
-        $currentPfee = $invoice->pfee1_inv + $invoice->pfee2_inv;
-        $currentSst = $invoice->sst_inv;
-        $currentReimbursement = $invoice->reimbursement_amount;
-        $currentReimbursementSst = $invoice->reimbursement_sst;
+        $currentPfee = ($invoice->pfee1_inv ?? 0) + ($invoice->pfee2_inv ?? 0);
+        $currentSst = $invoice->sst_inv ?? 0;
+        $currentReimbursement = $invoice->reimbursement_amount ?? 0;
+        $currentReimbursementSst = $invoice->reimbursement_sst ?? 0;
         
         // Calculate total transferred amounts from transfer_fee_details
         $totalTransferredPfee = $transferFeeDetails->sum('transfer_amount');
@@ -1977,13 +1982,78 @@ class InvoiceController extends Controller
             
             // Update each transfer fee detail to reflect current invoice values
             foreach ($transferFeeDetails as $tfd) {
-                $oldReimbursementSst = $tfd->reimbursement_sst_amount ?? 0;
+                $oldTransferAmount = $tfd->transfer_amount ?? 0;
                 $oldSst = $tfd->sst_amount ?? 0;
+                $oldReimbursement = $tfd->reimbursement_amount ?? 0;
+                $oldReimbursementSst = $tfd->reimbursement_sst_amount ?? 0;
                 
-                // If reimbursement SST was transferred, update it to match current invoice value
-                // Use proportion to distribute if there are multiple transfer records
+                // Update transfer_amount (professional fee) if it was transferred
+                if ($totalTransferredPfee > 0 && $currentPfee > 0) {
+                    $proportion = $totalTransferredPfee > 0 ? ($oldTransferAmount / $totalTransferredPfee) : 0;
+                    $newTransferAmount = round($currentPfee * $proportion, 2);
+                    
+                    // If this is the only transfer or it's the full amount, use the current invoice value directly
+                    if ($transferFeeDetails->count() == 1 || abs($oldTransferAmount - $totalTransferredPfee) < 0.01) {
+                        $newTransferAmount = $currentPfee;
+                    }
+                    
+                    $tfd->transfer_amount = $newTransferAmount;
+                    
+                    if (abs($oldTransferAmount - $newTransferAmount) > 0.001) {
+                        Log::info("Updating transfer fee detail transfer amount", [
+                            'transfer_fee_detail_id' => $tfd->id,
+                            'old_transfer_amount' => $oldTransferAmount,
+                            'new_transfer_amount' => $newTransferAmount,
+                            'current_invoice_pfee' => $currentPfee
+                        ]);
+                    }
+                }
+                
+                // Update SST if it changed
+                if ($totalTransferredSst > 0 && $currentSst > 0) {
+                    $proportion = $totalTransferredSst > 0 ? ($oldSst / $totalTransferredSst) : 0;
+                    $newSst = round($currentSst * $proportion, 2);
+                    
+                    if ($transferFeeDetails->count() == 1 || abs($oldSst - $totalTransferredSst) < 0.01) {
+                        $newSst = $currentSst;
+                    }
+                    
+                    $tfd->sst_amount = $newSst;
+                    
+                    if (abs($oldSst - $newSst) > 0.001) {
+                        Log::info("Updating transfer fee detail SST", [
+                            'transfer_fee_detail_id' => $tfd->id,
+                            'old_sst' => $oldSst,
+                            'new_sst' => $newSst,
+                            'current_invoice_sst' => $currentSst
+                        ]);
+                    }
+                }
+                
+                // Update reimbursement_amount if it was transferred
+                if ($totalTransferredReimbursement > 0 && $currentReimbursement > 0) {
+                    $proportion = $totalTransferredReimbursement > 0 ? ($oldReimbursement / $totalTransferredReimbursement) : 0;
+                    $newReimbursement = round($currentReimbursement * $proportion, 2);
+                    
+                    // If this is the only transfer or it's the full amount, use the current invoice value directly
+                    if ($transferFeeDetails->count() == 1 || abs($oldReimbursement - $totalTransferredReimbursement) < 0.01) {
+                        $newReimbursement = $currentReimbursement;
+                    }
+                    
+                    $tfd->reimbursement_amount = $newReimbursement;
+                    
+                    if (abs($oldReimbursement - $newReimbursement) > 0.001) {
+                        Log::info("Updating transfer fee detail reimbursement amount", [
+                            'transfer_fee_detail_id' => $tfd->id,
+                            'old_reimbursement' => $oldReimbursement,
+                            'new_reimbursement' => $newReimbursement,
+                            'current_invoice_reimbursement' => $currentReimbursement
+                        ]);
+                    }
+                }
+                
+                // Update reimbursement SST if it was transferred
                 if ($totalTransferredReimbursementSst > 0 && $currentReimbursementSst > 0) {
-                    // Calculate proportion of total transferred reimbursement SST that this detail represents
                     $proportion = $totalTransferredReimbursementSst > 0 ? ($oldReimbursementSst / $totalTransferredReimbursementSst) : 0;
                     $newReimbursementSst = round($currentReimbursementSst * $proportion, 2);
                     
@@ -1999,26 +2069,18 @@ class InvoiceController extends Controller
                             'transfer_fee_detail_id' => $tfd->id,
                             'old_reimbursement_sst' => $oldReimbursementSst,
                             'new_reimbursement_sst' => $newReimbursementSst,
-                            'proportion' => $proportion,
                             'current_invoice_reimbursement_sst' => $currentReimbursementSst
                         ]);
                     }
                 }
                 
-                // Update SST if it changed (though this is less common)
-                if ($totalTransferredSst > 0 && $currentSst > 0) {
-                    $proportion = $totalTransferredSst > 0 ? ($oldSst / $totalTransferredSst) : 0;
-                    $newSst = round($currentSst * $proportion, 2);
-                    
-                    if ($transferFeeDetails->count() == 1 || abs($oldSst - $totalTransferredSst) < 0.01) {
-                        $newSst = $currentSst;
-                    }
-                    
-                    $tfd->sst_amount = $newSst;
-                }
-                
                 $tfd->save();
             }
+            
+            // Refresh transfer fee details from database to get updated values
+            $transferFeeDetails->each(function($tfd) {
+                $tfd->refresh();
+            });
             
             // Recalculate transfer fee main amount for each transfer fee
             foreach ($transferFeeMainIds as $transferFeeMainId) {
@@ -2026,6 +2088,7 @@ class InvoiceController extends Controller
             }
             
             // Update ledger entries V2 to reflect updated transfer fee details
+            // Use refreshed collection to ensure we have the latest values
             $ledgerUpdateResult = $this->updateLedgerEntriesForTransferFeeDetails($invoiceId, $transferFeeDetails);
             
             Log::info("Updated transfer fee details and main amounts for invoice", [
