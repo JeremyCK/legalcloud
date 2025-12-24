@@ -45,7 +45,20 @@
                     
                     <td class="text-center">{{ $main->prepare_by }}</td>
                     @if(App\Http\Controllers\AccessController::UserAccessPermissionController(App\Http\Controllers\PermissionController::ConvertInvoicePermission()) == true)
-                        <td><b>Inv No: </b>{{ $main->invoice_no }}<br /><b>Inv Amt: </b>{{ $main->total_amt_inv }}
+                        <td>
+                            @if(isset($main->invoices) && count($main->invoices) > 0)
+                                @foreach($main->invoices as $index => $invoice)
+                                    <b>Inv No: </b>{{ $invoice->invoice_no }}<br />
+                                    <b>Inv Amt: </b>{{ number_format($invoice->amount ?? 0, 2, '.', ',') }}
+                                    @if($index < count($main->invoices) - 1)
+                                        <br /><br />
+                                    @endif
+                                @endforeach
+                            @elseif($main->invoice_no)
+                                {{-- Fallback for backward compatibility --}}
+                                <b>Inv No: </b>{{ $main->invoice_no }}<br />
+                                <b>Inv Amt: </b>{{ number_format($main->total_amt_inv ?? 0, 2, '.', ',') }}
+                            @endif
                         </td>
                     @endif
 

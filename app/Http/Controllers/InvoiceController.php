@@ -388,14 +388,39 @@ class InvoiceController extends Controller
                 }
             }
 
-            // Format split invoices for response
+            // Recalculate invoice amounts from details to ensure accuracy
+            // This ensures the displayed amount matches the calculated total from details
+            $calculatedAmounts = $this->calculateInvoiceAmountsFromDetails($invoiceId, $sstRate);
+            $calculatedTotal = $calculatedAmounts['total'];
+            
+            // Update invoice amount if it differs from calculated (sync database with calculated value)
+            if (abs($invoice->amount - $calculatedTotal) > 0.01) {
+                DB::table('loan_case_invoice_main')
+                    ->where('id', $invoiceId)
+                    ->update(['amount' => $calculatedTotal, 'updated_at' => now()]);
+                $invoice->amount = $calculatedTotal; // Update local object for response
+            }
+            
+            // Format split invoices for response - recalculate amounts for all split invoices
             $splitInvoicesData = [];
             if ($isSplitInvoice) {
                 foreach ($splitInvoices as $splitInvoice) {
+                    // Recalculate amount for each split invoice to ensure accuracy
+                    $splitCalculated = $this->calculateInvoiceAmountsFromDetails($splitInvoice->id, $sstRate);
+                    $splitCalculatedTotal = $splitCalculated['total'];
+                    
+                    // Update split invoice amount if it differs
+                    if (abs($splitInvoice->amount - $splitCalculatedTotal) > 0.01) {
+                        DB::table('loan_case_invoice_main')
+                            ->where('id', $splitInvoice->id)
+                            ->update(['amount' => $splitCalculatedTotal, 'updated_at' => now()]);
+                        $splitInvoice->amount = $splitCalculatedTotal; // Update local object
+                    }
+                    
                     $splitInvoicesData[] = [
                         'id' => $splitInvoice->id,
                         'invoice_no' => $splitInvoice->invoice_no,
-                        'amount' => $splitInvoice->amount,
+                        'amount' => $splitInvoice->amount, // Now using recalculated amount
                         'Invoice_date' => $splitInvoice->Invoice_date,
                         'is_current' => $splitInvoice->id == $invoiceId
                     ];
@@ -1129,8 +1154,9 @@ class InvoiceController extends Controller
         $pfee1 = 0;
         $pfee2 = 0;
         $reimbursement_amount = 0;
+        $other_categories_amount = 0; // For categories 2 (Disbursement) and 3 (Stamp duties)
 
-        // Calculate pfee1, pfee2, and reimbursement_amount first
+        // Calculate pfee1, pfee2, reimbursement_amount, and other categories
         foreach ($details as $detail) {
             if ($detail->account_cat_id == 1) {
                 if ($detail->pfee1_item == 1) {
@@ -1140,6 +1166,9 @@ class InvoiceController extends Controller
                 }
             } elseif ($detail->account_cat_id == 4) {
                 $reimbursement_amount += $detail->amount;
+            } elseif ($detail->account_cat_id == 2 || $detail->account_cat_id == 3) {
+                // Include Disbursement (category 2) and Stamp duties (category 3) in total
+                $other_categories_amount += $detail->amount;
             }
         }
 
@@ -1240,7 +1269,9 @@ class InvoiceController extends Controller
 
         $sst = round($sst, 2);
         $reimbursement_sst = round($reimbursement_sst, 2);
-        $total = round($totalPfee + $sst + $reimbursement_amount + $reimbursement_sst, 2);
+        $other_categories_amount = round($other_categories_amount, 2);
+        // Total includes: Professional fees + SST + Reimbursement + Reimbursement SST + Other categories (Disbursement, Stamp duties)
+        $total = round($totalPfee + $sst + $reimbursement_amount + $reimbursement_sst + $other_categories_amount, 2);
 
         Log::info("Final calculated amounts", [
             'invoice_id' => $invoiceId,
@@ -1436,8 +1467,96 @@ class InvoiceController extends Controller
             }
         }
 
-        // Recalculate invoice amounts
+        // Recalculate invoice amounts and SST values for split invoices
         $caseController = new \App\Http\Controllers\CaseController();
+        
+        // First, calculate and save SST values for all details in split invoices
+        $bill = LoanCaseBillMain::find($billId);
+        if ($bill && $partyCount > 1) {
+            // Get all account items for this bill
+            $accountItems = DB::table('loan_case_invoice_details as ild')
+                ->leftJoin('account_item as ai', 'ild.account_item_id', '=', 'ai.id')
+                ->where('ild.loan_case_main_bill_id', $billId)
+                ->where('ild.status', '<>', 99)
+                ->whereIn('ai.account_cat_id', [1, 4]) // Only professional fees and reimbursement have SST
+                ->select('ild.account_item_id', 'ai.account_cat_id')
+                ->distinct()
+                ->get();
+            
+            foreach ($accountItems as $accountItem) {
+                // Get all details for this account_item_id across all invoices
+                $allDetailsForItem = LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $billId)
+                    ->where('account_item_id', $accountItem->account_item_id)
+                    ->where('status', '<>', 99)
+                    ->get();
+                
+                if ($allDetailsForItem->isEmpty()) {
+                    continue;
+                }
+                
+                // Use ori_invoice_amt to get the original total amount (before split)
+                // All details for the same account_item_id should have the same ori_invoice_amt
+                $firstDetail = $allDetailsForItem->first();
+                $totalAmountForItem = $firstDetail->ori_invoice_amt ?? 0;
+                
+                // If ori_invoice_amt is not set, fall back to sum of amounts
+                if ($totalAmountForItem == 0) {
+                    $totalAmountForItem = $allDetailsForItem->sum('amount');
+                }
+                
+                // Calculate total SST from the original total amount
+                $sstRateDecimal = ($bill->sst_rate ?? 0) / 100;
+                $totalSstRaw = $totalAmountForItem * $sstRateDecimal;
+                $totalSstString = number_format($totalSstRaw, 3, '.', '');
+                
+                if (substr($totalSstString, -1) == '5') {
+                    $totalSstForItem = floor($totalSstRaw * 100) / 100; // Round down
+                } else {
+                    $totalSstForItem = round($totalSstRaw, 2); // Normal rounding
+                }
+                
+                // Get sum of distributed amounts for proportional calculation
+                $totalDistributedAmount = $allDetailsForItem->sum('amount');
+                
+                // Distribute SST proportionally based on distributed amounts
+                $totalDistributedSst = 0;
+                $distributedSst = [];
+                
+                foreach ($allDetailsForItem as $index => $detail) {
+                    if ($totalDistributedAmount > 0) {
+                        $proportionalSst = ($totalSstForItem * $detail->amount) / $totalDistributedAmount;
+                        $distributedSst[$detail->id] = round($proportionalSst, 2);
+                        $totalDistributedSst += $distributedSst[$detail->id];
+                    } else {
+                        $distributedSst[$detail->id] = 0;
+                    }
+                }
+                
+                // Adjust for rounding differences
+                $difference = $totalSstForItem - $totalDistributedSst;
+                if (abs($difference) > 0.001 && count($distributedSst) > 0) {
+                    $firstDetailId = array_key_first($distributedSst);
+                    $distributedSst[$firstDetailId] = round($distributedSst[$firstDetailId] + $difference, 2);
+                }
+                
+                // Update SST values in database
+                foreach ($distributedSst as $detailId => $sstValue) {
+                    DB::table('loan_case_invoice_details')
+                        ->where('id', $detailId)
+                        ->update(['sst' => $sstValue]);
+                }
+                
+                Log::info("Split invoice SST calculation", [
+                    'account_item_id' => $accountItem->account_item_id,
+                    'ori_invoice_amt' => $totalAmountForItem,
+                    'total_sst' => $totalSstForItem,
+                    'total_distributed_amount' => $totalDistributedAmount,
+                    'distributed_sst' => $distributedSst
+                ]);
+            }
+        }
+        
+        // Now recalculate invoice amounts from details
         $caseController->updatePfeeDisbAmountINV($billId);
         
         return response()->json([

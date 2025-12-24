@@ -2805,12 +2805,31 @@ class CaseController extends Controller
 
         $quotation_template = QuotationTemplateMain::where('status', '=', 1)->get();
 
+        // Get bills with invoice information (supports multiple invoices per bill)
+        // First get the bills
         $loanCaseBillMain = DB::table('loan_case_bill_main AS m')
             ->leftJoin('users AS u', 'u.id', '=', 'm.created_by')
             ->select('m.*', 'u.name as prepare_by')
-            ->where('case_id', '=', $id)
+            ->where('m.case_id', '=', $id)
             ->where('m.status', '=',  '1')
             ->get();
+        
+        // Then get invoices for each bill and attach them
+        foreach ($loanCaseBillMain as $bill) {
+            $invoices = DB::table('loan_case_invoice_main')
+                ->select('invoice_no', 'amount')
+                ->where('loan_case_main_bill_id', $bill->id)
+                ->where('status', '<>', 99)
+                ->orderBy('id', 'ASC')
+                ->get();
+            
+            // Store invoices as array for the view
+            $bill->invoices = $invoices;
+            
+            // For backward compatibility, also set aggregated values
+            $bill->invoice_no = $invoices->pluck('invoice_no')->implode(', ');
+            $bill->total_amt_inv = $invoices->sum('amount');
+        }
 
         $LoanCaseTrustMain = LoanCaseTrustMain::where('case_id', '=', $id)->first();
 

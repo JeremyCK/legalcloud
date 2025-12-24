@@ -1999,6 +1999,20 @@ class EInvoiceContoller extends Controller
             ->value('Invoice_date');
         \Log::info("Verified date from DB: {$verifyDate}");
 
+        // Update ledger entries v2 date for this invoice
+        // Only update ledger entries that are linked to this invoice and are transfer-related
+        $ledgerUpdated = DB::table('ledger_entries_v2')
+            ->where('loan_case_invoice_main_id', $invoice->id)
+            ->where('status', '<>', 99)
+            ->whereIn('type', ['TRANSFER_OUT', 'TRANSFER_IN', 'SST_OUT', 'SST_IN', 'REIMB_OUT', 'REIMB_IN'])
+            ->update(['date' => $newDate, 'updated_at' => now()]);
+        
+        \Log::info("Updated {$ledgerUpdated} ledger entries v2 records with new invoice date");
+
+        // Note: Transfer fee details don't store invoice_date directly
+        // They JOIN to loan_case_invoice_main.Invoice_date, so they will automatically reflect the updated date
+        // No update needed for transfer_fee_details table
+
         // Create AccountLog entry
         $AccountLog = new AccountLog();
         $AccountLog->user_id = $current_user->id;
@@ -2008,7 +2022,7 @@ class EInvoiceContoller extends Controller
         $AccountLog->ori_amt = 0;
         $AccountLog->new_amt = 0;
         $AccountLog->action = 'Update';
-        $AccountLog->desc = $current_user->name . ' update invoice date for invoice ' . $invoice->invoice_no . ' from ' . ($oldDate ? date('d-m-Y', strtotime($oldDate)) : 'N/A') . ' to ' . date('d-m-Y', strtotime($request->invoice_date));
+        $AccountLog->desc = $current_user->name . ' update invoice date for invoice ' . $invoice->invoice_no . ' from ' . ($oldDate ? date('d-m-Y', strtotime($oldDate)) : 'N/A') . ' to ' . date('d-m-Y', strtotime($request->invoice_date)) . ' (Updated ' . $ledgerUpdated . ' ledger entries)';
         $AccountLog->status = 1;
         $AccountLog->created_at = date('Y-m-d H:i:s');
         $AccountLog->save();
@@ -2018,10 +2032,11 @@ class EInvoiceContoller extends Controller
 
         return response()->json([
             'status' => 1,
-            'message' => 'Invoice date updated successfully.',
+            'message' => 'Invoice date updated successfully. Updated ' . $ledgerUpdated . ' ledger entries.',
             'invoice_date' => $updatedDate,
             'invoice_no' => $invoice->invoice_no,
-            'bill_id' => $bill->id // Return bill_id for refreshing invoice section
+            'bill_id' => $bill->id, // Return bill_id for refreshing invoice section
+            'ledger_updated' => $ledgerUpdated
         ]);
     }
 

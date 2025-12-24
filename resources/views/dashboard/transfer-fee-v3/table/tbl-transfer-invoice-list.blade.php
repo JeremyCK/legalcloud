@@ -130,7 +130,42 @@
                                     @endif
                                 </td>
                                 <td style="font-size: 11px;">{{ $row->invoice_no ?? 'N/A' }}</td>
-                                <td style="font-size: 11px;">{{ $row->invoice_date ?? 'N/A' }}</td>
+                                <td style="font-size: 11px;">
+                                    @php
+                                        $invoiceDate = $row->invoice_date_raw ?? null;
+                                        $billInvoiceDate = $row->bill_invoice_date_raw ?? null;
+                                        $validDate = false;
+                                        
+                                        // Try invoice_date first
+                                        if ($invoiceDate && $invoiceDate != '' && $invoiceDate != '0000-00-00' && $invoiceDate != '1970-01-01') {
+                                            try {
+                                                $parsed = \Carbon\Carbon::parse($invoiceDate);
+                                                if ($parsed->year >= 1900) {
+                                                    $validDate = $parsed->format('Y-m-d');
+                                                }
+                                            } catch (\Exception $e) {
+                                                // Invalid date, try fallback
+                                            }
+                                        }
+                                        
+                                        // Fallback to bill_invoice_date if invoice_date is invalid
+                                        if (!$validDate && $billInvoiceDate && $billInvoiceDate != '' && $billInvoiceDate != '0000-00-00' && $billInvoiceDate != '1970-01-01') {
+                                            try {
+                                                $parsed = \Carbon\Carbon::parse($billInvoiceDate);
+                                                if ($parsed->year >= 1900) {
+                                                    $validDate = $parsed->format('Y-m-d');
+                                                }
+                                            } catch (\Exception $e) {
+                                                // Invalid date
+                                            }
+                                        }
+                                    @endphp
+                                    @if($validDate)
+                                        {{ $validDate }}
+                                    @else
+                                        N/A
+                                    @endif
+                                </td>
                                 <td class="text-right" style="font-size: 11px;">
                                     {{ number_format(($row->pfee1_inv ?? 0) + ($row->pfee2_inv ?? 0) + ($row->sst_inv ?? 0), 2, '.', ',') }}
                                 </td>
@@ -185,10 +220,24 @@
                                     {{ number_format($row->transferred_sst_amt ?? 0, 2, '.', ',') }}
                                 </td>
                                 <td style="font-size: 11px;">
-                                    @if($row->payment_receipt_date)
-                                        {{ $row->payment_receipt_date }}
-                                    @elseif($row->bill_invoice_date)
-                                        {{ $row->bill_invoice_date }}
+                                    @php
+                                        $paymentDate = $row->payment_receipt_date ?? null;
+                                        $validPaymentDate = false;
+                                        
+                                        // Only use payment_receipt_date (no fallback)
+                                        if ($paymentDate && $paymentDate != '' && $paymentDate != '0000-00-00' && $paymentDate != '1970-01-01') {
+                                            try {
+                                                $parsed = \Carbon\Carbon::parse($paymentDate);
+                                                if ($parsed->year >= 1900) {
+                                                    $validPaymentDate = $parsed->format('Y-m-d');
+                                                }
+                                            } catch (\Exception $e) {
+                                                // Invalid date
+                                            }
+                                        }
+                                    @endphp
+                                    @if($validPaymentDate)
+                                        {{ $validPaymentDate }}
                                     @else
                                         N/A
                                     @endif

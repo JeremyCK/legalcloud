@@ -211,9 +211,20 @@ class TransferFeeV2Controller extends Controller
                 'ibp.customer_code',
                 'ibp.customer_name as billing_party_name'
             )
-            ->where('im.transferred_to_office_bank', '=', 0)
+            ->where(function($q) {
+                // Only show invoices that haven't been transferred (handle both 0 and NULL)
+                $q->where('im.transferred_to_office_bank', '=', 0)
+                  ->orWhereNull('im.transferred_to_office_bank');
+            })
             ->where('im.status', '<>', 99)
-            ->where('im.bln_invoice', '=', 1);
+            ->where('im.bln_invoice', '=', 1)
+            ->whereNotExists(function($query) {
+                // Exclude invoices that already have transfer_fee_details records (already transferred)
+                $query->select(DB::raw(1))
+                      ->from('transfer_fee_details as tfd')
+                      ->whereColumn('tfd.loan_case_invoice_main_id', 'im.id')
+                      ->where('tfd.status', '<>', 99);
+            });
 
         // Branch access control
         if (in_array($current_user->menuroles, ['maker'])) {

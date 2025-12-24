@@ -326,7 +326,8 @@ class TransferFeeV3Controller extends Controller
                 ->select(
                     'im.id',
                     'im.invoice_no',
-                    DB::raw('DATE(im.Invoice_date) as invoice_date'),
+                    'im.Invoice_date as invoice_date_raw',
+                    DB::raw('NULL as invoice_date'), // Will be formatted in view
                     'im.status',
                     'im.loan_case_main_bill_id',
                     'im.transferred_pfee_amt',
@@ -342,7 +343,8 @@ class TransferFeeV3Controller extends Controller
                 'b.collected_amt as bill_collected_amt',
                 'b.total_amt as bill_total_amt', // Payment receipt date from bill table
                     'b.invoice_no as bill_invoice_no',
-                    DB::raw('DATE(b.invoice_date) as bill_invoice_date'),
+                    'b.invoice_date as bill_invoice_date_raw',
+                    DB::raw('NULL as bill_invoice_date'), // Will be formatted in view
                     'b.invoice_branch_id', // Add branch ID for filtering
                     'l.case_ref_no',
                     'l.id as case_id', // Add case_id for hyperlink
@@ -351,9 +353,20 @@ class TransferFeeV3Controller extends Controller
                     'ibp.customer_name as billing_party_name'
                 )
                 ->where('im.status', '<>', 99)
-                ->where('im.transferred_to_office_bank', '=', 0) // Only show invoices that haven't been transferred
+                ->where(function($q) {
+                    // Only show invoices that haven't been transferred (handle both 0 and NULL)
+                    $q->where('im.transferred_to_office_bank', '=', 0)
+                      ->orWhereNull('im.transferred_to_office_bank');
+                })
                 ->whereNotNull('im.loan_case_main_bill_id') // Only show invoices with valid bill IDs
-                ->where('im.loan_case_main_bill_id', '>', 0); // Ensure bill ID is greater than 0
+                ->where('im.loan_case_main_bill_id', '>', 0) // Ensure bill ID is greater than 0
+                ->whereNotExists(function($query) {
+                    // Exclude invoices that already have transfer_fee_details records (already transferred)
+                    $query->select(DB::raw(1))
+                          ->from('transfer_fee_details as tfd')
+                          ->whereColumn('tfd.loan_case_invoice_main_id', 'im.id')
+                          ->where('tfd.status', '<>', 99);
+                });
 
             // Apply centralized branch filtering
             BranchAccessService::applyBranchFilter($query, $current_user, 'b.invoice_branch_id');
@@ -708,12 +721,16 @@ class TransferFeeV3Controller extends Controller
                         
                         // Check if all amounts (pfee, SST, reimbursement, reimbursement SST) are fully transferred
                         $remaining_pfee = bcsub($inv_pfee, $SumTransferFee, 2);
-                        $remaining_sst = bcsub($LoanCaseInvoiceMain->sst_inv, $SumTransferSst, 2);
-                        $remaining_reimbursement = bcsub($LoanCaseInvoiceMain->reimbursement_amount, $SumTransferReimbursement, 2);
-                        $remaining_reimbursement_sst = bcsub($LoanCaseInvoiceMain->reimbursement_sst, $SumTransferReimbursementSst, 2);
+                        $remaining_sst = bcsub($LoanCaseInvoiceMain->sst_inv ?? 0, $SumTransferSst, 2);
+                        $remaining_reimbursement = bcsub($LoanCaseInvoiceMain->reimbursement_amount ?? 0, $SumTransferReimbursement, 2);
+                        $remaining_reimbursement_sst = bcsub($LoanCaseInvoiceMain->reimbursement_sst ?? 0, $SumTransferReimbursementSst, 2);
                         
                         // Mark as fully transferred only if all amounts are <= 0
-                        if ($remaining_pfee <= 0 && $remaining_sst <= 0 && $remaining_reimbursement <= 0 && $remaining_reimbursement_sst <= 0) {
+                        // If original amount is NULL or 0, consider it as fully transferred (no amount to transfer)
+                        if ($remaining_pfee <= 0 && 
+                            $remaining_sst <= 0 && 
+                            ($remaining_reimbursement <= 0 || ($LoanCaseInvoiceMain->reimbursement_amount ?? 0) == 0) &&
+                            ($remaining_reimbursement_sst <= 0 || ($LoanCaseInvoiceMain->reimbursement_sst ?? 0) == 0)) {
                             $LoanCaseInvoiceMain->transferred_to_office_bank = 1;
                         } else {
                             $LoanCaseInvoiceMain->transferred_to_office_bank = 0;
@@ -756,7 +773,7 @@ class TransferFeeV3Controller extends Controller
                         
                         // Check if pfee and SST are fully transferred (reimbursement is handled in invoice table)
                         $remaining_pfee_bill = bcsub($inv_pfee_bill, $SumTransferFeeBill, 2);
-                        $remaining_sst_bill = bcsub($LoanCaseInvoiceMain->sst_inv, $SumTransferSstBill, 2);
+                        $remaining_sst_bill = bcsub($LoanCaseInvoiceMain->sst_inv ?? 0, $SumTransferSstBill, 2);
                         
                         // Mark as fully transferred only if pfee and SST are <= 0
                         if ($remaining_pfee_bill <= 0 && $remaining_sst_bill <= 0) {
@@ -1271,11 +1288,16 @@ class TransferFeeV3Controller extends Controller
                             // Check if fully transferred
                             $inv_pfee = $LoanCaseInvoiceMain->pfee1_inv + $LoanCaseInvoiceMain->pfee2_inv;
                             $remaining_pfee = bcsub($inv_pfee, $newTransferredPfee, 2);
-                            $remaining_sst = bcsub($LoanCaseInvoiceMain->sst_inv, $newTransferredSst, 2);
-                            $remaining_reimbursement = bcsub($LoanCaseInvoiceMain->reimbursement_amount, $newTransferredReimbursement, 2);
-                            $remaining_reimbursement_sst = bcsub($LoanCaseInvoiceMain->reimbursement_sst, $newTransferredReimbursementSst, 2);
+                            $remaining_sst = bcsub($LoanCaseInvoiceMain->sst_inv ?? 0, $newTransferredSst, 2);
+                            $remaining_reimbursement = bcsub($LoanCaseInvoiceMain->reimbursement_amount ?? 0, $newTransferredReimbursement, 2);
+                            $remaining_reimbursement_sst = bcsub($LoanCaseInvoiceMain->reimbursement_sst ?? 0, $newTransferredReimbursementSst, 2);
                             
-                            if ($remaining_pfee <= 0 && $remaining_sst <= 0 && $remaining_reimbursement <= 0 && $remaining_reimbursement_sst <= 0) {
+                            // Mark as fully transferred only if all amounts are <= 0
+                            // If original amount is NULL or 0, consider it as fully transferred (no amount to transfer)
+                            if ($remaining_pfee <= 0 && 
+                                $remaining_sst <= 0 && 
+                                ($remaining_reimbursement <= 0 || ($LoanCaseInvoiceMain->reimbursement_amount ?? 0) == 0) &&
+                                ($remaining_reimbursement_sst <= 0 || ($LoanCaseInvoiceMain->reimbursement_sst ?? 0) == 0)) {
                                 $LoanCaseInvoiceMain->transferred_to_office_bank = 1;
                             } else {
                                 $LoanCaseInvoiceMain->transferred_to_office_bank = 0;
@@ -1307,7 +1329,7 @@ class TransferFeeV3Controller extends Controller
                             // Check if fully transferred (only pfee and sst for bill table)
                             $inv_pfee_bill = $LoanCaseInvoiceMain->pfee1_inv + $LoanCaseInvoiceMain->pfee2_inv;
                             $remaining_pfee_bill = bcsub($inv_pfee_bill, $newTransferredPfeeBill, 2);
-                            $remaining_sst_bill = bcsub($LoanCaseInvoiceMain->sst_inv, $newTransferredSstBill, 2);
+                            $remaining_sst_bill = bcsub($LoanCaseInvoiceMain->sst_inv ?? 0, $newTransferredSstBill, 2);
                             
                             // Mark as fully transferred only if pfee and SST are <= 0
                             // (reimbursement is handled in invoice table only)
@@ -1440,12 +1462,15 @@ class TransferFeeV3Controller extends Controller
                 // Check if all amounts (pfee, SST, reimbursement, reimbursement SST) are still fully transferred
                 $inv_pfee_bill = $LoanCaseBillMain->pfee1_inv + $LoanCaseBillMain->pfee2_inv;
                 $remaining_pfee_bill = bcsub($inv_pfee_bill, $SumTransferFeeBill, 2);
-                $remaining_sst_bill = bcsub($LoanCaseBillMain->sst_inv, $SumTransferSstBill, 2);
+                $remaining_sst_bill = bcsub($LoanCaseBillMain->sst_inv ?? 0, $SumTransferSstBill, 2);
                 
                 // Mark as not fully transferred if any amount has remaining balance
                 // OR if no transfer fee details remain (all deleted)
                 if ($remaining_pfee_bill > 0 || $remaining_sst_bill > 0 || $SumTransferFeeBill == 0) {
                     $LoanCaseBillMain->transferred_to_office_bank = 0;
+                } else {
+                    // All amounts are fully transferred
+                    $LoanCaseBillMain->transferred_to_office_bank = 1;
                 }
                 
                 $LoanCaseBillMain->save();
@@ -1488,13 +1513,20 @@ class TransferFeeV3Controller extends Controller
                 // Check if all amounts (pfee, SST, reimbursement, reimbursement SST) are still fully transferred
                 $inv_pfee = $LoanCaseInvoiceMain->pfee1_inv + $LoanCaseInvoiceMain->pfee2_inv;
                 $remaining_pfee = bcsub($inv_pfee, $SumTransferFeeInvoice, 2);
-                $remaining_sst = bcsub($LoanCaseInvoiceMain->sst_inv, $SumTransferSstInvoice, 2);
-                $remaining_reimbursement = bcsub($LoanCaseInvoiceMain->reimbursement_amount, $SumTransferReimbursementInvoice, 2);
-                $remaining_reimbursement_sst = bcsub($LoanCaseInvoiceMain->reimbursement_sst, $SumTransferReimbursementSstInvoice, 2);
+                $remaining_sst = bcsub($LoanCaseInvoiceMain->sst_inv ?? 0, $SumTransferSstInvoice, 2);
+                $remaining_reimbursement = bcsub($LoanCaseInvoiceMain->reimbursement_amount ?? 0, $SumTransferReimbursementInvoice, 2);
+                $remaining_reimbursement_sst = bcsub($LoanCaseInvoiceMain->reimbursement_sst ?? 0, $SumTransferReimbursementSstInvoice, 2);
                 
                 // Mark as not fully transferred if any amount has remaining balance
-                if ($remaining_pfee > 0 || $remaining_sst > 0 || $remaining_reimbursement > 0 || $remaining_reimbursement_sst > 0) {
+                // If original amount is NULL or 0, consider it as fully transferred (no amount to transfer)
+                if ($remaining_pfee > 0 || 
+                    $remaining_sst > 0 || 
+                    ($remaining_reimbursement > 0 && ($LoanCaseInvoiceMain->reimbursement_amount ?? 0) > 0) ||
+                    ($remaining_reimbursement_sst > 0 && ($LoanCaseInvoiceMain->reimbursement_sst ?? 0) > 0)) {
                     $LoanCaseInvoiceMain->transferred_to_office_bank = 0;
+                } else {
+                    // All amounts are fully transferred
+                    $LoanCaseInvoiceMain->transferred_to_office_bank = 1;
                 }
                 
                 $LoanCaseInvoiceMain->save();
@@ -1591,12 +1623,15 @@ class TransferFeeV3Controller extends Controller
                 // Check if all amounts (pfee, SST, reimbursement, reimbursement SST) are still fully transferred
                 $inv_pfee_bill = $LoanCaseBillMain->pfee1_inv + $LoanCaseBillMain->pfee2_inv;
                 $remaining_pfee_bill = bcsub($inv_pfee_bill, $SumTransferFeeBill, 2);
-                $remaining_sst_bill = bcsub($LoanCaseBillMain->sst_inv, $SumTransferSstBill, 2);
+                $remaining_sst_bill = bcsub($LoanCaseBillMain->sst_inv ?? 0, $SumTransferSstBill, 2);
                 
                 // Mark as not fully transferred if any amount has remaining balance
                 // OR if no transfer fee details remain (all deleted)
                 if ($remaining_pfee_bill > 0 || $remaining_sst_bill > 0 || $SumTransferFeeBill == 0) {
                     $LoanCaseBillMain->transferred_to_office_bank = 0;
+                } else {
+                    // All amounts are fully transferred
+                    $LoanCaseBillMain->transferred_to_office_bank = 1;
                 }
                 
                 $LoanCaseBillMain->save();
@@ -1639,14 +1674,22 @@ class TransferFeeV3Controller extends Controller
                 // Check if all amounts (pfee, SST, reimbursement, reimbursement SST) are still fully transferred
                 $inv_pfee_invoice = $LoanCaseInvoiceMain->pfee1_inv + $LoanCaseInvoiceMain->pfee2_inv;
                 $remaining_pfee_invoice = bcsub($inv_pfee_invoice, $SumTransferFeeInvoice, 2);
-                $remaining_sst_invoice = bcsub($LoanCaseInvoiceMain->sst_inv, $SumTransferSstInvoice, 2);
-                $remaining_reimbursement_invoice = bcsub($LoanCaseInvoiceMain->reimbursement_amount, $SumTransferReimbursementInvoice, 2);
-                $remaining_reimbursement_sst_invoice = bcsub($LoanCaseInvoiceMain->reimbursement_sst, $SumTransferReimbursementSstInvoice, 2);
+                $remaining_sst_invoice = bcsub($LoanCaseInvoiceMain->sst_inv ?? 0, $SumTransferSstInvoice, 2);
+                $remaining_reimbursement_invoice = bcsub($LoanCaseInvoiceMain->reimbursement_amount ?? 0, $SumTransferReimbursementInvoice, 2);
+                $remaining_reimbursement_sst_invoice = bcsub($LoanCaseInvoiceMain->reimbursement_sst ?? 0, $SumTransferReimbursementSstInvoice, 2);
                 
                 // Mark as not fully transferred if any amount has remaining balance
                 // OR if no transfer fee details remain (all deleted)
-                if ($remaining_pfee_invoice > 0 || $remaining_sst_invoice > 0 || $remaining_reimbursement_invoice > 0 || $remaining_reimbursement_sst_invoice > 0 || $SumTransferFeeInvoice == 0) {
+                // If original amount is NULL or 0, consider it as fully transferred (no amount to transfer)
+                if ($remaining_pfee_invoice > 0 || 
+                    $remaining_sst_invoice > 0 || 
+                    ($remaining_reimbursement_invoice > 0 && ($LoanCaseInvoiceMain->reimbursement_amount ?? 0) > 0) ||
+                    ($remaining_reimbursement_sst_invoice > 0 && ($LoanCaseInvoiceMain->reimbursement_sst ?? 0) > 0) ||
+                    $SumTransferFeeInvoice == 0) {
                     $LoanCaseInvoiceMain->transferred_to_office_bank = 0;
+                } else {
+                    // All amounts are fully transferred
+                    $LoanCaseInvoiceMain->transferred_to_office_bank = 1;
                 }
                 
                 $LoanCaseInvoiceMain->save();
@@ -3513,12 +3556,16 @@ class TransferFeeV3Controller extends Controller
             // Check if all amounts (pfee, SST, reimbursement, reimbursement SST) are fully transferred
             $inv_pfee = $invoice->pfee1_inv + $invoice->pfee2_inv;
             $remaining_pfee = bcsub($inv_pfee, $totalTransferredPfee, 2);
-            $remaining_sst = bcsub($invoice->sst_inv, $totalTransferredSst, 2);
+            $remaining_sst = bcsub($invoice->sst_inv ?? 0, $totalTransferredSst, 2);
             $remaining_reimbursement = bcsub($invoice->reimbursement_amount ?? 0, $totalTransferredReimbursement, 2);
             $remaining_reimbursement_sst = bcsub($invoice->reimbursement_sst ?? 0, $totalTransferredReimbursementSst, 2);
             
             // Mark as fully transferred only if all amounts are <= 0
-            if ($remaining_pfee <= 0 && $remaining_sst <= 0 && $remaining_reimbursement <= 0 && $remaining_reimbursement_sst <= 0) {
+            // If original amount is NULL or 0, consider it as fully transferred (no amount to transfer)
+            if ($remaining_pfee <= 0 && 
+                $remaining_sst <= 0 && 
+                ($remaining_reimbursement <= 0 || ($invoice->reimbursement_amount ?? 0) == 0) &&
+                ($remaining_reimbursement_sst <= 0 || ($invoice->reimbursement_sst ?? 0) == 0)) {
                 $invoice->transferred_to_office_bank = 1;
             } else {
                 $invoice->transferred_to_office_bank = 0;

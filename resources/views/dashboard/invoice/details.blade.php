@@ -688,8 +688,10 @@
                     $('#invoice_date_display').text(invoice.Invoice_date ? formatDate(invoice.Invoice_date) : '-');
                     $('#case_ref_display').html(invoice.loanCaseBillMain?.loanCase?.case_ref_no ? 
                         '<a href="/case/' + invoice.loanCaseBillMain.loanCase.id + '" target="_blank">' + invoice.loanCaseBillMain.loanCase.case_ref_no + '</a>' : '-');
-                    // Amount will be calculated and displayed after renderInvoiceDetails
-                    $('#amount_display').html('<strong>-</strong>');
+                    // Store invoice amount for use in renderInvoiceDetails (backend recalculated and updated it)
+                    window.currentInvoiceAmount = parseFloat(invoice.amount || 0);
+                    // Display amount from invoice.amount (from loan_case_invoice_main table) - this is the authoritative source
+                    $('#amount_display').html('<strong>RM ' + formatCurrency(window.currentInvoiceAmount) + '</strong>');
                     $('#bill_no_display').text(invoice.loanCaseBillMain?.id || '-');
                     $('#client_name_display').text(invoice.client_name || '-');
                     $('#branch_name_display').text(invoice.branch_name || '-');
@@ -824,6 +826,10 @@
             var categorySst = 0;
             var categoryTotal = 0;
             var isTaxable = category.category_taxable == 1 || category.category_id == 1;
+            
+            // Include ALL categories in invoice total calculation (matching backend logic)
+            // Categories 1 (Professional fees), 2 (Disbursement), 3 (Stamp duties), and 4 (Reimbursement)
+            var includeInInvoiceTotal = true;
 
             // Items in this category
             if (category.items && category.items.length > 0) {
@@ -906,9 +912,13 @@
             '</tr>';
             tbody.append(subtotalRow);
 
-            grandSubtotal += categorySubtotal;
-            grandSst += categorySst;
-            grandTotal += categoryTotal;
+            // Only add to grand totals if this category should be included in invoice total
+            // (Categories 1 and 4 only - matching backend calculation logic)
+            if (includeInInvoiceTotal) {
+                grandSubtotal += categorySubtotal;
+                grandSst += categorySst;
+                grandTotal += categoryTotal;
+            }
         });
 
         // Update grand totals
@@ -919,7 +929,11 @@
         
         // Update main amount field
         $('#edit_amount').val('RM ' + formatCurrency(grandTotal));
-        $('#amount_display').html('<strong>RM ' + formatCurrency(grandTotal) + '</strong>');
+        
+        // Use the stored invoice amount from database (backend recalculated and updated it)
+        // This ensures consistency with split invoice cards and database
+        var storedAmount = window.currentInvoiceAmount || grandTotal;
+        $('#amount_display').html('<strong>RM ' + formatCurrency(storedAmount) + '</strong>');
     }
 
     function recalculateRow(input) {
