@@ -19406,6 +19406,184 @@ class CaseController extends Controller
         return $data;
     }
 
+    /**
+     * Export ledger to PDF
+     */
+    public function exportLedgerPDF(Request $request, $id)
+    {
+        $current_user = auth()->user();
+        $case_id = $id; // Get case ID from route parameter
+        $type = $request->input('type', 'ALL'); // ALL, CA, or OA
+        
+        // Check permissions
+        $hasCALedgerPermission = AccessController::UserAccessPermissionController(PermissionController::LedgerPermission());
+        $hasOALedgerPermission = AccessController::UserAccessPermissionController(PermissionController::OfficeAccountBalancePermission());
+        
+        if (!$hasCALedgerPermission && !$hasOALedgerPermission) {
+            abort(403, 'Unauthorized access to ledger');
+        }
+        
+        // Validate type based on permissions
+        if ($type === 'CA' && !$hasCALedgerPermission) {
+            abort(403, 'Unauthorized access to CA ledger');
+        }
+        if ($type === 'OA' && !$hasOALedgerPermission) {
+            abort(403, 'Unauthorized access to OA ledger');
+        }
+        
+        // Get case info
+        $case = LoanCase::where('id', $case_id)->first();
+        if (!$case) {
+            abort(404, 'Case not found');
+        }
+        
+        $customer = Customer::where('id', $case->customer_id)->first();
+        
+        // Get CA Ledger data
+        $ledgers = null;
+        if (($type === 'ALL' || $type === 'CA') && $hasCALedgerPermission) {
+            $clientBankAccountIds = DB::table('office_bank_account')
+                ->where('status', '=', 1)
+                ->where(function($query) {
+                    $query->where('account_type', '=', 'CA')
+                          ->orWhereNull('account_type');
+                })
+                ->pluck('id')
+                ->toArray();
+            
+            $ledgers = DB::table('ledger_entries_v2 as a')
+                ->leftJoin('office_bank_account as c', 'c.id', '=', 'a.bank_id')
+                ->leftJoin('loan_case_bill_main as d', 'd.id', '=', 'a.loan_case_main_bill_id')
+                ->leftJoin('loan_case as e', 'e.id', '=', 'a.case_id')
+                ->leftJoin('voucher_main as f', 'f.id', '=', 'a.key_id')
+                ->select('a.*', 'c.name as bank_name', 'c.account_no as bank_account_no', 'e.case_ref_no', 'e.id as case_id', 'f.voucher_no as voucher_no', 'f.payee as payee_voucher')
+                ->where('e.id', '=', $case_id)
+                ->where(function($query) use ($clientBankAccountIds) {
+                    if (!empty($clientBankAccountIds)) {
+                        $query->whereIn('a.bank_id', $clientBankAccountIds)
+                              ->orWhereNull('a.bank_id');
+                    } else {
+                        $query->whereNull('a.bank_id')
+                              ->orWhere(function($q) {
+                                  $q->whereNotNull('a.bank_id')
+                                    ->whereNotExists(function($subQuery) {
+                                        $subQuery->select(DB::raw(1))
+                                                 ->from('office_bank_account as oba')
+                                                 ->whereColumn('oba.id', 'a.bank_id')
+                                                 ->where('oba.account_type', '=', 'OA');
+                                    });
+                              });
+                    }
+                })
+                ->whereNotIn('a.type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'SST_IN', 'TRANSFER_IN', 'CLOSEFILE_IN', 'ABORTFILE_IN', 'REIMB_IN', 'REIMB_SST_IN'])
+                ->where('a.status', '<>', 99)
+                ->orderBy('a.date', 'ASC')
+                ->orderBy('a.last_row_entry', 'asc')
+                ->get();
+            
+            // Process BILL_DISB entries
+            for ($i = 0; $i < count($ledgers); $i++) {
+                if (in_array($ledgers[$i]->type, ['BILL_DISB'])) {
+                    $accoutItem = DB::table('voucher_main as a')
+                        ->leftJoin('voucher_details as vd', 'a.id', '=', 'vd.voucher_main_id')
+                        ->leftJoin('loan_case_bill_details as lb', 'lb.id', '=', 'vd.account_details_id')
+                        ->leftJoin('account_item as ai', 'ai.id', '=', 'lb.account_item_id')
+                        ->select('a.*', 'ai.name as ItemName')
+                        ->where('a.id', '=', $ledgers[$i]->key_id)
+                        ->where('a.status', '<>', 99)
+                        ->get();
+                    
+                    $itemName = '';
+                    for ($j = 0; $j < count($accoutItem); $j++) {
+                        $itemName = $itemName . '- ' . $accoutItem[$j]->ItemName . '<br/>';
+                    }
+                    
+                    if ($ledgers[$i]->remark != '') {
+                        $ledgers[$i]->remark = $ledgers[$i]->remark . '<br/>' . $itemName;
+                    } else {
+                        $ledgers[$i]->remark = $itemName;
+                    }
+                }
+            }
+        }
+        
+        // Get OA Ledger data
+        $oa_ledgers = null;
+        if (($type === 'ALL' || $type === 'OA') && $hasOALedgerPermission) {
+            $officeBankAccountIds = DB::table('office_bank_account')
+                ->where('status', '=', 1)
+                ->where('account_type', '=', 'OA')
+                ->pluck('id')
+                ->toArray();
+            
+            if (!empty($officeBankAccountIds)) {
+                $oa_ledgers = DB::table('ledger_entries_v2 as a')
+                    ->leftJoin('office_bank_account as c', function($join) {
+                        $join->on('c.id', '=', 'a.bank_id')
+                             ->where('c.account_type', '=', 'OA');
+                    })
+                    ->leftJoin('loan_case_bill_main as d', 'd.id', '=', 'a.loan_case_main_bill_id')
+                    ->leftJoin('loan_case as e', 'e.id', '=', 'a.case_id')
+                    ->leftJoin('voucher_main as f', 'f.id', '=', 'a.key_id')
+                    ->select('a.*', 'c.name as bank_name', 'c.account_no as bank_account_no', 'e.case_ref_no', 'e.id as case_id', 'f.voucher_no as voucher_no', 'f.payee as payee_voucher')
+                    ->where('e.id', '=', $case_id)
+                    ->whereIn('a.bank_id', $officeBankAccountIds)
+                    ->whereNotNull('c.id')
+                    ->whereNotIn('a.type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'SST_IN', 'TRANSFER_IN', 'CLOSEFILE_IN', 'ABORTFILE_IN', 'REIMB_IN', 'REIMB_SST_IN'])
+                    ->where('a.status', '<>', 99)
+                    ->orderBy('a.date', 'ASC')
+                    ->orderBy('a.last_row_entry', 'asc')
+                    ->get();
+                
+                // Process BILL_DISB entries
+                for ($i = 0; $i < count($oa_ledgers); $i++) {
+                    if (in_array($oa_ledgers[$i]->type, ['BILL_DISB'])) {
+                        $accoutItem = DB::table('voucher_main as a')
+                            ->leftJoin('voucher_details as vd', 'a.id', '=', 'vd.voucher_main_id')
+                            ->leftJoin('loan_case_bill_details as lb', 'lb.id', '=', 'vd.account_details_id')
+                            ->leftJoin('account_item as ai', 'ai.id', '=', 'lb.account_item_id')
+                            ->select('a.*', 'ai.name as ItemName')
+                            ->where('a.id', '=', $oa_ledgers[$i]->key_id)
+                            ->where('a.status', '<>', 99)
+                            ->get();
+                        
+                        $itemName = '';
+                        for ($j = 0; $j < count($accoutItem); $j++) {
+                            $itemName = $itemName . '- ' . $accoutItem[$j]->ItemName . '<br/>';
+                        }
+                        
+                        if ($oa_ledgers[$i]->remark != '') {
+                            $oa_ledgers[$i]->remark = $oa_ledgers[$i]->remark . '<br/>' . $itemName;
+                        } else {
+                            $oa_ledgers[$i]->remark = $itemName;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Generate filename
+        $sanitizedCaseRef = str_replace(['/', '\\'], '_', $case->case_ref_no);
+        $filename = 'Ledger_' . $sanitizedCaseRef . '_' . $type . '_' . date('Y-m-d') . '.pdf';
+        
+        // Generate PDF
+        $pdf = Pdf::loadView('dashboard.case.tabs.ledger-pdf', [
+            'case' => $case,
+            'customer' => $customer,
+            'ledgers' => $ledgers,
+            'oa_ledgers' => $oa_ledgers,
+            'type' => $type,
+            'hasCALedgerPermission' => $hasCALedgerPermission,
+            'hasOALedgerPermission' => $hasOALedgerPermission,
+            'generated_at' => \Carbon\Carbon::now()->format('Y-m-d H:i:s'),
+            'generated_by' => $current_user->name
+        ]);
+        
+        $pdf->setPaper('A4', 'landscape');
+        
+        return $pdf->download($filename);
+    }
+
     function numberTowords($num)
     {
         $ones = array(

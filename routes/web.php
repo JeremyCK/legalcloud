@@ -476,6 +476,7 @@ Route::group(['middleware' => ['get.menu']], function () {
             Route::get('bill_main/list/', [BillController::class, 'getBillList'])->name('bill.list');
             Route::get('voucher_main/list/', [VoucherController::class, 'getVoucherListV2'])->name('voucher.list');
             Route::get('ledger/list/{parameter1}', [CaseController::class, 'getLedger'])->name('ledger.list');
+            Route::get('case/{id}/ledger/export-pdf', [CaseController::class, 'exportLedgerPDF'])->name('case.ledger.export-pdf');
             Route::get('checklistdetails/list/', [ChecklistItemsController::class, 'getChecklist'])->name('checklistdetails.list');
             Route::post('delete_checklist/{parameter1}', [ChecklistItemsController::class, 'deleteChecklist']);
             Route::get('generate-pdf', [VoucherController::class, 'generatePDF']);
