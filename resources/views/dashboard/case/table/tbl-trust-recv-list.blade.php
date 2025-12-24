@@ -9,14 +9,15 @@
         <th>Amount (RM)</th>
         <th>Date</th>
         <th>Receive By</th>
-        @if (in_array($current_user->menuroles, ['account','admin','management','maker']))
+        @if (isset($current_user) && in_array($current_user->menuroles, ['account','admin','management','maker']))
             <th>Action</th>
         @endif
     </tr>
     @php
     $total_trust_received = 0;
+    $loan_case_trust_main_receive = $loan_case_trust_main_receive ?? collect();
 @endphp
-    @if (count($loan_case_trust_main_receive))
+    @if (isset($loan_case_trust_main_receive) && count($loan_case_trust_main_receive))
 
         @foreach ($loan_case_trust_main_receive as $index => $transaction)
             @php
@@ -47,7 +48,7 @@
                 <td>
                     {{ $transaction->requestor }}
                 </td>
-                @if (in_array($current_user->menuroles, ['account','admin','management','maker']))
+                @if (isset($current_user) && in_array($current_user->menuroles, ['account','admin','management','maker']))
                     <td class="text-center">
 
 
@@ -89,7 +90,7 @@
         @endforeach
     @else
         <tr>
-            <td class="text-center" colspan="10">No data</td>
+            <td class="text-center" colspan="{{ isset($current_user) && in_array($current_user->menuroles, ['account','admin','management','maker']) ? '10' : '9' }}">No data</td>
         </tr>
     @endif
 </tbody>
@@ -99,6 +100,6 @@
         <td class="text-left" colspan="6">Total</td>
         <td class="text-right"> {{ number_format($total_trust_received, 2, '.', ',') }}
         </td>
-        <td class="text-center" colspan="3"></td>
+        <td class="text-center" colspan="{{ isset($current_user) && in_array($current_user->menuroles, ['account','admin','management','maker']) ? '3' : '2' }}"></td>
     </tr>
 </tfoot>

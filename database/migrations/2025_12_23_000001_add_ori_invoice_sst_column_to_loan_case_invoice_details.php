@@ -35,3 +35,5 @@ class AddOriInvoiceSstColumnToLoanCaseInvoiceDetails extends Migration
     }
 }
 
+
+

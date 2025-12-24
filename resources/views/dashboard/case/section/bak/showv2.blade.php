@@ -2,7 +2,6 @@
     {{-- <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script> --}}
     {{-- <script src="{{ asset('js/sweetalert2.min.js') }}"></script> --}}
 
-    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
     <style>
         .info-box {
             min-height: 100px;
@@ -400,7 +399,6 @@
     <script src="//cdn.ckeditor.com/4.22.1/standard/ckeditor.js"></script>
 @endsection
 
-    <script src="{{ asset('js/paperfish/jquery-2.2.4.min.js') }}"></script>
 @extends('dashboard.base')
 @section('content')
     <div class="container-fluid">
@@ -618,19 +616,15 @@
             @include('dashboard.case.modal.modal-client')
             @include('dashboard.case.modal.modal-account-summary-input')
             @include('dashboard.case.modal.modal-referral', ['newcase' => 0])
-            @include('dashboard.case.modal.modal-edit-split-invoice-detail')
-            @include('dashboard.case.modal.modal-update-invoice-date')
 
             @include('dashboard.case.modal.modal-move-disb')
             @include('dashboard.case.modal.modal-trust')
-            @include('dashboard.case.modal.modal-add-billto')
-            @include('dashboard.case.modal.modal-add-billto-info')
         </div>
     </div>
 @endsection
 
 @section('javascript')
-    {{-- <script src="{{ asset('js/paperfish/jquery-2.2.4.min.js') }}"></script> --}}
+    <script src="{{ asset('js/paperfish/jquery-2.2.4.min.js') }}"></script>
     <script src="{{ asset('js/paperfish/bootstrap.min.js') }}"></script>
     <script src="{{ asset('js/paperfish/jquery.bootstrap.wizard.js') }}"></script>
 
@@ -640,13 +634,11 @@
 
     <link href="https://cdnjs.cloudflare.com/ajax/libs/PrintArea/2.4.1/PrintArea.min.css" rel="stylesheet">
 
-    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PrintArea/2.4.1/jquery.PrintArea.min.js"></script>
     <script src="{{ asset('js/jquery.print.js?0001') }}"></script>
     <script src="{{ asset('js/jquery.toast.min.js') }}"></script>
     <script src="{{ asset('js/dropzone.min.js') }}"></script>
     <script>
-        // Disable Dropzone auto-discovery immediately after loading
         Dropzone.autoDiscover = false;
         var drop = document.getElementById('form_file');
         var dropModal = document.getElementById('form_file_modal');
@@ -1730,163 +1722,9 @@
             $("#dQuotationInvoice-p").hide();
         }
 
-        // function invoicePrintMode() {
-        //     $("#dBillList").hide();
-        //     $("#dInvoice-p").show();
-        // }
-
-        function invoicePrintMode(party_id) {
+        function invoicePrintMode() {
             $("#dBillList").hide();
-            // First, clear the container
-            $('#div-print-inv').empty(); // Clear existing content
-
-            if(party_id == null)
-            {
-                return;
-            }
-
-            $.ajax({
-                type: 'POST',
-                url: '/loadBillToInvWIthInvoice/' + party_id,
-                data: null,
-                processData: false,
-                contentType: false,
-                success: function(data) {
-                    console.log(data);
-                    if (data.status == 1) {
-                        $(".party_invoice_info").html(data.view);
-                        $("#inv_no_print").html(data.inv_no);
-                        // Update the invoice print content with fresh data from database
-                        $('#div-print-inv').html(data.invoicePrint); // Insert the new HTML with updated amounts
-                        // Show the print container after inserting content
-                        $("#dInvoice-p").show(); // This will show the dInvoice-p div inside div-print-inv
-                    }
-
-                },
-                complete: function() {
-                    blnAjax == true;
-                    $("#div_full_screen_loading").hide();
-                },
-                error: function(data) {
-                    toastController('Some error occur, please try again or contact developer', 'warning');
-                    $("#div_full_screen_loading").hide();
-
-                }
-            });
-        }
-
-        // Function to download invoice PDF
-        function downloadInvoicePDF(invoiceId) {
-            if (!invoiceId) {
-                if (typeof toastController === 'function') {
-                    toastController('Invoice ID not found', 'warning');
-                } else {
-                    alert('Invoice ID not found');
-                }
-                return;
-            }
-
-            // Show loading message
-            if (typeof toastController === 'function') {
-                toastController('Generating PDF...', 'info');
-            }
-
-            // Use fetch to handle errors properly
-            var downloadUrl = '/generateInvoicePDF/' + invoiceId;
-            fetch(downloadUrl, {
-                method: 'GET',
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
-            })
-            .then(function(response) {
-                if (!response.ok) {
-                    return response.json().then(function(data) {
-                        throw new Error(data.message || 'Failed to generate PDF');
-                    });
-                }
-                return response.blob();
-            })
-            .then(function(blob) {
-                // Create download link
-                var url = window.URL.createObjectURL(blob);
-                var link = document.createElement('a');
-                link.href = url;
-                link.download = 'Invoice_' + invoiceId + '_' + new Date().toISOString().split('T')[0] + '.pdf';
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                window.URL.revokeObjectURL(url);
-                
-                if (typeof toastController === 'function') {
-                    toastController('PDF downloaded successfully', 'success');
-                }
-            })
-            .catch(function(error) {
-                console.error('PDF download error:', error);
-                if (typeof toastController === 'function') {
-                    toastController(error.message || 'Error downloading PDF. Please try again.', 'error');
-                } else {
-                    alert(error.message || 'Error downloading PDF. Please try again.');
-                }
-            });
-        }
-
-        // Function to download proforma invoice PDF
-        function downloadProformaInvoicePDF(billId) {
-            if (!billId) {
-                if (typeof toastController === 'function') {
-                    toastController('Bill ID not found', 'warning');
-                } else {
-                    alert('Bill ID not found');
-                }
-                return;
-            }
-
-            // Show loading message
-            if (typeof toastController === 'function') {
-                toastController('Generating PDF...', 'info');
-            }
-
-            // Use fetch to handle errors properly
-            var downloadUrl = '/generateProformaInvoicePDF/' + billId;
-            fetch(downloadUrl, {
-                method: 'GET',
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
-            })
-            .then(function(response) {
-                if (!response.ok) {
-                    return response.json().then(function(data) {
-                        throw new Error(data.message || 'Failed to generate PDF');
-                    });
-                }
-                return response.blob();
-            })
-            .then(function(blob) {
-                // Create download link
-                var url = window.URL.createObjectURL(blob);
-                var link = document.createElement('a');
-                link.href = url;
-                link.download = 'Proforma_Invoice_' + billId + '_' + new Date().toISOString().split('T')[0] + '.pdf';
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                window.URL.revokeObjectURL(url);
-                
-                if (typeof toastController === 'function') {
-                    toastController('PDF downloaded successfully', 'success');
-                }
-            })
-            .catch(function(error) {
-                console.error('PDF download error:', error);
-                if (typeof toastController === 'function') {
-                    toastController(error.message || 'Error downloading PDF. Please try again.', 'error');
-                } else {
-                    alert(error.message || 'Error downloading PDF. Please try again.');
-                }
-            });
+            $("#dInvoice-p").show();
         }
 
 
@@ -2017,7 +1855,6 @@
             }
 
         }
-        
 
         function submitVoucherRequestV2() {
             var errorCount = 0;
@@ -2153,17 +1990,7 @@
                 data: null,
                 success: function(data) {
                     $(".div-info-print-section").html(data.view);
-                    $(".ddl-party").html(data.ddl); 
-                    // alert(data.file_ref.value);
-                    
-                    if (data.file_ref != null) {
-                        $(".div_bank_ref_no").show();
-                        $("#purchaser_file_ref").html(data.file_ref.value); 
-                    }
-                    else
-                    {
-                        $(".div_bank_ref_no").hide();
-                    }
+                    $(".ddl-party").html(data.ddl);
 
                 }
             });
@@ -3144,9 +2971,6 @@
 
                     }
 
-                    
-                        $("#lbl_bill_to_party").html(data.InvBillto);
-
                     $("#div_full_screen_loading").hide();
                 }
             });
@@ -3876,26 +3700,20 @@
             });
 
             if (min_hit_count > 0) {
-                @if (in_array($current_user->branch_id, [1]))
-                    @if (!in_array($current_user->menuroles, ['account', 'admin']) && !in_array($current_user->id, [122,158,165,167,177,176,201]))
-                        Swal.fire('notice!', 'Please make sure all item not lower than min value', 'warning');
-                        $('.btn-submit').attr('disabled', false);
-                        return;
-                    @endif
+                @if (!in_array($current_user->menuroles, ['account', 'admin']))
+                    Swal.fire('notice!', 'Please make sure all item not lower than min value', 'warning');
+                    $('.btn-submit').attr('disabled', false);
+                    return;
                 @endif
-                
                 
             }
 
             if (max_hit_count > 0) {
-                @if (in_array($current_user->branch_id, [1]))
-                    @if (!in_array($current_user->menuroles, ['account', 'admin']) && !in_array($current_user->id, [122,158,165,167,177,176,201]))
-                        Swal.fire('notice!', 'Please make sure all item not higher than max value', 'warning');
-                        $('.btn-submit').attr('disabled', false);
-                        return;
-                    @endif
+                @if (!in_array($current_user->menuroles, ['account', 'admin']))
+                    Swal.fire('notice!', 'Please make sure all item not higher than max value', 'warning');
+                    $('.btn-submit').attr('disabled', false);
+                    return;
                 @endif
-                
             }
 
             var form_data = new FormData();
@@ -4492,6 +4310,7 @@
                 processData: false,
                 contentType: false,
                 success: function(data) {
+                    alert(4);
 
                     console.log(data);
                     if (data.status == 1) {
@@ -5525,13 +5344,95 @@
             }
         }
 
-        function editInvoiceSSTModal(sst, id, catId, type, item_name) {
+        function editInvoiceSSTModal(sst, id, catId, type, item_name, invoiceAmount, sstRate) {
             $("#txtNewSSTInvoice").val(sst);
             $("#txtOriginalSSTInvoice").val(sst);
             $("#txtIDInvoiceSST").val(id);
             $("#catIDInvoiceSST").val(catId);
             $("#typeIDInvoiceSST").val(type);
             $("#item_nameInvoiceSST").val(item_name);
+            $("#txtInvoiceAmountSST").val(invoiceAmount || 0);
+            $("#txtSSTRateSST").val(sstRate || 8);
+        }
+
+        function calculateInvoiceSST() {
+            var invoiceAmount = parseFloat($("#txtInvoiceAmountSST").val()) || 0;
+            var sstRate = parseFloat($("#txtSSTRateSST").val()) || 0.08;
+            
+            if (invoiceAmount <= 0) {
+                Swal.fire('Notice!', 'Invoice amount is required for calculation', 'warning');
+                return;
+            }
+            
+            // Note: sstRate is already a decimal (0.08 for 8%), not a percentage (8)
+            // So we multiply directly: amount * sst_rate
+            var sstRaw = invoiceAmount * sstRate;
+            
+            // Apply special rounding rule: round DOWN if 3rd decimal is 5
+            var sstString = sstRaw.toFixed(3);
+            var calculatedSST;
+            
+            if (sstString.charAt(sstString.length - 1) === '5') {
+                // Round down if ends in 5
+                calculatedSST = Math.floor(sstRaw * 100) / 100;
+            } else {
+                // Normal rounding
+                calculatedSST = Math.round(sstRaw * 100) / 100;
+            }
+            
+            // Set the calculated value
+            $("#txtNewSSTInvoice").val(calculatedSST.toFixed(2));
+            
+            // Show a brief success message
+            toastController('SST calculated: ' + calculatedSST.toFixed(2));
+        }
+
+        function updateInvoiceSST() {
+            $("#span_update").hide();
+            $("#myModalInvoiceSST .overlay").show();
+
+            var formData = new FormData();
+            formData.append('details_id', $("#txtIDInvoiceSST").val());
+            formData.append('catID', $("#catIDInvoiceSST").val());
+            formData.append('NewSST', $("#txtNewSSTInvoice").val());
+            formData.append('typeID', $("#typeIDInvoiceSST").val());
+            formData.append('item_name', $("#item_nameInvoiceSST").val());
+            formData.append('OriginalSST', $("#txtOriginalSSTInvoice").val());
+
+            $(".btn").attr("disabled", true);
+
+            $.ajaxSetup({
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                }
+            });
+
+            $.ajax({
+                type: 'POST',
+                url: '/updateInvoiceSST',
+                data: formData,
+                processData: false,
+                contentType: false,
+                success: function(data) {
+                    console.log(data);
+                    $(".btn").attr("disabled", false);
+                    $("#span_update").show();
+                    $("#myModalInvoiceSST .overlay").hide();
+                    if (data.status == 1) {
+                        toastController('SST updated');
+                        loadCaseBill($("#selected_bill_id").val());
+                        $('#btnCloseInvSST').click();
+                        $(".modal-backdrop").remove();
+                    } else {
+                        Swal.fire('Notice!', data.message, 'warning')
+                    }
+                },
+                error: function(xhr, status, error) {
+                    $(".btn").attr("disabled", false);
+                    $("#myModalInvoiceSST .overlay").hide();
+                    Swal.fire('Error!', 'Failed to update SST: ' + error, 'error');
+                }
+            });
         }
 
         var ddlAccountItem = document.getElementById("ddlAccountItem");
@@ -5584,88 +5485,6 @@
 
         }
 
-        function prepareEditDescription(detailsId) {
-            // Set the details ID first
-            $("#txtDescriptionID").val(detailsId);
-            $("#txtDescription").val('Loading...');
-            
-            // Fetch the description from server
-            $.ajaxSetup({
-                headers: {
-                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
-                }
-            });
-            
-            $.ajax({
-                type: 'GET',
-                url: '/getBillDescription/' + detailsId,
-                success: function(data) {
-                    if (data.status == 1) {
-                        $("#txtDescription").val(data.description || '');
-                    } else {
-                        $("#txtDescription").val('');
-                        alert(data.message || 'Failed to load description');
-                    }
-                },
-                error: function(xhr, status, error) {
-                    console.error('Error loading description:', xhr, status, error);
-                    $("#txtDescription").val('');
-                    alert('Failed to load description. Please try again.');
-                }
-            });
-        }
-
-        function updateDescription() {
-            var detailsId = $("#txtDescriptionID").val();
-            var description = $("#txtDescription").val();
-
-            if (!detailsId) {
-                Swal.fire('Error!', 'Item ID not found', 'error');
-                return;
-            }
-
-            $.ajaxSetup({
-                headers: {
-                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
-                }
-            });
-
-            $("#editDescriptionModal .overlay").show();
-
-            $.ajax({
-                type: 'POST',
-                url: '/updateBillDescription',
-                data: {
-                    details_id: detailsId,
-                    description: description
-                },
-                success: function(data) {
-                    $("#editDescriptionModal .overlay").hide();
-                    if (data.status == 1) {
-                        toastController('Description updated successfully', 'success');
-                        closeUniversalModal();
-                        
-                        // Reload the bill list to show updated description (works for both bill and invoice tabs)
-                        if (typeof loadCaseBill === 'function' && $("#selected_bill_id").val()) {
-                            loadCaseBill($("#selected_bill_id").val());
-                        } else {
-                            location.reload();
-                        }
-                    } else {
-                        Swal.fire('Error!', data.message || 'Failed to update description', 'error');
-                    }
-                },
-                error: function(xhr) {
-                    $("#editDescriptionModal .overlay").hide();
-                    var errorMsg = 'Error updating description. Please try again.';
-                    if (xhr.responseJSON && xhr.responseJSON.message) {
-                        errorMsg = xhr.responseJSON.message;
-                    }
-                    Swal.fire('Error!', errorMsg, 'error');
-                }
-            });
-        }
-
 
         function updateQuotationValue() {
 
@@ -5688,14 +5507,10 @@
             if ($maxCap != 0) {
                 if ($newValue > $maxCap) {
                     
-                    @if (in_array($current_user->branch_id, [1]))
-                        @if (!in_array($current_user->menuroles, ['account', 'admin']) && !in_array($current_user->id, [122,158,165,167,177,176,201]))
-                            Swal.fire('notice!', 'Please make sure all item not higher than max value', 'warning');
-                            return;
-                        @endif
+                    @if (!in_array($current_user->menuroles, ['account', 'admin']))
+                        Swal.fire('notice!', 'Please make sure all item not higher than max value', 'warning');
+                        return;
                     @endif
-                    
-                    
                 }
             }
 
@@ -5703,14 +5518,10 @@
             if ($minCap != 0) {
                 if ($newValue < $minCap) {
                     
-                    @if (in_array($current_user->branch_id, [1]))
-                      @if (!in_array($current_user->menuroles, ['account', 'admin']) && !in_array($current_user->id, [122,158,165,167,177,176,201]))
-                            Swal.fire('notice!', 'Please make sure all item not lower than min value', 'warning');
-                            return;
-                        @endif
+                    @if (!in_array($current_user->menuroles, ['account', 'admin']))
+                    Swal.fire('notice!', 'Please make sure all item not lower than min value', 'warning');
+                    return;
                     @endif
-                    
-                  
                 }
             }
 
@@ -5805,97 +5616,6 @@
                 },
                 error: function(xhr, status, error) {
                     $(".btn").attr("disabled", false);
-                }
-            });
-        }
-
-        function editInvoiceSSTModal(sst, id, catId, type, item_name, invoiceAmount, sstRate) {
-            $("#txtNewSSTInvoice").val(sst);
-            $("#txtOriginalSSTInvoice").val(sst);
-            $("#txtIDInvoiceSST").val(id);
-            $("#catIDInvoiceSST").val(catId);
-            $("#typeIDInvoiceSST").val(type);
-            $("#item_nameInvoiceSST").val(item_name);
-            $("#txtInvoiceAmountSST").val(invoiceAmount || 0);
-            $("#txtSSTRateSST").val(sstRate || 8);
-        }
-
-        function calculateInvoiceSST() {
-            var invoiceAmount = parseFloat($("#txtInvoiceAmountSST").val()) || 0;
-            var sstRate = parseFloat($("#txtSSTRateSST").val()) || 0.08;
-            
-            if (invoiceAmount <= 0) {
-                Swal.fire('Notice!', 'Invoice amount is required for calculation', 'warning');
-                return;
-            }
-            
-            // Note: sstRate is already a decimal (0.08 for 8%), not a percentage (8)
-            // So we multiply directly: amount * sst_rate
-            var sstRaw = invoiceAmount * sstRate;
-            
-            // Apply special rounding rule: round DOWN if 3rd decimal is 5
-            var sstString = sstRaw.toFixed(3);
-            var calculatedSST;
-            
-            if (sstString.charAt(sstString.length - 1) === '5') {
-                // Round down if ends in 5
-                calculatedSST = Math.floor(sstRaw * 100) / 100;
-            } else {
-                // Normal rounding
-                calculatedSST = Math.round(sstRaw * 100) / 100;
-            }
-            
-            // Set the calculated value
-            $("#txtNewSSTInvoice").val(calculatedSST.toFixed(2));
-            
-            // Show a brief success message
-            toastController('SST calculated: ' + calculatedSST.toFixed(2));
-        }
-
-        function updateInvoiceSST() {
-            $("#span_update").hide();
-            $("#myModalInvoiceSST .overlay").show();
-
-            var formData = new FormData();
-            formData.append('details_id', $("#txtIDInvoiceSST").val());
-            formData.append('catID', $("#catIDInvoiceSST").val());
-            formData.append('NewSST', $("#txtNewSSTInvoice").val());
-            formData.append('typeID', $("#typeIDInvoiceSST").val());
-            formData.append('item_name', $("#item_nameInvoiceSST").val());
-            formData.append('OriginalSST', $("#txtOriginalSSTInvoice").val());
-
-            $(".btn").attr("disabled", true);
-
-            $.ajaxSetup({
-                headers: {
-                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
-                }
-            });
-
-            $.ajax({
-                type: 'POST',
-                url: '/updateInvoiceSST',
-                data: formData,
-                processData: false,
-                contentType: false,
-                success: function(data) {
-                    console.log(data);
-                    $(".btn").attr("disabled", false);
-                    $("#span_update").show();
-                    $("#myModalInvoiceSST .overlay").hide();
-                    if (data.status == 1) {
-                        toastController('SST updated');
-                        loadCaseBill($("#selected_bill_id").val());
-                        $('#btnCloseInvSST').click();
-                        $(".modal-backdrop").remove();
-                    } else {
-                        Swal.fire('Notice!', data.message, 'warning')
-                    }
-                },
-                error: function(xhr, status, error) {
-                    $(".btn").attr("disabled", false);
-                    $("#myModalInvoiceSST .overlay").hide();
-                    Swal.fire('Error!', 'Failed to update SST: ' + error, 'error');
                 }
             });
         }
@@ -6856,67 +6576,6 @@
             });
 
 
-        }
-
-        function removeInvoice(invoiceId) {
-            Swal.fire({
-                icon: 'warning',
-                title: 'Remove this invoice?',
-                text: 'This action cannot be undone. The invoice will be permanently removed.',
-                showCancelButton: true,
-                confirmButtonText: 'Yes, remove it',
-                confirmButtonColor: '#d33',
-                cancelButtonColor: '#3085d6',
-            }).then((result) => {
-                if (result.isConfirmed) {
-                    $("#div_full_screen_loading").show();
-                    
-                    $.ajaxSetup({
-                        headers: {
-                            'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
-                        }
-                    });
-                    
-                    $.ajax({
-                        type: 'POST',
-                        url: '/removeInvoice/' + invoiceId,
-                        data: null,
-                        processData: false,
-                        contentType: false,
-                        success: function(response) {
-                            console.log(response);
-                            $("#div_full_screen_loading").hide();
-                            
-                            if (response.status == 1) {
-                                // Show success notification using system function
-                                toastController(response.message || 'Invoice removed successfully', 'success');
-                                
-                                // Refresh invoice section without reloading whole page
-                                if (response.bill_id && typeof loadCaseBill === 'function') {
-                                    loadCaseBill(response.bill_id);
-                                } else {
-                                    // Fallback: reload page if loadCaseBill is not available
-                                    console.warn('loadCaseBill function not found or bill_id missing, reloading page');
-                                    setTimeout(function() {
-                                        location.reload();
-                                    }, 2000);
-                                }
-                            } else {
-                                toastController(response.message || 'Failed to remove invoice', 'warning');
-                            }
-                        },
-                        error: function(xhr, status, error) {
-                            console.error("AJAX error:", xhr, status, error);
-                            $("#div_full_screen_loading").hide();
-                            var errorMsg = 'Failed to remove invoice';
-                            if (xhr.responseJSON && xhr.responseJSON.message) {
-                                errorMsg = xhr.responseJSON.message;
-                            }
-                            toastController(errorMsg, 'warning');
-                        }
-                    });
-                }
-            });
         }
 
         function submitBonusReview(bonus_type) {

@@ -48,7 +48,7 @@
             </div>
             <div class="modal-body">
 
-                <form id="form_file_modal" enctype="multipart/form-data" class="dropzone">
+                <form id="form_file_modal" enctype="multipart/form-data">
             @csrf
             <div class="row">
                 <div class="col-sm-6 col-md-10 col-lg-8 col-xl-12 ">

@@ -639,12 +639,15 @@
     <script src="{{ asset('js/jquery.toast.min.js') }}"></script>
     <script src="{{ asset('js/dropzone.min.js') }}"></script>
     <script>
+        // Disable Dropzone auto-discovery immediately after loading
         Dropzone.autoDiscover = false;
         var drop = document.getElementById('form_file');
         var dropModal = document.getElementById('form_file_modal');
         // var drop = document.getElementsByClassName('dropzone');
 
-        var myDropzone = new Dropzone(drop, {
+        var myDropzone = null;
+        if (drop != null) {
+            myDropzone = new Dropzone(drop, {
             url: "/CaseFileUpload",
             addRemoveLinks: true,
             autoProcessQueue: false,
@@ -733,8 +736,11 @@
 
 
         });
+        }
 
-        var myDropzoneModal = new Dropzone(dropModal, {
+        var myDropzoneModal = null;
+        if (dropModal != null) {
+            myDropzoneModal = new Dropzone(dropModal, {
             url: "/CaseFileUpload",
             addRemoveLinks: true,
             autoProcessQueue: false,
@@ -820,8 +826,13 @@
 
 
         });
+        }
 
         function newUpload() {
+            if (myDropzone == null) {
+                Swal.fire('Notice!', 'Dropzone not initialized', 'warning');
+                return;
+            }
 
             if (myDropzone.getAcceptedFiles().length <= 0) {
                 Swal.fire('Notice!', 'No file selected', 'warning');
@@ -833,6 +844,11 @@
         }
 
         function newUploadModal() {
+            if (myDropzoneModal == null) {
+                Swal.fire('Notice!', 'Dropzone not initialized', 'warning');
+                return;
+            }
+
             if (myDropzoneModal.getAcceptedFiles().length <= 0) {
                 Swal.fire('Notice!', 'No file selected', 'warning');
                 return;
@@ -1169,22 +1185,26 @@
 
             }
         } else {
-            document.getElementById("ddl_payment_type").onchange = function() {
+            // Check if ddl_payment_type exists before setting onchange handler
+            var ddlPaymentType = document.getElementById("ddl_payment_type");
+            if (ddlPaymentType != null) {
+                ddlPaymentType.onchange = function() {
 
-                // $(".dPaymentType").hide();
-                // $(".dChequeNo").hide();
-                // $(".dBankTransfer").hide();
+                    // $(".dPaymentType").hide();
+                    // $(".dChequeNo").hide();
+                    // $(".dBankTransfer").hide();
 
-                // if ($("#ddl_payment_type").val() == "2") {
-                //   $(".dChequeNo").show();
-                // } else if ($("#ddl_payment_type").val() == "3") {
-                //   $(".dBankTransfer").show();
-                // } else if ($("#ddl_payment_type").val() == "4") {
-                //   $(".dCreditCard").show();
-                // } else {
-                //   $(".dChequeNo").hide();
-                //   $(".dBankTransfer").hide();
-                // }
+                    // if ($("#ddl_payment_type").val() == "2") {
+                    //   $(".dChequeNo").show();
+                    // } else if ($("#ddl_payment_type").val() == "3") {
+                    //   $(".dBankTransfer").show();
+                    // } else if ($("#ddl_payment_type").val() == "4") {
+                    //   $(".dCreditCard").show();
+                    // } else {
+                    //   $(".dChequeNo").hide();
+                    //   $(".dBankTransfer").hide();
+                    // }
+                }
             }
 
 
@@ -2344,7 +2364,9 @@
         function viewMode() {
             $(".nav-tabs-custom-ctr").show();
             $(".d_operation").hide();
-            myDropzone.removeAllFiles(true);
+            if (myDropzone != null) {
+                myDropzone.removeAllFiles(true);
+            }
         }
 
         function updateChecklist($id) {
@@ -5414,9 +5436,12 @@
             });
         }
 
-        document.getElementById("ddlAccountItem").onchange = function() {
-            $("#txtCalculateAccountAmount").val(0);
-            $("#txtAmount").val(0);
+        var ddlAccountItem = document.getElementById("ddlAccountItem");
+        if (ddlAccountItem != null) {
+            ddlAccountItem.onchange = function() {
+                $("#txtCalculateAccountAmount").val(0);
+                $("#txtAmount").val(0);
+            }
         }
 
         function addAccountItemModal(catId) {

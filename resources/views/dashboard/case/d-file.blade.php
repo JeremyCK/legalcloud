@@ -4,7 +4,7 @@
         <h4>Upload file</h4>
     </div>
     <div class="card-body">
-        <form id="form_file" enctype="multipart/form-data" class="dropzone">
+        <form id="form_file" enctype="multipart/form-data">
             @csrf
             <div class="row">
                 <div class="col-sm-6 col-md-10 col-lg-8 col-xl-12 ">

@@ -97,3 +97,5 @@
 # 3. Each icon should be inside a <div class="d-inline-flex align-items-center"> that contains the span
 # 4. After adding, clear cache: php artisan view:clear && php artisan cache:clear
 
+
+

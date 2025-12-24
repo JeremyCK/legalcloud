@@ -80,3 +80,5 @@ WHERE NOT EXISTS (
 -- SELECT * FROM permissions WHERE name = 'visit Audit Trail';
 -- SELECT * FROM role_has_permissions WHERE permission_id = @permission_id;
 
+
+

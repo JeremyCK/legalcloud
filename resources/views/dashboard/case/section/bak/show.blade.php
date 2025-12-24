@@ -646,7 +646,7 @@
     <script src="{{ asset('js/jquery.toast.min.js') }}"></script>
     <script src="{{ asset('js/dropzone.min.js') }}"></script>
     <script>
-        // Disable Dropzone auto-discovery immediately after loading
+         
         Dropzone.autoDiscover = false;
         var drop = document.getElementById('form_file');
         var dropModal = document.getElementById('form_file_modal');

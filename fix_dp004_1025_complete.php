@@ -282,3 +282,5 @@ function calculateInvoiceAmountsFromDetails($invoiceId, $sstRate) {
     ];
 }
 
+
+

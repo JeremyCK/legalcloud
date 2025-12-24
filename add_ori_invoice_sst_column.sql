@@ -41,3 +41,5 @@ WHERE TABLE_SCHEMA = DATABASE()
 AND TABLE_NAME = 'loan_case_invoice_details'
 AND COLUMN_NAME = 'ori_invoice_sst';
 
+
+

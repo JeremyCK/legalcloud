@@ -196,3 +196,5 @@ User edits total SST to 20.00:
 | Transfer fee update | ✅ Yes | ❌ No | Update `sst` to match transfer fee |
 | Initial invoice creation | ✅ Yes | ✅ Yes | Calculate from amount × SST rate |
 
+
+
