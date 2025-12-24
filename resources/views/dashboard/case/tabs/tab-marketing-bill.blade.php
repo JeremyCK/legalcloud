@@ -1,3 +1,10 @@
+@php
+    $LoanAttachmentMarketing = $LoanAttachmentMarketing ?? collect();
+    $case = $case ?? null;
+    $current_user = $current_user ?? null;
+@endphp
+
+@if(isset($case))
 <div class="row">
   <div class="col-12">
     <div class="box">
@@ -15,7 +22,7 @@
               <h3 class="box-title"></h3>
 
               <div class="box-tools">
-              @if($case->status <> 99)
+              @if(isset($case) && $case->status <> 99)
                 <button class="btn btn-primary" type="button" onclick="marketingBillMode('0', '{{ $case->id }}');">
                   <i class="cil-plus"></i> Upload Attachment
                 </button>
@@ -39,3 +46,8 @@
     <!-- /.box -->
   </div>
 </div>
+@else
+<div class="alert alert-warning">
+  <p>Unable to load marketing bill content. Please refresh the page.</p>
+</div>
+@endif

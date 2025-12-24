@@ -392,6 +392,11 @@
                 content: counter(page);
             }
         }
+
+        /* Hide Dropzone default preview - we use custom table instead */
+        #form_file .dz-preview {
+            display: none !important;
+        }
     </style>
 
     <link href="{{ asset('css/external-master.css') }}" rel="stylesheet">
@@ -646,108 +651,121 @@
     <script src="{{ asset('js/jquery.toast.min.js') }}"></script>
     <script src="{{ asset('js/dropzone.min.js') }}"></script>
     <script>
-        // Disable Dropzone auto-discovery immediately after loading
-        Dropzone.autoDiscover = false;
+
+Dropzone.autoDiscover = false;
         var drop = document.getElementById('form_file');
         var dropModal = document.getElementById('form_file_modal');
-        // var drop = document.getElementsByClassName('dropzone');
 
-        var myDropzone = null;
         if (drop != null) {
-            myDropzone = new Dropzone(drop, {
+        // Store files data
+        var filesData = {};
+        var fileCounter = 0;
+
+        // Build attachment type options HTML
+        var attachmentTypeOptionsHtml = '';
+        @foreach ($attachment_type as $index => $type)
+            @if ($type->parameter_value_3 == 1)
+                @if (in_array($current_user->menuroles, ['admin', 'account', 'maker']) || in_array($current_user->id, [51]))
+        attachmentTypeOptionsHtml += '<option value="{{ $type->parameter_value_2 }}" @if ($type->parameter_value_2 == 6) selected @endif>{{ $type->parameter_value_1 }}</option>';
+                @endif
+            @else
+        attachmentTypeOptionsHtml += '<option value="{{ $type->parameter_value_2 }}" @if ($type->parameter_value_2 == 4) selected @endif>{{ $type->parameter_value_1 }}</option>';
+            @endif
+        @endforeach
+
+        var myDropzone = new Dropzone(drop, {
             url: "/CaseFileUpload",
-            addRemoveLinks: true,
+            addRemoveLinks: false, // We'll handle removal ourselves
             autoProcessQueue: false,
             maxFilesize: 70, // MB
             maxFiles: 5,
-            uploadMultiple: true,
-            parallelUploads: 10,
-            sending: function(file, xhr, formData) {
-                formData.append("_token", "{{ csrf_token() }}");
-                formData.append("type", $("#type_list").val());
-                formData.append("case_id", $("#main_case_id").val());
-                formData.append("file_type", $("#file_type").val());
-                formData.append("file_remark", $("#file_remark").val());
-            },
+            uploadMultiple: false, // Process one at a time
+            parallelUploads: 1,
+            previewTemplate: '<div></div>', // Hide default preview
             init: function() {
+                var dropzoneInstance = this;
                 this.on("maxfilesexceeded", function(file) {
                     this.removeFile(file);
-                    // showAlert("File Limit exceeded!", "error");
+                    alert("Maximum 5 files allowed");
                 });
-                this.on("addedfile", function() {
-                    if ($("#file_type").val() == 1) {
-                        $(".dz-preview:last").append(`<br>
-                            <select class="form-control" id="type_list" name="type[]">
-                                    @foreach ($attachment_type as $index => $type)
-                                        @if ($type->parameter_value_3 == 1)
-                                            @if (in_array($current_user->menuroles, ['admin', 'account', 'maker']) || in_array($current_user->id, [51]))
-                                            <option value="{{ $type->parameter_value_2 }}" @if ($type->parameter_value_2 == 6) selected @endif >{{ $type->parameter_value_1 }}</option>
-                                            @endif
-                                            
-                                        @else
-                                            <option value="{{ $type->parameter_value_2 }}" @if ($type->parameter_value_2 == 4) selected @endif>
-                                                {{ $type->parameter_value_1 }}</option>
-                                        @endif
-                                    @endforeach
-                            </select> <br>
-                            <div class="col">
-                                                    <label>Remarks</label>
-                                                    <textarea class="form-control" id="file_remark" name="remark[]" rows="3"></textarea>
-                                                </div>
-                            `);
+                this.on("addedfile", function(file) {
+                    // Hide default preview
+                    $(file.previewElement).hide();
+                    
+                    // Generate unique ID for this file
+                    var fileId = 'file_' + fileCounter++;
+                    filesData[fileId] = {
+                        file: file,
+                        name: file.name,
+                        size: (file.size / 1024).toFixed(2) + ' KB'
+                    };
+                    
+                    // Add to table
+                    var fileType = $("#file_type").val();
+                    var rowHtml = '<tr id="row_' + fileId + '">' +
+                        '<td>' + file.name + '<br><small class="text-muted">' + filesData[fileId].size + '</small></td>' +
+                        '<td>';
+                    
+                    if (fileType == 1) {
+                        rowHtml += '<select class="form-control file-type-select" data-file-id="' + fileId + '">' + attachmentTypeOptionsHtml + '</select>';
                     } else {
-                        $(".dz-preview:last").append(`<br>
-                            <select class="form-control" id="type_list" name="type[]" style="display:none">
-                                <option value="5"  selected  >Account</option>
-                            </select> <br>
-                            <div class="col">
-                                                    <label>Remarks</label>
-                                                    <textarea class="form-control" id="file_remark" name="remark[]" rows="3"></textarea>
-                                                </div>
-                            `);
+                        rowHtml += '<select class="form-control file-type-select" data-file-id="' + fileId + '" style="display:none;"><option value="5" selected>Account</option></select>' +
+                                   '<span class="text-muted">Account</span>';
                     }
-
+                    
+                    rowHtml += '</td>' +
+                        '<td><textarea class="form-control file-remark-textarea" data-file-id="' + fileId + '" rows="2"></textarea></td>' +
+                        '<td><button type="button" class="btn btn-sm btn-danger" onclick="removeFileFromList(\'' + fileId + '\')">Remove</button></td>' +
+                        '</tr>';
+                    
+                    $('#file-list-tbody').append(rowHtml);
+                    $('#file-list-container').show();
                 });
             },
             success: function(file, response) {
-                // console.log(response);
-                $.each(myDropzone.files, function(i, file) {
-                    file.status = Dropzone.QUEUED
-                });
-
-                if (response.status == 1) {
-                    $("#div_full_screen_loading").hide();
-                    // Swal.fire('Success!', response.message, 'success');
-
-                    viewMode();
-                    toastController('Attachment Uploaded');
-                    this.removeAllFiles(true);
-                    $('#div_case_attachment').html(response.LoanAttachment);
-                    $('#div_case_marketing_attachment').html(response.LoanAttachmentMarketing);
-
-                    iniAttachmentTable()
-
-                    document.getElementById("form_file").reset();
-
-                    this.removeAllFiles(true);
-                } else {
-
+                // Find file ID and remove from list
+                var fileId = Object.keys(filesData).find(id => filesData[id].file === file);
+                if (fileId) {
+                    $('#row_' + fileId).remove();
+                    delete filesData[fileId];
+                    
+                    // Hide table if no more files
+                    if ($('#file-list-tbody tr').length === 0) {
+                        $('#file-list-container').hide();
+                    }
                 }
             },
             error: function(file, response) {
-                $.each(myDropzone.files, function(i, file) {
-                    file.status = Dropzone.QUEUED
-                });
                 $("#div_full_screen_loading").hide();
+                alert("Error uploading file: " + file.name);
             }
-
-
         });
+
+        // Function to remove file from list
+        window.removeFileFromList = function(fileId) {
+            if (filesData[fileId]) {
+                myDropzone.removeFile(filesData[fileId].file);
+                $('#row_' + fileId).remove();
+                delete filesData[fileId];
+                
+                if ($('#file-list-tbody tr').length === 0) {
+                    $('#file-list-container').hide();
+                }
+            }
+        };
+
         }
 
-        var myDropzoneModal = null;
         if (dropModal != null) {
-            myDropzoneModal = new Dropzone(dropModal, {
+        // Build modal attachment type options HTML (only type 9)
+        var modalAttachmentTypeOptionsHtml = '';
+        @foreach ($attachment_type as $index => $type)
+            @if ($type->parameter_value_2 == 9)
+        modalAttachmentTypeOptionsHtml += '<option value="{{ $type->parameter_value_2 }}" @if ($type->parameter_value_2 == 4) selected @endif>{{ $type->parameter_value_1 }}</option>';
+            @endif
+        @endforeach
+
+        var myDropzoneModal = new Dropzone(dropModal, {
             url: "/CaseFileUpload",
             addRemoveLinks: true,
             autoProcessQueue: false,
@@ -757,21 +775,28 @@
             parallelUploads: 10,
             sending: function(file, xhr, formData) {
                 formData.append("_token", "{{ csrf_token() }}");
-                formData.append("type", $("#type_list_modal").val());
+                // Get values from this specific file's preview element
+                var filePreview = file.previewElement;
+                var typeValue = $(filePreview).find('select[name="type[]"]').val();
+                var remarkValue = $(filePreview).find('textarea[name="remark[]"]').val();
+                formData.append("type", typeValue);
                 formData.append("case_id", $("#main_case_id").val());
                 formData.append("checklist_id", $("#checklist_id").val());
                 formData.append("file_type", $("#file_type_modal").val());
-                formData.append("file_remark", $("#file_remark_modal").val());
+                formData.append("file_remark", remarkValue);
             },
             init: function() {
+                var dropzoneModalInstance = this;
                 this.on("maxfilesexceeded", function(file) {
                     this.removeFile(file);
-                    // showAlert("File Limit exceeded!", "error");
                 });
-                this.on("addedfile", function() {
-                    if ($("#file_type").val() == 1) {
-                        $(".dz-preview:last").append(`<br>
-                            <select class="form-control" id="type_list_modal" name="type[]"  style="display:none">
+                this.on("addedfile", function(file) {
+                    var previewElement = file.previewElement;
+                    var fileType = $("#file_type_modal").val();
+                    
+                    if (fileType == 1) {
+                        $(previewElement).append(`<br>
+                            <select class="form-control" name="type[]" style="display:none">
                                     @foreach ($attachment_type as $index => $type)
                                         @if ($type->parameter_value_2 == 9)
                                             <option value="{{ $type->parameter_value_2 }}" @if ($type->parameter_value_2 == 4) selected @endif>
@@ -780,22 +805,21 @@
                                     @endforeach
                             </select> <br>
                             <div class="col" style="display:none">
-                                                    <label>Remarks</label>
-                                                    <textarea class="form-control" id="file_remark_modal" name="remark[]" rows="3"></textarea>
-                                                </div>
-                            `);
+                                <label>Remarks</label>
+                                <textarea class="form-control" name="remark[]" rows="3"></textarea>
+                            </div>
+                        `);
                     } else {
-                        $(".dz-preview:last").append(`<br>
-                            <select class="form-control" id="type_list" name="type[]" style="display:none">
-                                <option value="5"  selected  >Account</option>
+                        $(previewElement).append(`<br>
+                            <select class="form-control" name="type[]" style="display:none">
+                                <option value="5" selected>Account</option>
                             </select> <br>
                             <div class="col">
-                                                    <label>Remarks</label>
-                                                    <textarea class="form-control" id="file_remark" name="remark[]" rows="3"></textarea>
-                                                </div>
-                            `);
+                                <label>Remarks</label>
+                                <textarea class="form-control" name="remark[]" rows="3"></textarea>
+                            </div>
+                        `);
                     }
-
                 });
             },
             success: function(file, response) {
@@ -836,26 +860,84 @@
         }
 
         function newUpload() {
-            if (myDropzone == null) {
-                Swal.fire('Notice!', 'Dropzone not initialized', 'warning');
-                return;
-            }
-
-            if (myDropzone.getAcceptedFiles().length <= 0) {
+            if (typeof filesData === 'undefined' || Object.keys(filesData).length === 0) {
                 Swal.fire('Notice!', 'No file selected', 'warning');
                 return;
             }
 
             $("#div_full_screen_loading").show();
-            myDropzone.processQueue();
+            var uploadPromises = [];
+            var fileType = $("#file_type").val();
+            var lastResponse = null;
+
+            // Process each file
+            Object.keys(filesData).forEach(function(fileId) {
+                var file = filesData[fileId].file;
+                var typeValue = $('#row_' + fileId + ' .file-type-select').val();
+                var remarkValue = $('#row_' + fileId + ' .file-remark-textarea').val();
+
+                var formData = new FormData();
+                formData.append("_token", "{{ csrf_token() }}");
+                formData.append("type[]", typeValue);
+                formData.append("case_id", $("#main_case_id").val());
+                formData.append("file_type", fileType);
+                formData.append("remark[]", remarkValue);
+                formData.append("file[]", file);
+
+                var uploadPromise = $.ajax({
+                    url: "/CaseFileUpload",
+                    type: "POST",
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    success: function(response) {
+                        lastResponse = response; // Keep last response for table reload
+                    },
+                    error: function() {
+                        alert("Error uploading file: " + file.name);
+                    }
+                });
+
+                uploadPromises.push(uploadPromise);
+            });
+
+            // Wait for all uploads to complete
+            $.when.apply($, uploadPromises).done(function() {
+                $("#div_full_screen_loading").hide();
+                
+                if (lastResponse && lastResponse.status == 1) {
+                    // Clear all files from Dropzone
+                    myDropzone.removeAllFiles(true);
+                    
+                    // Clear table rows
+                    $('#file-list-tbody').empty();
+                    $('#file-list-container').hide();
+                    
+                    // Reset file data
+                    filesData = {};
+                    fileCounter = 0;
+                    
+                    // Reset form
+                    document.getElementById("form_file").reset();
+                    
+                    // Reload attachment tables
+                    $('#div_case_attachment').html(lastResponse.LoanAttachment);
+                    $('#div_case_marketing_attachment').html(lastResponse.LoanAttachmentMarketing);
+                    iniAttachmentTable();
+                    
+                    // Hide upload section and show success
+                    viewMode();
+                    toastController('Attachment Uploaded');
+                } else {
+                    Swal.fire('Error!', 'Upload failed', 'error');
+                }
+            });
         }
 
         function newUploadModal() {
-            if (myDropzoneModal == null) {
-                Swal.fire('Notice!', 'Dropzone not initialized', 'warning');
+            if (typeof myDropzoneModal === 'undefined' || myDropzoneModal == null) {
                 return;
             }
-
             if (myDropzoneModal.getAcceptedFiles().length <= 0) {
                 Swal.fire('Notice!', 'No file selected', 'warning');
                 return;
@@ -1347,7 +1429,7 @@
             $("#case_id").val(case_id);
             $("#selected_id").val(id);
             $("#file_type").val(1);
-            $("#div_attachment_type").show();
+            $("#div_attachment_type").hide();
 
             // $(".need-remark").hide();
 
@@ -2536,7 +2618,7 @@
         function viewMode() {
             $(".nav-tabs-custom-ctr").show();
             $(".d_operation").hide();
-            if (myDropzone != null) {
+            if (typeof myDropzone !== 'undefined' && myDropzone != null) {
                 myDropzone.removeAllFiles(true);
             }
         }

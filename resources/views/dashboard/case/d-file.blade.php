@@ -13,33 +13,6 @@
                     {{-- <input class="form-control" type="hidden" id="case_id" name="case_id" value=""> --}}
                     <input class="form-control" type="hidden" id="file_type" name="file_type" value="1">
 
-                    {{-- <div id="div_attachment_type" class="form-group row">
-                        <div class="col">
-                            <label>File</label>
-                            <select class="form-control" id="attachment_type" name="attachment_type">
-                                @foreach ($attachment_type as $index => $type)
-                                    @if ($type->parameter_value_3 == 1)
-                                        @if (in_array($current_user->menuroles, ['admin','account', 'maker']) || in_array($current_user->id, [51]))
-                                        <option value="{{ $type->parameter_value_2 }}" @if($type->parameter_value_2 == 6) selected @endif >{{ $type->parameter_value_1 }}</option>
-                                        @endif
-                                        
-                                    @else
-                                        <option value="{{ $type->parameter_value_2 }}" @if($type->parameter_value_2 == 4) selected @endif>
-                                            {{ $type->parameter_value_1 }}</option>
-                                    @endif
-                                @endforeach
-                            </select>
-                        </div>
-                    </div>
-
-
-                    <div class="need-remark form-group row">
-                        <div class="col">
-                            <label>Remarks</label>
-                            <textarea class="form-control" id="file_remark" name="remark" rows="3"></textarea>
-                        </div>
-                    </div> --}}
-
                     <div id="field_file" class="form-group row">
                         <div class="col">
                             {{-- <label>File</label> --}}
@@ -60,8 +33,24 @@
                                     upload.</h3>
                                 <span class="fs-7 fw-semibold text-gray-400">Upload up to 5 files</span>
                             </div>
-                            
                         </div>
+                    </div>
+
+                    <!-- Custom file list table -->
+                    <div class="col-12 mt-3" id="file-list-container" style="display:none;">
+                        <table class="table table-bordered" id="file-list-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 30%;">File Name</th>
+                                    <th style="width: 25%;">Attachment Type</th>
+                                    <th style="width: 35%;">Remarks</th>
+                                    <th style="width: 10%;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="file-list-tbody">
+                                <!-- Files will be added here -->
+                            </tbody>
+                        </table>
                     </div>
 
                     

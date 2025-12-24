@@ -639,15 +639,12 @@
     <script src="{{ asset('js/jquery.toast.min.js') }}"></script>
     <script src="{{ asset('js/dropzone.min.js') }}"></script>
     <script>
-        // Disable Dropzone auto-discovery immediately after loading
-        Dropzone.autoDiscover = false;
+
+Dropzone.autoDiscover = false;
         var drop = document.getElementById('form_file');
         var dropModal = document.getElementById('form_file_modal');
-        // var drop = document.getElementsByClassName('dropzone');
 
-        var myDropzone = null;
-        if (drop != null) {
-            myDropzone = new Dropzone(drop, {
+        var myDropzone = new Dropzone(drop, {
             url: "/CaseFileUpload",
             addRemoveLinks: true,
             autoProcessQueue: false,
@@ -657,10 +654,14 @@
             parallelUploads: 10,
             sending: function(file, xhr, formData) {
                 formData.append("_token", "{{ csrf_token() }}");
-                formData.append("type", $("#type_list").val());
+                // Get values from this specific file's preview element
+                var filePreview = file.previewElement;
+                var typeValue = $(filePreview).find('select[name="type[]"]').val();
+                var remarkValue = $(filePreview).find('textarea[name="remark[]"]').val();
+                formData.append("type", typeValue);
                 formData.append("case_id", $("#main_case_id").val());
                 formData.append("file_type", $("#file_type").val());
-                formData.append("file_remark", $("#file_remark").val());
+                formData.append("file_remark", remarkValue);
             },
             init: function() {
                 this.on("maxfilesexceeded", function(file) {
@@ -736,11 +737,8 @@
 
 
         });
-        }
 
-        var myDropzoneModal = null;
-        if (dropModal != null) {
-            myDropzoneModal = new Dropzone(dropModal, {
+        var myDropzoneModal = new Dropzone(dropModal, {
             url: "/CaseFileUpload",
             addRemoveLinks: true,
             autoProcessQueue: false,
@@ -750,11 +748,15 @@
             parallelUploads: 10,
             sending: function(file, xhr, formData) {
                 formData.append("_token", "{{ csrf_token() }}");
-                formData.append("type", $("#type_list_modal").val());
+                // Get values from this specific file's preview element
+                var filePreview = file.previewElement;
+                var typeValue = $(filePreview).find('select[name="type[]"]').val();
+                var remarkValue = $(filePreview).find('textarea[name="remark[]"]').val();
+                formData.append("type", typeValue);
                 formData.append("case_id", $("#main_case_id").val());
                 formData.append("checklist_id", $("#checklist_id").val());
                 formData.append("file_type", $("#file_type_modal").val());
-                formData.append("file_remark", $("#file_remark_modal").val());
+                formData.append("file_remark", remarkValue);
             },
             init: function() {
                 this.on("maxfilesexceeded", function(file) {
@@ -762,9 +764,9 @@
                     // showAlert("File Limit exceeded!", "error");
                 });
                 this.on("addedfile", function() {
-                    if ($("#file_type").val() == 1) {
+                    if ($("#file_type_modal").val() == 1) {
                         $(".dz-preview:last").append(`<br>
-                            <select class="form-control" id="type_list_modal" name="type[]"  style="display:none">
+                            <select class="form-control" id="type_list_modal" name="type[]" style="display:none">
                                     @foreach ($attachment_type as $index => $type)
                                         @if ($type->parameter_value_2 == 9)
                                             <option value="{{ $type->parameter_value_2 }}" @if ($type->parameter_value_2 == 4) selected @endif>
@@ -779,12 +781,12 @@
                             `);
                     } else {
                         $(".dz-preview:last").append(`<br>
-                            <select class="form-control" id="type_list" name="type[]" style="display:none">
+                            <select class="form-control" id="type_list_modal" name="type[]" style="display:none">
                                 <option value="5"  selected  >Account</option>
                             </select> <br>
                             <div class="col">
                                                     <label>Remarks</label>
-                                                    <textarea class="form-control" id="file_remark" name="remark[]" rows="3"></textarea>
+                                                    <textarea class="form-control" id="file_remark_modal" name="remark[]" rows="3"></textarea>
                                                 </div>
                             `);
                     }
@@ -826,14 +828,8 @@
 
 
         });
-        }
 
         function newUpload() {
-            if (myDropzone == null) {
-                Swal.fire('Notice!', 'Dropzone not initialized', 'warning');
-                return;
-            }
-
             if (myDropzone.getAcceptedFiles().length <= 0) {
                 Swal.fire('Notice!', 'No file selected', 'warning');
                 return;
@@ -844,11 +840,6 @@
         }
 
         function newUploadModal() {
-            if (myDropzoneModal == null) {
-                Swal.fire('Notice!', 'Dropzone not initialized', 'warning');
-                return;
-            }
-
             if (myDropzoneModal.getAcceptedFiles().length <= 0) {
                 Swal.fire('Notice!', 'No file selected', 'warning');
                 return;
@@ -1340,7 +1331,7 @@
             $("#case_id").val(case_id);
             $("#selected_id").val(id);
             $("#file_type").val(1);
-            $("#div_attachment_type").show();
+            $("#div_attachment_type").hide();
 
             // $(".need-remark").hide();
 
@@ -2364,9 +2355,7 @@
         function viewMode() {
             $(".nav-tabs-custom-ctr").show();
             $(".d_operation").hide();
-            if (myDropzone != null) {
-                myDropzone.removeAllFiles(true);
-            }
+            myDropzone.removeAllFiles(true);
         }
 
         function updateChecklist($id) {
