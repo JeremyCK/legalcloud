@@ -665,7 +665,8 @@ class VoucherControllerV2 extends Controller
             $voucherMain->module = 'voucher|trust';
         }
 
-        $desc = $current_user->name. ' request voucher ' . $voucherMain->voucher_no;
+        // Remove name from desc since name is already stored separately in notification.name field
+        $desc = 'request voucher ' . $voucherMain->voucher_no;
 
         $voucherMain->role = 'account|admin|management';
         $voucherMain->notification_desc = $desc;
@@ -724,7 +725,8 @@ class VoucherControllerV2 extends Controller
         }
 
         $voucherMain->role = 'account|admin|management';
-        $voucherMain->notification_desc = $current_user->name. ' approved voucher ' . $voucherMain->voucher_no;
+        // Remove name from desc since name is already stored separately in notification.name field
+        $voucherMain->notification_desc = 'approved voucher ' . $voucherMain->voucher_no;
 
         NotificationController::createVoucherNotification($voucherMain);
         VoucherControllerV2::createAccountLog($voucherMain, 'ApproveVoucher');
