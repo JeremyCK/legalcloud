@@ -79,7 +79,9 @@
             },
             columns: [{
                     data: 'DT_RowIndex',
-                    name: 'DT_RowIndex'
+                    name: 'DT_RowIndex',
+                    orderable: false,
+                    searchable: false
                 },
                 {
                     data: 'id',
@@ -111,16 +113,16 @@
                     data: 'action_change_referral',
                     className: "text-center",
                     name: 'action_change_referral',
-                    orderable: true,
-                    searchable: true
+                    orderable: false,
+                    searchable: false
                 },
                 @else
                 {
                     data: 'action_select_referral',
                     className: "text-center",
                     name: 'action_select_referral',
-                    orderable: true,
-                    searchable: true
+                    orderable: false,
+                    searchable: false
                 },
                 @endif
 

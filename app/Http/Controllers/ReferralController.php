@@ -80,62 +80,59 @@ class ReferralController extends Controller
         if ($request->ajax()) {
 
             $current_user = auth()->user();
-            $referral = Referral::where('status', '=', 1);
+            
+            // Build query with case_count using left join - keep as query builder for server-side processing
+            $referral = Referral::select('referral.*')
+                ->selectRaw('(SELECT COUNT(*) FROM loan_case WHERE loan_case.referral_id = referral.id) as case_count')
+                ->where('status', '=', 1);
 
+            // Apply role-based filtering
             if ($current_user->menuroles == 'admin' || $current_user->menuroles == 'management' || $current_user->menuroles == 'account') {
-                $referral = $referral->where('status', '=', 1)->get();
+                // No additional filtering needed - see all active referrals
             }
             elseif ($current_user->menuroles == 'maker')
             {
                 if ($current_user->branch_id == 3) {
-                    $referral = $referral->where('status', '=', 1)->whereIn('created_by', [80])->get();
+                    $referral = $referral->whereIn('created_by', [80]);
                 }
                 else if ($current_user->branch_id == 5) {
-                    $referral = $referral->where('status', '=', 1)->whereIn('created_by', [32,118,143])->get();
+                    $referral = $referral->whereIn('created_by', [32,118,143]);
                 }
                 else if ($current_user->branch_id == 2) {
-                    $referral = $referral->where('status', '=', 1)->whereIn('created_by', [13])->get();
+                    $referral = $referral->whereIn('created_by', [13]);
                 }
-
-                LoanCase::where('status', '<>', 99)->where('branch_id', '=', $current_user->branch_id)->get();
+                else {
+                    // If branch_id doesn't match, return empty result
+                    $referral = $referral->where('id', '=', 0);
+                }
             } 
             else {
                 if (in_array($current_user->id, [118,127, 179, 182,202]))
                 {
-                    $referral = $referral->where('status', '=', 1)->whereIn('created_by', [$current_user->id,32,141,118,127,143, 182,179])->get();
+                    $referral = $referral->whereIn('created_by', [$current_user->id,32,141,118,127,143, 182,179]);
                 }
                 else if (in_array($current_user->id, [14]))
                 {
-                    $referral = $referral->where('status', '=', 1)->whereIn('created_by', [2,32])->get();
+                    $referral = $referral->whereIn('created_by', [2,32]);
                 }
                 else if (in_array($current_user->id, [29]))
                 {
-                    $referral = $referral->where('status', '=', 1)->whereIn('created_by', [$current_user->id,144])->get();
+                    $referral = $referral->whereIn('created_by', [$current_user->id,144]);
                 }
                 else if (in_array($current_user->id, [144]))
                 {
-                    $referral = $referral->where('status', '=', 1)->whereIn('created_by', [$current_user->id,29])->get();
+                    $referral = $referral->whereIn('created_by', [$current_user->id,29]);
                 }
                 else
                 {
-
-                    $referral = $referral->where('status', '=', 1)->where('created_by', '=', $current_user->id)->get();
+                    $referral = $referral->where('created_by', '=', $current_user->id);
                 }
             }
 
-            if (count($referral) > 0) {
-                for ($i = 0; $i < count($referral); $i++) {
-                    $sales_count = [];
-    
-                    // $LoanCaseCount = LoanCase::where('status', '<>', 99)->where('referral_id', '=', $referral[$i]->id)->count();
-                    $LoanCaseCount = LoanCase::where('referral_id', '=', $referral[$i]->id)->count();
-    
-                    $referral[$i]->case_count = $LoanCaseCount;
-                }
-            }
-
+            // Pass query builder to DataTables for server-side processing (search, pagination, sorting)
             return DataTables::of($referral)
                 ->addIndexColumn()
+                ->orderColumn('DT_RowIndex', false) // Disable ordering on DT_RowIndex
                 ->addColumn('action', function ($row)  {
                     $actionBtn = ' <a  href="/referral/' . $row->id . '/edit" class="btn btn-info shadow sharp mr-1" data-toggle="tooltip" data-placement="top" title="View"><i class="cil-pencil"></i></a>
                     ';
