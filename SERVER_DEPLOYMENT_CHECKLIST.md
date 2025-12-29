@@ -1,79 +1,98 @@
-# Server Deployment Checklist for SST Record 96 Fix
+# Server Deployment Checklist - SST Display Fix
 
 ## Issue
-On the server, SST column shows 0.00 for all invoices in SST Record 96.
+Updating SST value in invoice details page works, but the updated value doesn't reflect in case details invoice tab on server (works on local).
 
-## Root Cause
-The `sst_details.amount` field is 0 or NULL. It needs to be updated from `invoice.sst_inv`.
+## Files Modified (Must Deploy to Server)
 
-## Required Actions
+### 1. View Files (CRITICAL)
+These view files need to be updated on the server to display custom SST values:
 
-### 1. Run SQL Patch on Server
+#### ✅ `resources/views/dashboard/case/tabs/bill/tab-invoice.blade.php`
+**Location**: Line 179-229
+**Change**: Added check for custom SST (`sst` column) before calculating
+**Priority**: HIGH - This is the main invoice tab view
 
-**File:** `SERVER_PATCH_REQUIRED.sql`
+**What was changed:**
+- Added priority check: Custom SST → ori_invoice_sst → Calculate
+- Now checks `$details->sst` column first (the manually edited value)
+- Falls back to calculation only if no custom SST exists
 
-This will:
-- Update `sst_details.amount` from `invoice.sst_inv`
-- Recalculate `sst_main.amount` to include both SST and reimbursement SST
+#### ✅ `resources/views/dashboard/case/table/tbl-case-invoice-p.blade.php`
+**Location**: Line 40-115
+**Change**: Added check for custom SST (`sst` column) before calculating
+**Priority**: HIGH - This is used for invoice print/display
 
-**How to run:**
-```sql
-SOURCE SERVER_PATCH_REQUIRED.sql;
+**What was changed:**
+- Added robust SST value detection
+- Checks for custom SST from database before calculating
+- Fixed undefined variable `$isDebugDetail` error
+
+### 2. Controller Files (Already Working - Invoice Save Works)
+These are already working since invoice updates save correctly:
+
+- `app/Http/Controllers/InvoiceController.php` - Already saves SST correctly
+- `app/Http/Controllers/CaseController.php` - Already queries SST column
+
+## Verification Steps
+
+### Step 1: Check if files exist on server
+SSH into server and verify these files exist:
+```bash
+ls -la resources/views/dashboard/case/tabs/bill/tab-invoice.blade.php
+ls -la resources/views/dashboard/case/table/tbl-case-invoice-p.blade.php
 ```
 
-Or copy and paste the SQL statements into your MySQL client.
+### Step 2: Check file modification dates
+Compare modification dates to ensure they're recent:
+```bash
+stat resources/views/dashboard/case/tabs/bill/tab-invoice.blade.php
+stat resources/views/dashboard/case/table/tbl-case-invoice-p.blade.php
+```
 
-### 2. Deploy Code Changes
+### Step 3: Verify the code changes
+Check if the server files have the SST check code:
+```bash
+grep -n "Use custom SST from database" resources/views/dashboard/case/tabs/bill/tab-invoice.blade.php
+grep -n "Use custom SST from database" resources/views/dashboard/case/table/tbl-case-invoice-p.blade.php
+```
 
-**Files to deploy:**
-1. `resources/views/dashboard/sst-v2/edit.blade.php`
-   - Changed to show full `reimbursement_sst` (not remaining)
-   
-2. `app/Http/Controllers/SSTV2Controller.php`
-   - Updated CREATE and UPDATE methods to include full reimbursement SST in total
+### Step 4: Clear view cache (if Laravel caches views)
+```bash
+php artisan view:clear
+php artisan cache:clear
+```
 
-### 3. Clear Cache (After Code Deployment)
+## Quick Fix Commands for Server
+
+If files are missing or outdated, copy from local:
 
 ```bash
-php artisan cache:clear
+# From your local machine, copy files to server
+scp resources/views/dashboard/case/tabs/bill/tab-invoice.blade.php user@server:/path/to/legalcloud/resources/views/dashboard/case/tabs/bill/
+scp resources/views/dashboard/case/table/tbl-case-invoice-p.blade.php user@server:/path/to/legalcloud/resources/views/dashboard/case/table/
+```
+
+Or if using Git:
+```bash
+# On server
+git pull origin main  # or your branch name
 php artisan view:clear
-php artisan config:clear
+php artisan cache:clear
 ```
 
-### 4. Verify
+## Testing After Deployment
 
-After running SQL patch and deploying code:
-1. Refresh the page: `http://your-server/sst-v2-edit/96`
-2. Check SST column - should show values > 0
-3. Check Reimb SST column - should show values > 0
-4. Check Total Amount - should include both SST and Reimb SST
+1. Go to invoice details: `https://legal-cloud.co/invoice/9683/details`
+2. Edit an SST value (e.g., change 4.00 to 4.01)
+3. Save the invoice
+4. Go to case details: `https://legal-cloud.co/case/{case_id}`
+5. Check the invoice tab
+6. Verify the SST shows the updated value (4.01) not the calculated value
 
-## Quick Fix (If Only SST is Missing)
+## Additional Notes
 
-If only SST is missing (Reimb SST is showing correctly), just run:
-
-```sql
--- Quick fix for SST amounts only
-UPDATE sst_details sd
-INNER JOIN loan_case_invoice_main im ON im.id = sd.loan_case_invoice_main_id
-SET sd.amount = COALESCE(im.sst_inv, 0)
-WHERE sd.sst_main_id = 96
-AND (sd.amount = 0 OR sd.amount IS NULL);
-```
-
-## Summary
-
-**SQL Patch Required:** ✅ YES - Run `SERVER_PATCH_REQUIRED.sql`
-**Code Deployment:** ✅ YES - Deploy the 2 files mentioned above
-**Cache Clear:** ✅ YES - Clear Laravel cache after deployment
-
-
-
-
-
-
-
-
-
-
-
+- The backend code that saves SST is already working (invoice updates work)
+- The issue is purely in the view files not checking for custom SST
+- Both view files need the same fix: check `sst` column before calculating
+- No database changes needed - the `sst` column already exists

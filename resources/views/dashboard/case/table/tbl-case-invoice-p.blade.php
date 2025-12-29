@@ -42,20 +42,45 @@
                     $row_sst = 0;
                     
                     // Check for custom SST value - $details is an object from DB query
-                    // The log shows SST value is loaded as "10.76", so access it directly
+                    // First try to access SST value
+                    $sstRaw = null;
+                    if (is_object($details) && (property_exists($details, 'sst') || isset($details->sst))) {
+                        $sstRaw = $details->sst;
+                    } elseif (is_array($details) && isset($details['sst'])) {
+                        $sstRaw = $details['sst'];
+                    }
+                    
+                    // Check if we have a valid non-zero SST value
                     $hasCustomSst = false;
-                    if (property_exists($details, 'sst') && isset($details->sst) && $details->sst !== null && trim((string)$details->sst) !== '') {
-                        $row_sst = (float) $details->sst;
-                        $hasCustomSst = true;
-                        
-                        // Debug for detail 168726
-                        if (isset($details->id) && $details->id == 168726) {
-                            \Log::info("VIEW - Using custom SST", [
-                                'detail_id' => $details->id,
-                                'sst_value' => $details->sst,
-                                'row_sst' => $row_sst
-                            ]);
+                    if ($sstRaw !== null && $sstRaw !== '') {
+                        $sstString = trim((string)$sstRaw);
+                        // Accept if not empty and not zero
+                        if ($sstString !== '' && $sstString !== '0' && $sstString !== '0.00' && $sstString !== '0.0') {
+                            $row_sst = (float) $sstRaw;
+                            $hasCustomSst = true;
+                            
+                            // Debug for detail 125032 (Sale and Purchase Agreement)
+                            if (isset($details->id) && $details->id == 125032) {
+                                \Log::info("VIEW - Using custom SST for detail 125032", [
+                                    'detail_id' => $details->id,
+                                    'sst_raw' => $sstRaw,
+                                    'sst_string' => $sstString,
+                                    'row_sst' => $row_sst
+                                ]);
+                            }
                         }
+                    }
+                    
+                    // Additional debug for detail 125032 if not using custom SST
+                    if (!$hasCustomSst && isset($details->id) && $details->id == 125032) {
+                        \Log::warning("VIEW - NOT using custom SST for detail 125032", [
+                            'detail_id' => $details->id,
+                            'sst_raw' => $sstRaw,
+                            'sst_type' => $sstRaw !== null ? gettype($sstRaw) : 'NULL',
+                            'is_object' => is_object($details),
+                            'property_exists' => is_object($details) ? property_exists($details, 'sst') : false,
+                            'isset' => isset($details->sst)
+                        ]);
                     }
                     
                     // If no custom SST, calculate it
@@ -70,15 +95,21 @@
                             $row_sst = round($sst_calculation, 2); // Normal rounding
                         }
                         
-                        // Debug for detail 168726 - log when calculating
-                        if (isset($details->id) && $details->id == 168726) {
-                            \Log::info("VIEW - Calculating SST (no custom value found)", [
+                        // Debug for detail 125032 - log when calculating
+                        if (isset($details->id) && $details->id == 125032) {
+                            \Log::info("VIEW - Calculating SST (no custom value found) for detail 125032", [
                                 'detail_id' => $details->id,
                                 'amount' => $details->amount,
                                 'sst_rate' => $sst_rate,
                                 'calculated_sst' => $row_sst,
                                 'sst_property_exists' => property_exists($details, 'sst'),
-                                'sst_value' => $details->sst ?? 'NULL'
+                                'sst_value' => $details->sst ?? 'NULL',
+                                'why_failed' => [
+                                    'property_exists' => property_exists($details, 'sst'),
+                                    'isset' => isset($details->sst),
+                                    'not_null' => isset($details->sst) ? ($details->sst !== null) : false,
+                                    'not_empty' => isset($details->sst) ? (trim((string)$details->sst) !== '') : false,
+                                ]
                             ]);
                         }
                     }
