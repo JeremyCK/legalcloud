@@ -46,6 +46,8 @@ use App\Models\VoucherDetails;
 use App\Models\VoucherMain;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Yajra\DataTables\Facades\DataTables;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
@@ -4306,66 +4308,123 @@ class AccountController extends Controller
 
     public function updateJournalEntry(Request $request, $id)
     {
-        $entriesList = [];
-        $current_user = auth()->user();
-        $logNote = '';
-        $prevDate = '';
-        $prevBankID = 0;
-        $total_debit = 0;
-        $total_credit = 0;
-
-        $d = date_parse_from_format("Y-m-d", $request->input('date'));
-
-        // return $request->input('date');
-
-
-
-        if ($request->input('entries_list') != null) {
-            $entriesList = json_decode($request->input('entries_list'), true);
+        // Add cache lock to prevent concurrent updates
+        $lockKey = "journal_entry_update_{$id}";
+        $lock = Cache::lock($lockKey, 30); // 30 second lock
+        
+        if (!$lock->get()) {
+            return response()->json(['status' => 2, 'message' => 'Another update is in progress. Please wait a moment and try again.']);
         }
+        
+        try {
+            DB::beginTransaction();
+            
+            $entriesList = [];
+            $current_user = auth()->user();
+            $logNote = '';
+            $prevDate = '';
+            $prevBankID = 0;
+            $total_debit = 0;
+            $total_credit = 0;
 
-        if (count($entriesList) <= 0) {
-            return response()->json(['status' => 2, 'message' => 'No Entries']);
-        }
+            $d = date_parse_from_format("Y-m-d", $request->input('date'));
 
-        $JournalEntryMain = JournalEntryMain::where('id', '=', $id)->first();
-
-        if (!$JournalEntryMain) {
-            return response()->json(['status' => 2, 'message' => 'Record not exits']);
-        }
-
-        if ($JournalEntryMain->bank_id !=  $request->input('bank_account') || $JournalEntryMain->date != $request->input('date')) {
-            $prevDate = $JournalEntryMain->date;
-            $prevBankID = $JournalEntryMain->bank_id;
-        }
-
-        // if ($prevDate != '' || $prevBankID != 0)
-        // {
-        //     $this->updateBankReconRecord($prevDate,  $prevBankID);
-        //     return 1;
-        // }
-
-        // return    $recon_date =  $this->getLastDayForBankRecon($d["month"], $d["year"], $request->input('bank_account'));
-
-        $JournalEntryMain->name = $request->input('name');
-        $JournalEntryMain->remarks = $request->input('desc');
-        $JournalEntryMain->transaction_id = $request->input('trx_id');
-        // $JournalEntryMain->case_id = $request->input('case_id');
-        $JournalEntryMain->bank_id = $request->input('bank_account');
-        $JournalEntryMain->date = $request->input('date');
-        $JournalEntryMain->branch_id = $request->input('branch_id');
-        $JournalEntryMain->updated_by = $current_user->id;
-
-        $JournalEntryMain->save();
-
-        if ($JournalEntryMain) {
+            // return $request->input('date');
 
 
-            JournalEntryDetails::where('journal_entry_main_id', '=', $id)->delete();
-            LedgerEntries::where('cheque_no', '=', $JournalEntryMain->journal_no)->delete();
 
+            if ($request->input('entries_list') != null) {
+                $entriesList = json_decode($request->input('entries_list'), true);
+            }
 
-            LedgerEntriesV2::where('key_id', $id)->whereIn('type', ['JOURNAL_IN', 'JOURNAL_OUT'])->delete();
+            if (count($entriesList) <= 0) {
+                DB::rollBack();
+                $lock->release();
+                return response()->json(['status' => 2, 'message' => 'No Entries']);
+            }
+
+            // Remove duplicates from entries_list before processing
+            $uniqueEntries = [];
+            $seenEntries = [];
+            foreach ($entriesList as $entry) {
+                $entryKey = md5(json_encode([
+                    'account_code_id' => $entry['account_code_id'] ?? '',
+                    'desc' => $entry['desc'] ?? '',
+                    'debit' => $entry['debit'] ?? 0,
+                    'credit' => $entry['credit'] ?? 0,
+                    'case_id' => $entry['case_id'] ?? '',
+                    'sst_amount' => $entry['sst_amount'] ?? 0,
+                ]));
+                
+                if (!isset($seenEntries[$entryKey])) {
+                    $seenEntries[$entryKey] = true;
+                    $uniqueEntries[] = $entry;
+                }
+            }
+            $entriesList = $uniqueEntries;
+            
+            if (count($entriesList) <= 0) {
+                DB::rollBack();
+                $lock->release();
+                return response()->json(['status' => 2, 'message' => 'No valid entries after duplicate removal']);
+            }
+
+            $JournalEntryMain = JournalEntryMain::where('id', '=', $id)->first();
+
+            if (!$JournalEntryMain) {
+                DB::rollBack();
+                $lock->release();
+                return response()->json(['status' => 2, 'message' => 'Record not exits']);
+            }
+
+            if ($JournalEntryMain->bank_id !=  $request->input('bank_account') || $JournalEntryMain->date != $request->input('date')) {
+                $prevDate = $JournalEntryMain->date;
+                $prevBankID = $JournalEntryMain->bank_id;
+            }
+
+            // if ($prevDate != '' || $prevBankID != 0)
+            // {
+            //     $this->updateBankReconRecord($prevDate,  $prevBankID);
+            //     return 1;
+            // }
+
+            // return    $recon_date =  $this->getLastDayForBankRecon($d["month"], $d["year"], $request->input('bank_account'));
+
+            $JournalEntryMain->name = $request->input('name');
+            $JournalEntryMain->remarks = $request->input('desc');
+            $JournalEntryMain->transaction_id = $request->input('trx_id');
+            // $JournalEntryMain->case_id = $request->input('case_id');
+            $JournalEntryMain->bank_id = $request->input('bank_account');
+            $JournalEntryMain->date = $request->input('date');
+            $JournalEntryMain->branch_id = $request->input('branch_id');
+            $JournalEntryMain->updated_by = $current_user->id;
+
+            $JournalEntryMain->save();
+
+            if ($JournalEntryMain) {
+
+            // Delete existing entries
+            $deletedDetails = JournalEntryDetails::where('journal_entry_main_id', '=', $id)->delete();
+            $deletedLedger = LedgerEntries::where('cheque_no', '=', $JournalEntryMain->journal_no)->delete();
+            $deletedLedgerV2 = LedgerEntriesV2::where('key_id', $id)->whereIn('type', ['JOURNAL_IN', 'JOURNAL_OUT'])->delete();
+            
+            // Log deletions for debugging
+            Log::info("Journal Entry Update #{$id} - Deleted: Details={$deletedDetails}, Ledger={$deletedLedger}, LedgerV2={$deletedLedgerV2}");
+            
+            // Verify deletions were successful
+            $remainingDetails = JournalEntryDetails::where('journal_entry_main_id', '=', $id)->count();
+            $remainingLedgerV2 = LedgerEntriesV2::where('key_id', $id)
+                ->whereIn('type', ['JOURNAL_IN', 'JOURNAL_OUT'])
+                ->count();
+            
+            if ($remainingDetails > 0 || $remainingLedgerV2 > 0) {
+                Log::warning("Journal Entry Update #{$id} - Found remaining entries: Details={$remainingDetails}, LedgerV2={$remainingLedgerV2}. Attempting force delete.");
+                // Force delete any remaining entries
+                JournalEntryDetails::where('journal_entry_main_id', '=', $id)->forceDelete();
+                LedgerEntriesV2::where('key_id', $id)
+                    ->whereIn('type', ['JOURNAL_IN', 'JOURNAL_OUT'])
+                    ->forceDelete();
+            }
 
 
             for ($i = 0; $i < count($entriesList); $i++) {
@@ -4432,35 +4491,45 @@ class AccountController extends Controller
                 $LedgerEntries->type = $type;
                 $LedgerEntries->save();
 
-                $LedgerEntries = new LedgerEntriesV2();
+                // Check if LedgerEntriesV2 already exists before creating (prevent duplicates)
+                $existingLedgerV2 = LedgerEntriesV2::where('key_id', $JournalEntryMain->id)
+                    ->where('key_id_2', $JournalEntryDetails->id)
+                    ->whereIn('type', ['JOURNAL_IN', 'JOURNAL_OUT'])
+                    ->first();
+                
+                if (!$existingLedgerV2) {
+                    $LedgerEntries = new LedgerEntriesV2();
 
-                $LedgerEntries->transaction_id = $JournalEntryMain->transaction_id;
-                $LedgerEntries->case_id = $entriesList[$i]['case_id'];
-                $LedgerEntries->loan_case_main_bill_id = 0;
-                $LedgerEntries->cheque_no = $JournalEntryMain->journal_no;
-                $LedgerEntries->user_id = $JournalEntryMain->created_by;
-                $LedgerEntries->key_id =  $JournalEntryMain->id;
-                $LedgerEntries->key_id_2 = $JournalEntryDetails->id;
-                $LedgerEntries->key_id_3 = $entriesList[$i]['account_code_id'];
-                $LedgerEntries->transaction_type = $JournalEntryDetails->transaction_type;
-                $LedgerEntries->amount = $JournalEntryDetails->amount + $JournalEntryDetails->sst_amount;
+                    $LedgerEntries->transaction_id = $JournalEntryMain->transaction_id;
+                    $LedgerEntries->case_id = $entriesList[$i]['case_id'];
+                    $LedgerEntries->loan_case_main_bill_id = 0;
+                    $LedgerEntries->cheque_no = $JournalEntryMain->journal_no;
+                    $LedgerEntries->user_id = $JournalEntryMain->created_by;
+                    $LedgerEntries->key_id =  $JournalEntryMain->id;
+                    $LedgerEntries->key_id_2 = $JournalEntryDetails->id;
+                    $LedgerEntries->key_id_3 = $entriesList[$i]['account_code_id'];
+                    $LedgerEntries->transaction_type = $JournalEntryDetails->transaction_type;
+                    $LedgerEntries->amount = $JournalEntryDetails->amount + $JournalEntryDetails->sst_amount;
 
-                if ($OfficeBankAccount)
-                {
-                    $LedgerEntries->bank_id = $OfficeBankAccount->id;
+                    if ($OfficeBankAccount)
+                    {
+                        $LedgerEntries->bank_id = $OfficeBankAccount->id;
+                    }
+                    // $LedgerEntries->bank_id = $request->input('bank_account');
+                    // $LedgerEntries->remark = $ledgers[$j]->remark;
+                    $LedgerEntries->payee = $JournalEntryMain->name;
+                    $LedgerEntries->remark = $JournalEntryMain->remarks;
+                    $LedgerEntries->desc_1 = $JournalEntryDetails->remarks;
+                    // $LedgerEntries->desc_2 = $ledgers[$j]->remark;
+                    $LedgerEntries->status = 1;
+                    $LedgerEntries->is_recon = 0;
+                    $LedgerEntries->created_at = date('Y-m-d H:i:s');
+                    $LedgerEntries->date = $JournalEntryMain->date;
+                    $LedgerEntries->type =  $type_v2;
+                    $LedgerEntries->save();
+                } else {
+                    Log::warning("Journal Entry Update #{$id} - Skipped duplicate LedgerEntriesV2 for detail_id={$JournalEntryDetails->id}, ledger_id={$existingLedgerV2->id}");
                 }
-                // $LedgerEntries->bank_id = $request->input('bank_account');
-                // $LedgerEntries->remark = $ledgers[$j]->remark;
-                $LedgerEntries->payee = $JournalEntryMain->name;
-                $LedgerEntries->remark = $JournalEntryMain->remarks;
-                $LedgerEntries->desc_1 = $JournalEntryDetails->remarks;
-                // $LedgerEntries->desc_2 = $ledgers[$j]->remark;
-                $LedgerEntries->status = 1;
-                $LedgerEntries->is_recon = 0;
-                $LedgerEntries->created_at = date('Y-m-d H:i:s');
-                $LedgerEntries->date = $JournalEntryMain->date;
-                $LedgerEntries->type =  $type_v2;
-                $LedgerEntries->save();
 
 
                 $LoanCase = LoanCase::where('id', $entriesList[$i]['case_id'])->first();
@@ -4495,9 +4564,19 @@ class AccountController extends Controller
             $AccountLog->object_id_2 = $JournalEntryDetails->id;
             $AccountLog->created_at = date('Y-m-d H:i:s');
             $AccountLog->save();
+            }
+            
+            DB::commit();
+            $lock->release();
+            
+            return response()->json(['status' => 1, 'message' => 'Journal entry updated successfully']);
+            
+        } catch (\Exception $e) {
+            DB::rollBack();
+            $lock->release();
+            Log::error("Journal Entry Update Error #{$id}: " . $e->getMessage() . "\n" . $e->getTraceAsString());
+            return response()->json(['status' => 2, 'message' => 'Error updating journal entry: ' . $e->getMessage()]);
         }
-
-        return response()->json(['status' => 1, 'message' => 'Journal entriy updated']);
     }
 
     public function lockJournal(Request $request, $id)

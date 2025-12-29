@@ -154,7 +154,7 @@
                                         </button>
                                         <div class="dropdown-menu" style="padding:0">
                                             @if ($JournalEntryMain->is_recon == 0)
-                                                <a class="dropdown-item btn-success" href="javascript:void(0)"
+                                                <a id="saveJournalBtn" class="dropdown-item btn-success" href="javascript:void(0)"
                                                     style="color:white;margin:0" onclick="SaveJournalEntry();"><i
                                                         style="margin-right: 10px;" class="fa fa-save"></i>Update</a>
                                                 <a class="dropdown-item btn-warning" href="javascript:void(0)"
@@ -827,6 +827,16 @@
         }
 
         function SaveJournalEntry() {
+            // Prevent double submission
+            var $saveBtn = $('#saveJournalBtn');
+            if ($saveBtn.prop('disabled') || $saveBtn.hasClass('processing')) {
+                return; // Already processing
+            }
+            
+            // Mark as processing
+            $saveBtn.addClass('processing').css('opacity', '0.6');
+            var originalHtml = $saveBtn.html();
+            $saveBtn.html('<i style="margin-right: 10px;" class="fa fa-spinner fa-spin"></i>Saving...');
 
             var entries_list = [];
             var entries = {};
@@ -836,6 +846,9 @@
             if ($("#name").val() == '' || $("#desc").val() == '' || $("#trx_id").val() == '' || $("#date").val() == '' || $(
                     "#case_id").val() == '') {
 
+                // Re-enable button on validation error
+                $saveBtn.removeClass('processing').css('opacity', '1').html(originalHtml);
+                
                 Swal.fire({
                     icon: 'warning',
                     text: 'Please make sure all mandatory fields fill',
@@ -900,6 +913,9 @@
             });
 
             if ($count <= 0) {
+                // Re-enable button on validation error
+                $saveBtn.removeClass('processing').css('opacity', '1').html(originalHtml);
+                
                 Swal.fire({
                     icon: 'warning',
                     text: 'No Entries',
@@ -911,6 +927,9 @@
             }
 
             if (errorCount > 0) {
+                // Re-enable button on validation error
+                $saveBtn.removeClass('processing').css('opacity', '1').html(originalHtml);
+                
                 Swal.fire({
                     icon: 'warning',
                     text: 'Please make sure fill in account code, description and amount for the entries',
@@ -941,17 +960,23 @@
                 success: function(result) {
                     console.log(result);
                     if (result.status == 1) {
-
                         Swal.fire(
                             'Success!', result.message,
                             'success'
                         )
-
+                        // Reload will happen, no need to re-enable button
                         location.reload();
-
                     } else {
+                        // Re-enable button on error
+                        $saveBtn.removeClass('processing').css('opacity', '1').html(originalHtml);
                         Swal.fire('notice!', result.message, 'warning');
                     }
+                },
+                error: function(xhr, status, error) {
+                    // Re-enable button on AJAX error
+                    $saveBtn.removeClass('processing').css('opacity', '1').html(originalHtml);
+                    console.error('AJAX Error:', error);
+                    Swal.fire('Error!', 'An error occurred while saving. Please try again.', 'error');
                 }
             });
         }
