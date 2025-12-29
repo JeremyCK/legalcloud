@@ -101,6 +101,20 @@
         text-decoration: none;
         color: inherit;
     }
+    .sst-calculate-btn {
+        font-size: 0.75rem;
+        padding: 2px 6px;
+        line-height: 1.2;
+    }
+    .sst-calculate-btn i {
+        font-size: 0.7rem;
+    }
+    .sst-input-wrapper {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 4px;
+    }
     .split-invoice-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -323,7 +337,12 @@
                                                     <th width="5%">#</th>
                                                     <th width="40%">Description</th>
                                                     <th width="15%" class="text-right">Amount (RM)</th>
-                                                    <th width="15%" class="text-right">SST (RM)</th>
+                                                    <th width="15%" class="text-right">
+                                                        SST (RM)
+                                                        <button type="button" class="btn btn-xs btn-info ml-1 sst-calculate-btn" onclick="calculateAllSST()" title="Calculate All SST">
+                                                            <i class="cil-calculator"></i> All
+                                                        </button>
+                                                    </th>
                                                     <th width="20%" class="text-right">Total (RM)</th>
                                                     <th width="5%">Action</th>
                                                 </tr>
@@ -874,12 +893,20 @@
                         '</td>' +
                         '<td class="text-right">' +
                             (isTaxable ? 
-                                '<input type="number" step="0.01" class="form-control form-control-sm invoice-detail-sst text-right" ' +
-                                'data-detail-id="' + detail.id + '" ' +
-                                'data-category-id="' + category.category_id + '" ' +
-                                'data-taxable="' + (isTaxable ? '1' : '0') + '" ' +
-                                'value="' + sstAmount.toFixed(2) + '" ' +
-                                'onchange="recalculateRowFromSst(this)">' :
+                                '<div class="sst-input-wrapper">' +
+                                    '<input type="number" step="0.01" class="form-control form-control-sm invoice-detail-sst text-right" ' +
+                                    'data-detail-id="' + detail.id + '" ' +
+                                    'data-category-id="' + category.category_id + '" ' +
+                                    'data-taxable="' + (isTaxable ? '1' : '0') + '" ' +
+                                    'value="' + sstAmount.toFixed(2) + '" ' +
+                                    'onchange="recalculateRowFromSst(this)" ' +
+                                    'style="width: 80px;">' +
+                                    '<button type="button" class="btn btn-xs btn-outline-primary sst-calculate-btn" ' +
+                                    'onclick="calculateRowSST(' + detail.id + ')" ' +
+                                    'title="Calculate SST for this row">' +
+                                    '<i class="cil-calculator"></i>' +
+                                    '</button>' +
+                                '</div>' :
                                 '-') +
                         '</td>' +
                         '<td class="text-right row-total" data-detail-id="' + detail.id + '">' +
@@ -987,6 +1014,118 @@
         
         // Recalculate grand totals
         recalculateGrandTotals();
+    }
+
+    // Calculate SST for a specific row
+    function calculateRowSST(detailId) {
+        var $row = $('tr.detail-item-row[data-detail-id="' + detailId + '"]');
+        var $amountInput = $row.find('.invoice-detail-amount');
+        var amount = parseFloat($amountInput.val() || 0);
+        var isTaxable = $amountInput.data('taxable') == '1';
+        var categoryId = $amountInput.data('category-id');
+
+        if (!isTaxable) {
+            Swal.fire('Notice!', 'This item is not taxable. SST calculation is not applicable.', 'info');
+            return;
+        }
+
+        if (amount <= 0) {
+            Swal.fire('Notice!', 'Please enter an amount first.', 'warning');
+            return;
+        }
+
+        // Calculate SST with special rounding rule
+        var sstCalculation = amount * (globalSstRate / 100);
+        var sstString = sstCalculation.toFixed(3);
+        
+        var sstAmount = 0;
+        if (sstString.slice(-1) === '5') {
+            sstAmount = Math.floor(sstCalculation * 100) / 100; // Round down
+        } else {
+            sstAmount = Math.round(sstCalculation * 100) / 100; // Normal rounding
+        }
+
+        // Update the SST input field
+        var $sstInput = $('.invoice-detail-sst[data-detail-id="' + detailId + '"]');
+        $sstInput.val(sstAmount.toFixed(2));
+
+        // Trigger recalculation
+        recalculateRowFromSst($sstInput[0]);
+
+        // Show brief feedback (using Swal if available, otherwise console)
+        if (typeof Swal !== 'undefined') {
+            Swal.fire({
+                icon: 'success',
+                title: 'SST Calculated',
+                text: 'SST: ' + sstAmount.toFixed(2),
+                timer: 1500,
+                showConfirmButton: false
+            });
+        } else if (typeof toastController === 'function') {
+            toastController('SST calculated: ' + sstAmount.toFixed(2));
+        }
+    }
+
+    // Calculate SST for all taxable rows
+    function calculateAllSST() {
+        Swal.fire({
+            title: 'Calculate All SST?',
+            text: 'This will recalculate SST for all taxable items based on their current amounts.',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'Yes, Calculate All',
+            cancelButtonText: 'Cancel',
+            confirmButtonColor: '#3085d6',
+            cancelButtonColor: '#d33'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                var calculatedCount = 0;
+                var skippedCount = 0;
+
+                // Loop through all taxable rows
+                $('tr.detail-item-row').each(function() {
+                    var $row = $(this);
+                    var $amountInput = $row.find('.invoice-detail-amount');
+                    var amount = parseFloat($amountInput.val() || 0);
+                    var isTaxable = $amountInput.data('taxable') == '1';
+                    var detailId = $amountInput.data('detail-id');
+
+                    if (isTaxable && amount > 0) {
+                        // Calculate SST with special rounding rule
+                        var sstCalculation = amount * (globalSstRate / 100);
+                        var sstString = sstCalculation.toFixed(3);
+                        
+                        var sstAmount = 0;
+                        if (sstString.slice(-1) === '5') {
+                            sstAmount = Math.floor(sstCalculation * 100) / 100; // Round down
+                        } else {
+                            sstAmount = Math.round(sstCalculation * 100) / 100; // Normal rounding
+                        }
+
+                        // Update the SST input field
+                        var $sstInput = $('.invoice-detail-sst[data-detail-id="' + detailId + '"]');
+                        if ($sstInput.length > 0) {
+                            $sstInput.val(sstAmount.toFixed(2));
+                            // Trigger recalculation for this row
+                            recalculateRowFromSst($sstInput[0]);
+                            calculatedCount++;
+                        }
+                    } else if (isTaxable) {
+                        skippedCount++;
+                    }
+                });
+
+                // Recalculate all totals
+                recalculateGrandTotals();
+
+                // Show success message
+                var message = 'Calculated SST for ' + calculatedCount + ' item(s)';
+                if (skippedCount > 0) {
+                    message += '. Skipped ' + skippedCount + ' item(s) with zero amount.';
+                }
+                Swal.fire('Success!', message, 'success');
+            }
+        });
     }
 
     function recalculateCategorySubtotal(categoryId) {
