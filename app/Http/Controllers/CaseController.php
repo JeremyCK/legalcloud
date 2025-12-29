@@ -18121,6 +18121,43 @@ class CaseController extends Controller
 
         $LoanCaseTrustMain = LoanCaseTrustMain::where('case_id', $id)->where('status', 1)->get();
 
+        // Calculate Trust Fund CA and OA used amounts (similar to Bill calculation)
+        if (count($LoanCaseTrustMain) > 0) {
+            for ($i = 0; $i < count($LoanCaseTrustMain); $i++) {
+                // Calculate CA used amount (disbursement vouchers) - EXCLUDE OA bank accounts
+                // Only count vouchers that are NOT linked to OA bank accounts
+                $VoucherMainTrustDisburseQuery = VoucherMain::where('case_id', $id)
+                    ->where('account_approval', 1)
+                    ->where('status', '<>', 99)
+                    ->where('voucher_type', 2); // Trust Fund Disbursement
+                
+                // Exclude vouchers linked to OA bank accounts
+                if (!empty($oaBankAccountIds)) {
+                    $VoucherMainTrustDisburseQuery->where(function($query) use ($oaBankAccountIds) {
+                        $query->whereNotIn('office_account_id', $oaBankAccountIds)
+                              ->orWhereNull('office_account_id')
+                              ->orWhere('office_account_id', 0);
+                    });
+                }
+                
+                $VoucherMainTrustDisburse = $VoucherMainTrustDisburseQuery->sum('total_amount');
+                
+                // Calculate OA used amount (disbursement vouchers) - ONLY OA bank accounts
+                $VoucherMainTrustOADisburse = 0;
+                if (!empty($oaBankAccountIds)) {
+                    $VoucherMainTrustOADisburse = VoucherMain::where('case_id', $id)
+                        ->where('account_approval', 1)
+                        ->where('status', '<>', 99)
+                        ->where('voucher_type', 2) // Trust Fund Disbursement
+                        ->whereIn('office_account_id', $oaBankAccountIds)
+                        ->sum('total_amount');
+                }
+
+                $LoanCaseTrustMain[$i]->total_disb = $VoucherMainTrustDisburse; // CA Used Amount
+                $LoanCaseTrustMain[$i]->total_oa_disb = $VoucherMainTrustOADisburse; // OA Used Amount
+            }
+        }
+
         $TransferFeeDetails = DB::table('transfer_fee_details as a')
             ->leftJoin('transfer_fee_main as b', 'a.transfer_fee_main_id', '=', 'b.id')
             ->select('a.*', 'b.purpose', 'b.id as transfer_id', 'b.transaction_id as transaction_id')

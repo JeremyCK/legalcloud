@@ -48,19 +48,19 @@ $count=0;
             </td>
             <td>
               <b>Collected amount:</b> {{ number_format($bill->total_received, 2, '.', ',') }} <br/>
-              <b>Used amount:</b> {{ number_format($bill->total_used, 2, '.', ',') }} <br/>
+              <b>CA Used Amount:</b> {{ number_format($bill->total_disb ?? 0, 2, '.', ',') }} <br/>
             </td>
             {{-- <td class="text-right">{{ number_format($bill->total_received, 2, '.', ',') }}</td>
             <td class="text-right">{{ number_format($bill->total_used, 2, '.', ',') }}</td> --}}
-            <td class="text-right">{{ number_format($bill->total_received - $bill->total_used, 2, '.', ',') }}
-              <input type="hidden" id="sum_close_file_{{$count}}" value="{{$bill->total_received - $bill->total_used}}" />
+            <td class="text-right">{{ number_format($bill->total_received - ($bill->total_disb ?? 0), 2, '.', ',') }}
+              <input type="hidden" id="sum_close_file_{{$count}}" value="{{$bill->total_received - ($bill->total_disb ?? 0)}}" />
               <input type="hidden" id="bill_no_close_file_{{$count}}" value="{{$bill->id}}" />
             </td>
         </tr>
         @php
         $total_collected_amt += $bill->total_received;
-        $total_used_amt += $bill->total_used;
-        $total_bal += ($bill->total_received - $bill->total_used);
+        $total_used_amt += ($bill->total_disb ?? 0);
+        $total_bal += ($bill->total_received - ($bill->total_disb ?? 0));
 
         $count += 1;
         @endphp
