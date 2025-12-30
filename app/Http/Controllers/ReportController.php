@@ -49,6 +49,7 @@ use Maatwebsite\Excel\Facades\Excel;
 use PhpOffice\PhpSpreadsheet\Reader\Xls;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xls as WriterXls;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Yajra\DataTables\Facades\DataTables;
 use Barryvdh\DomPDF\Facade\Pdf;
 
@@ -3201,6 +3202,152 @@ class ReportController extends Controller
             return response()->json([
                 'status' => 0,
                 'message' => 'Error generating PDF: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function exportBankReportExcel(Request $request)
+    {
+        if (AccessController::UserAccessPermissionController(PermissionController::BankReportPermission()) == false) {
+            return redirect()->route('dashboard.index');
+        }
+
+        try {
+            $current_user = auth()->user();
+            $accessInfo = AccessController::manageAccess();
+            
+            $bank_ids = json_decode($request->input('banks', '[]'), true);
+            $year = $request->input('year', 0);
+            $month = $request->input('month', 0);
+            
+            // Get loan cases filtered by selected banks, year, and month
+            $LoanCase = DB::table('loan_case as l')
+                ->leftJoin('client as c', 'l.customer_id', '=', 'c.id')
+                ->leftJoin('portfolio as p', 'p.id', '=', 'l.bank_id')
+                ->select('l.*', 'p.name as portfolio_name', 'c.name as customer_name')
+                ->where('l.bank_id', '<>', 0)
+                ->where('l.status', '<>', 99)
+                ->orderBy('l.id', 'asc');
+            
+            // Apply branch access
+            $LoanCase = $LoanCase->whereIn('l.branch_id', $accessInfo['brancAccessList']);
+            
+            // Filter by selected banks
+            if (!empty($bank_ids) && is_array($bank_ids) && count($bank_ids) > 0) {
+                $bank_ids = array_map('intval', $bank_ids);
+                $LoanCase = $LoanCase->whereIn('l.bank_id', $bank_ids);
+            } else {
+                return response()->json([
+                    'status' => 0,
+                    'message' => 'Please select at least one bank.'
+                ], 400);
+            }
+            
+            // Filter by year
+            if ($year != 0) {
+                $LoanCase = $LoanCase->whereYear('l.created_at', $year);
+            }
+            
+            // Filter by month
+            if ($month != 0) {
+                $LoanCase = $LoanCase->whereMonth('l.created_at', $month);
+            }
+            
+            $LoanCase = $LoanCase->get();
+            
+            // Create new Spreadsheet
+            $spreadsheet = new Spreadsheet();
+            $sheet = $spreadsheet->getActiveSheet();
+            
+            // Set title
+            $sheet->setCellValue('A1', 'Bank Report');
+            $sheet->mergeCells('A1:H1');
+            $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
+            $sheet->getStyle('A1')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+            
+            // Set total count
+            $sheet->setCellValue('A2', 'Total case count: ' . count($LoanCase));
+            $sheet->mergeCells('A2:H2');
+            $sheet->getStyle('A2')->getFont()->setBold(true);
+            
+            // Set headers
+            $headers = ['Create Date', 'Ref No', 'Bank', 'Property Address', 'Customer Name', 'Purchase Price', 'Loan Sum', 'Status'];
+            $col = 'A';
+            $row = 3;
+            
+            foreach ($headers as $header) {
+                $sheet->setCellValue($col . $row, $header);
+                $sheet->getStyle($col . $row)->getFont()->setBold(true);
+                $sheet->getStyle($col . $row)->getFill()
+                    ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+                    ->getStartColor()->setRGB('E0E0E0');
+                $sheet->getStyle($col . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+                $col++;
+            }
+            
+            // Add data
+            $row = 4;
+            foreach ($LoanCase as $record) {
+                $sheet->setCellValue('A' . $row, date('d-m-Y', strtotime($record->created_at)));
+                $sheet->setCellValue('B' . $row, $record->case_ref_no);
+                $sheet->setCellValue('C' . $row, $record->portfolio_name ?? 'N/A');
+                $sheet->setCellValue('D' . $row, $record->property_address ?? '-');
+                $sheet->setCellValue('E' . $row, $record->customer_name ?? '-');
+                
+                // Format numeric columns
+                $sheet->setCellValue('F' . $row, (float)($record->purchase_price ?? 0));
+                $sheet->getStyle('F' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+                $sheet->getStyle('F' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+                
+                $sheet->setCellValue('G' . $row, (float)($record->loan_sum ?? 0));
+                $sheet->getStyle('G' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+                $sheet->getStyle('G' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+                
+                // Status
+                $statusText = 'Unknown';
+                if ($record->status == 0) $statusText = 'Closed';
+                elseif ($record->status == 1) $statusText = 'In progress';
+                elseif ($record->status == 2) $statusText = 'Open';
+                elseif ($record->status == 3) $statusText = 'KIV';
+                elseif ($record->status == 4) $statusText = 'Pending Close';
+                elseif ($record->status == 7) $statusText = 'Reviewing';
+                elseif ($record->status == 99) $statusText = 'Aborted';
+                
+                $sheet->setCellValue('H' . $row, $statusText);
+                $sheet->getStyle('H' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+                
+                $row++;
+            }
+            
+            // Auto-size columns
+            foreach (range('A', 'H') as $column) {
+                $sheet->getColumnDimension($column)->setAutoSize(true);
+            }
+            
+            // Add borders to data
+            $dataRange = 'A3:H' . ($row - 1);
+            $sheet->getStyle($dataRange)->getBorders()->getAllBorders()
+                ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
+            
+            // Generate filename
+            $filename = 'bank_report_' . date('Y-m-d_His') . '.xlsx';
+            
+            // Set response headers
+            header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            header('Content-Disposition: attachment;filename="' . $filename . '"');
+            header('Cache-Control: max-age=0');
+            
+            // Write file
+            $writer = new Xlsx($spreadsheet);
+            ob_end_clean();
+            $writer->save('php://output');
+            exit();
+            
+        } catch (\Exception $e) {
+            Log::error('Bank Report Excel Export Error: ' . $e->getMessage());
+            return response()->json([
+                'status' => 0,
+                'message' => 'Error generating Excel: ' . $e->getMessage()
             ], 500);
         }
     }

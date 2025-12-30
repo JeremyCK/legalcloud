@@ -273,39 +273,70 @@
         }
 
         function exportToExcel() {
-            var tab_text = "<table border='2px'><tr bgcolor='#87AFC6'>";
+            // Check if report has been generated
             var tab = document.getElementById('tbl-bank-count');
-            
             if (!tab) {
                 alert('Please generate the report first.');
                 return;
             }
 
-            for (var j = 0; j < tab.rows.length; j++) {
-                tab_text = tab_text + tab.rows[j].innerHTML + "</tr>";
+            // Get selected banks, month, and year
+            var selectedBanks = getSelectedBanks();
+            if (selectedBanks.length === 0) {
+                alert('Please select at least one bank.');
+                return;
             }
-            tab_text = tab_text + "</table>";
-            tab_text = tab_text.replace(/<A[^>]*>|<\/A>/g, "");
-            tab_text = tab_text.replace(/<img[^>]*>/gi, "");
-            tab_text = tab_text.replace(/<input[^>]*>|<\/input>/gi, "");
 
-            var ua = window.navigator.userAgent;
-            var msie = ua.indexOf("MSIE ");
+            $.ajaxSetup({
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                }
+            });
 
-            if (msie > 0 || !!navigator.userAgent.match(/Trident.*rv\:11\./)) {
-                txtArea1.document.open("txt/html", "replace");
-                txtArea1.document.write(tab_text);
-                txtArea1.document.close();
-                txtArea1.focus();
-                sa = txtArea1.document.execCommand("SaveAs", true, "bank_report.xls");
-            } else {
-                var a = document.createElement('a');
-                var data_type = 'data:application/vnd.ms-excel';
-                a.href = data_type + ', ' + encodeURIComponent(tab_text);
-                a.download = 'bank_report_' + Date.now() + '.xlsx';
-                a.click();
-                e.preventDefault();
-            }
+            var form_data = new FormData();
+            form_data.append("month", $("#ddl_month").val());
+            form_data.append("year", $("#ddl_year").val());
+            form_data.append("banks", JSON.stringify(selectedBanks));
+
+            // Show loading indicator
+            var $btn = $('a[onclick="exportToExcel()"]');
+            var originalHtml = $btn.html();
+            $btn.html('<i class="fa fa-spinner fa-spin"></i> Exporting...');
+
+            $.ajax({
+                type: 'POST',
+                url: '/exportBankReportExcel',
+                data: form_data,
+                processData: false,
+                contentType: false,
+                xhrFields: {
+                    responseType: 'blob'
+                },
+                success: function(data) {
+                    var blob = new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                    var link = document.createElement('a');
+                    link.href = window.URL.createObjectURL(blob);
+                    link.download = 'bank_report_' + Date.now() + '.xlsx';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    window.URL.revokeObjectURL(link.href);
+                    
+                    // Restore button
+                    $btn.html(originalHtml);
+                },
+                error: function(xhr, status, error) {
+                    var errorMessage = 'Error generating Excel file.';
+                    if (xhr.responseJSON && xhr.responseJSON.message) {
+                        errorMessage = xhr.responseJSON.message;
+                    }
+                    alert(errorMessage);
+                    console.error('Excel export error:', error);
+                    
+                    // Restore button
+                    $btn.html(originalHtml);
+                }
+            });
         }
 
         function exportToPDF() {

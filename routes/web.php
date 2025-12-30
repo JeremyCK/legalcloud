@@ -794,6 +794,7 @@ Route::get('transfer-fee-create', [AccountController::class, 'transferFeeCreate'
             Route::get('bank-report', [ReportController::class, 'ReportBank']);
             Route::post('getBankReport', [ReportController::class, 'getBankReport']);
             Route::post('exportBankReportPDF', [ReportController::class, 'exportBankReportPDF']);
+            Route::post('exportBankReportExcel', [ReportController::class, 'exportBankReportExcel']);
             Route::get('staff-detail-report', [ReportController::class, 'ReportStaffDetails']);
             Route::post('get-staff-details=report', [ReportController::class, 'getStaffDetailsReport']);
             
