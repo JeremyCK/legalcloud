@@ -7536,6 +7536,21 @@ class CaseController extends Controller
                 foreach ($allDetails as $detail) {
                     $key = $detail->account_item_id;
                     if (!isset($groupedDetails[$key])) {
+                        // Use ori_invoice_sst directly - it's now calculated from sum of individual sst values
+                        // This ensures we use the actual stored SST values that users saved
+                        $totalSst = (float)($detail->ori_invoice_sst ?? 0);
+                        
+                        // Fallback: If ori_invoice_sst is not set, sum individual sst values
+                        if ($totalSst == 0 && $sstColumnExists) {
+                            $allSstValues = DB::table('loan_case_invoice_details')
+                                ->where('loan_case_main_bill_id', $id)
+                                ->where('account_item_id', $detail->account_item_id)
+                                ->where('status', '<>', 99)
+                                ->whereNotNull('sst')
+                                ->sum('sst');
+                            $totalSst = (float)($allSstValues ?? 0);
+                        }
+                        
                         // Use ori_invoice_amt and ori_invoice_sst (total across all split invoices)
                         // These values should be the same for all split invoices with the same account_item_id
                         $groupedDetails[$key] = (object)[
@@ -7552,7 +7567,7 @@ class CaseController extends Controller
                             'min' => $detail->account_min ?? 0,
                             'pfee1_item' => $detail->pfee1_item ?? 0,
                             'item_desc' => $detail->item_desc ?? '',
-                            'sst' => $sstColumnExists ? (float)($detail->ori_invoice_sst ?? 0) : 0, // Use total SST across all split invoices
+                            'sst' => $totalSst, // Use ori_invoice_sst (calculated from sum of individual sst values)
                             'ori_invoice_sst' => (float)($detail->ori_invoice_sst ?? 0)
                         ];
                     }
@@ -13752,30 +13767,15 @@ class CaseController extends Controller
                     \Log::info("  Invoice {$inv->id} (invoice_no: {$inv->invoice_no})");
                 }
 
-                // Calculate total SST from total amount
-                $bill = LoanCaseBillMain::where('id', $bill_main_id)->first();
-                $sstRate = $bill ? ($bill->sst_rate ?? 8) : 8;
-                $totalSstRaw = $newAmount * ($sstRate / 100);
-                $totalSstString = number_format($totalSstRaw, 3, '.', '');
-                if (substr($totalSstString, -1) == '5') {
-                    $newTotalSst = floor($totalSstRaw * 100) / 100; // Round down
-                } else {
-                    $newTotalSst = round($totalSstRaw, 2); // Normal rounding
-                }
-                
                 // Check if ori_invoice_sst column exists
                 $hasOriSstColumn = DB::select("SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS 
                     WHERE TABLE_SCHEMA = DATABASE() 
                     AND TABLE_NAME = 'loan_case_invoice_details' 
                     AND COLUMN_NAME = 'ori_invoice_sst'");
                 
+                // Update ori_invoice_amt for ALL split invoices with the same account_item_id
+                // ori_invoice_sst will be updated after SST is recalculated (below)
                 $updateFields = ['ori_invoice_amt' => $newAmount];
-                if (isset($hasOriSstColumn[0]) && $hasOriSstColumn[0]->count > 0) {
-                    $updateFields['ori_invoice_sst'] = $newTotalSst;
-                }
-                
-                // Update ori_invoice_amt and ori_invoice_sst for ALL split invoices with the same account_item_id
-                // This ensures all split invoices have the same base amount and SST total
                 LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $bill_main_id)
                     ->where('account_item_id', $account_item_id)
                     ->where('status', '<>', 99)
@@ -13810,6 +13810,36 @@ class CaseController extends Controller
                 // Use the new calculation method that properly handles all account categories and SST
                 // This will recalculate pfee1_inv, pfee2_inv, sst_inv for all invoices and bill main
                 $this->updatePfeeDisbAmountINV($bill_main_id);
+                
+                // After SST is recalculated, update ori_invoice_sst from sum of individual sst values
+                // This ensures ori_invoice_sst reflects what users actually saved
+                if (isset($hasOriSstColumn[0]) && $hasOriSstColumn[0]->count > 0) {
+                    $hasSstColumn = DB::select("SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS 
+                        WHERE TABLE_SCHEMA = DATABASE() 
+                        AND TABLE_NAME = 'loan_case_invoice_details' 
+                        AND COLUMN_NAME = 'sst'");
+                    
+                    if (isset($hasSstColumn[0]) && $hasSstColumn[0]->count > 0) {
+                        // Sum individual sst values - this is what users actually saved
+                        $newTotalSst = LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $bill_main_id)
+                            ->where('account_item_id', $account_item_id)
+                            ->where('status', '<>', 99)
+                            ->whereNotNull('sst')
+                            ->sum('sst');
+                        
+                        // Update ori_invoice_sst for ALL split invoices with the same account_item_id
+                        LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $bill_main_id)
+                            ->where('account_item_id', $account_item_id)
+                            ->where('status', '<>', 99)
+                            ->update(['ori_invoice_sst' => round($newTotalSst, 2)]);
+                        
+                        \Log::info("Updated ori_invoice_sst from sum of individual sst values", [
+                            'account_item_id' => $account_item_id,
+                            'new_total_sst' => $newTotalSst,
+                            'bill_id' => $bill_main_id
+                        ]);
+                    }
+                }
                 
                 // Update transfer fee details and ledger v2 for all invoices affected by this change
                 // Get all invoices for this bill that might have transfer fees
@@ -13877,16 +13907,6 @@ class CaseController extends Controller
                 $isSplitInvoice = $invoiceCount > 1;
                 
                 if ($isSplitInvoice) {
-                    // For split invoices, update ori_invoice_sst for ALL invoices with the same account_item_id
-                    if (isset($hasOriSstColumn[0]) && $hasOriSstColumn[0]->count > 0) {
-                        LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $bill_main_id)
-                            ->where('account_item_id', $account_item_id)
-                            ->where('status', '<>', 99)
-                            ->update(['ori_invoice_sst' => $newSSTFormatted]);
-                        
-                        \Log::info("Updated ori_invoice_sst for account_item_id {$account_item_id} to {$newSSTFormatted} across all invoices in bill {$bill_main_id}");
-                    }
-                    
                     // Get all invoice details for this account_item_id across all split invoices
                     $allInvoices = LoanCaseInvoiceMain::where('loan_case_main_bill_id', $bill_main_id)
                         ->where('status', '<>', 99)
@@ -13939,6 +13959,24 @@ class CaseController extends Controller
                                 'detail_id' => $detailId,
                                 'sst_value' => $sstValue,
                                 'account_item_id' => $account_item_id
+                            ]);
+                        }
+                        
+                        // After distributing SST, update ori_invoice_sst from sum of individual sst values
+                        // This ensures ori_invoice_sst reflects what users actually saved
+                        if (isset($hasOriSstColumn[0]) && $hasOriSstColumn[0]->count > 0) {
+                            $actualTotalSst = array_sum($distributedSst);
+                            
+                            // Update ori_invoice_sst for ALL invoices with the same account_item_id
+                            LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $bill_main_id)
+                                ->where('account_item_id', $account_item_id)
+                                ->where('status', '<>', 99)
+                                ->update(['ori_invoice_sst' => round($actualTotalSst, 2)]);
+                            
+                            \Log::info("Updated ori_invoice_sst from sum of individual sst values", [
+                                'account_item_id' => $account_item_id,
+                                'actual_total_sst' => $actualTotalSst,
+                                'bill_id' => $bill_main_id
                             ]);
                         }
                     }

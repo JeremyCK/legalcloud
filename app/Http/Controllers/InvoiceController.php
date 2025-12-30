@@ -746,13 +746,30 @@ class InvoiceController extends Controller
                                     ->where('status', '<>', 99)
                                     ->sum('amount');
                                 
-                                // Calculate total SST from total amount (same logic as case details)
-                                $totalSstRaw = $newTotalAmount * ($sstRate / 100);
-                                $totalSstString = number_format($totalSstRaw, 3, '.', '');
-                                if (substr($totalSstString, -1) == '5') {
-                                    $newTotalSst = floor($totalSstRaw * 100) / 100; // Round down
+                                // Calculate total SST from sum of individual sst values (not from amount)
+                                // This ensures ori_invoice_sst reflects what users actually saved
+                                $hasSstColumn = DB::select("SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS 
+                                    WHERE TABLE_SCHEMA = DATABASE() 
+                                    AND TABLE_NAME = 'loan_case_invoice_details' 
+                                    AND COLUMN_NAME = 'sst'");
+                                
+                                $newTotalSst = 0;
+                                if (isset($hasSstColumn[0]) && $hasSstColumn[0]->count > 0) {
+                                    // Sum individual sst values - this is what users actually saved
+                                    $newTotalSst = LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $bill->id)
+                                        ->where('account_item_id', $existingDetail->account_item_id)
+                                        ->where('status', '<>', 99)
+                                        ->whereNotNull('sst')
+                                        ->sum('sst');
                                 } else {
-                                    $newTotalSst = round($totalSstRaw, 2); // Normal rounding
+                                    // Fallback: Calculate from amount if sst column doesn't exist
+                                    $totalSstRaw = $newTotalAmount * ($sstRate / 100);
+                                    $totalSstString = number_format($totalSstRaw, 3, '.', '');
+                                    if (substr($totalSstString, -1) == '5') {
+                                        $newTotalSst = floor($totalSstRaw * 100) / 100; // Round down
+                                    } else {
+                                        $newTotalSst = round($totalSstRaw, 2); // Normal rounding
+                                    }
                                 }
                                 
                                 // Check if ori_invoice_sst column exists
@@ -763,7 +780,7 @@ class InvoiceController extends Controller
                                 
                                 $updateFields = ['ori_invoice_amt' => round($newTotalAmount, 2)];
                                 if (isset($hasOriSstColumn[0]) && $hasOriSstColumn[0]->count > 0) {
-                                    $updateFields['ori_invoice_sst'] = $newTotalSst;
+                                    $updateFields['ori_invoice_sst'] = round($newTotalSst, 2);
                                 }
                                 
                                 // Update ori_invoice_amt and ori_invoice_sst for ALL split invoices with this account_item_id
@@ -776,7 +793,8 @@ class InvoiceController extends Controller
                                     'account_item_id' => $existingDetail->account_item_id,
                                     'new_total_amount' => $newTotalAmount,
                                     'new_total_sst' => $newTotalSst,
-                                    'bill_id' => $bill->id
+                                    'bill_id' => $bill->id,
+                                    'calculated_from' => 'sum of individual sst values'
                                 ]);
                             }
                             
@@ -1549,10 +1567,29 @@ class InvoiceController extends Controller
                         ->update(['sst' => $sstValue]);
                 }
                 
+                // After distributing SST, update ori_invoice_sst from sum of individual sst values
+                // This ensures ori_invoice_sst reflects what users actually saved
+                $hasOriSstColumn = DB::select("SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE() 
+                    AND TABLE_NAME = 'loan_case_invoice_details' 
+                    AND COLUMN_NAME = 'ori_invoice_sst'");
+                
+                if (isset($hasOriSstColumn[0]) && $hasOriSstColumn[0]->count > 0) {
+                    // Calculate actual total SST from sum of distributed values
+                    $actualTotalSst = array_sum($distributedSst);
+                    
+                    // Update ori_invoice_sst for ALL invoices with the same account_item_id
+                    LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $billId)
+                        ->where('account_item_id', $accountItem->account_item_id)
+                        ->where('status', '<>', 99)
+                        ->update(['ori_invoice_sst' => round($actualTotalSst, 2)]);
+                }
+                
                 Log::info("Split invoice SST calculation", [
                     'account_item_id' => $accountItem->account_item_id,
                     'ori_invoice_amt' => $totalAmountForItem,
                     'total_sst' => $totalSstForItem,
+                    'actual_total_sst' => isset($actualTotalSst) ? $actualTotalSst : 'N/A',
                     'total_distributed_amount' => $totalDistributedAmount,
                     'distributed_sst' => $distributedSst
                 ]);
@@ -1776,6 +1813,23 @@ class InvoiceController extends Controller
                                 ->where('id', $detailId)
                                 ->update(['sst' => $sstValue]);
                         }
+                        
+                        // After distributing SST, update ori_invoice_sst from sum of individual sst values
+                        $hasOriSstColumn = DB::select("SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS 
+                            WHERE TABLE_SCHEMA = DATABASE() 
+                            AND TABLE_NAME = 'loan_case_invoice_details' 
+                            AND COLUMN_NAME = 'ori_invoice_sst'");
+                        
+                        if (isset($hasOriSstColumn[0]) && $hasOriSstColumn[0]->count > 0) {
+                            // Calculate actual total SST from sum of distributed values
+                            $actualTotalSst = array_sum($distributedSst);
+                            
+                            // Update ori_invoice_sst for ALL invoices with the same account_item_id
+                            LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $billId)
+                                ->where('account_item_id', $accountItemId)
+                                ->where('status', '<>', 99)
+                                ->update(['ori_invoice_sst' => round($actualTotalSst, 2)]);
+                        }
                     }
                 }
             }
@@ -1783,6 +1837,39 @@ class InvoiceController extends Controller
             // Recalculate all invoice amounts
             $caseController = new \App\Http\Controllers\CaseController();
             $caseController->updatePfeeDisbAmountINV($billId);
+            
+            // After SST recalculation, update ori_invoice_sst from sum of individual sst values for all account items
+            $hasOriSstColumn = DB::select("SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = DATABASE() 
+                AND TABLE_NAME = 'loan_case_invoice_details' 
+                AND COLUMN_NAME = 'ori_invoice_sst'");
+            
+            if (isset($hasOriSstColumn[0]) && $hasOriSstColumn[0]->count > 0 && $sstColumnExists) {
+                // Get all account items for this bill
+                $accountItems = DB::table('loan_case_invoice_details as ild')
+                    ->leftJoin('account_item as ai', 'ild.account_item_id', '=', 'ai.id')
+                    ->where('ild.loan_case_main_bill_id', $billId)
+                    ->where('ild.status', '<>', 99)
+                    ->whereIn('ai.account_cat_id', [1, 4])
+                    ->select('ild.account_item_id')
+                    ->distinct()
+                    ->get();
+                
+                foreach ($accountItems as $accountItem) {
+                    // Sum individual sst values
+                    $sumOfSst = LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $billId)
+                        ->where('account_item_id', $accountItem->account_item_id)
+                        ->where('status', '<>', 99)
+                        ->whereNotNull('sst')
+                        ->sum('sst');
+                    
+                    // Update ori_invoice_sst for ALL invoices with the same account_item_id
+                    LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $billId)
+                        ->where('account_item_id', $accountItem->account_item_id)
+                        ->where('status', '<>', 99)
+                        ->update(['ori_invoice_sst' => round($sumOfSst, 2)]);
+                }
+            }
         }
 
         // Generate new invoice numbers

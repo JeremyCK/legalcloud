@@ -195,18 +195,19 @@
                             }
                             
                             // Check if we have a valid custom SST value
-                            if ($sstRaw !== null && $sstRaw !== '' && trim((string)$sstRaw) !== '' && trim((string)$sstRaw) !== '0' && trim((string)$sstRaw) !== '0.00') {
+                            // Improved check: also accept numeric 0 values and check if it's a valid number
+                            $isValidSst = false;
+                            if ($sstRaw !== null) {
+                                // Convert to string and check if it's a valid number (not empty string)
+                                $sstString = trim((string)$sstRaw);
+                                if ($sstString !== '' && is_numeric($sstRaw)) {
+                                    $isValidSst = true;
+                                }
+                            }
+                            
+                            if ($isValidSst) {
                                 $row_sst = (float) $sstRaw;
                                 $hasCustomSst = true;
-                                
-                                // Debug for detail 125032
-                                if (isset($details->id) && $details->id == 125032) {
-                                    \Log::info("TAB-INVOICE - Using custom SST (sst column) for detail 125032", [
-                                        'detail_id' => $details->id,
-                                        'sst_value' => $sstRaw,
-                                        'row_sst' => $row_sst
-                                    ]);
-                                }
                             }
                             
                             // If no custom SST, check ori_invoice_sst (for split invoices)
@@ -228,15 +229,6 @@
                                     $row_sst = round($sst_calculation, 2); // Normal rounding
                                 }
                                 
-                                // Debug for detail 125032 if calculating
-                                if (isset($details->id) && $details->id == 125032) {
-                                    \Log::warning("TAB-INVOICE - Calculating SST (no custom value) for detail 125032", [
-                                        'detail_id' => $details->id,
-                                        'sst_raw' => $sstRaw,
-                                        'ori_invoice_sst' => $details->ori_invoice_sst ?? 'NULL',
-                                        'calculated_sst' => $row_sst
-                                    ]);
-                                }
                             }
                             
                             $subtotalGST += $details->ori_invoice_amt + $row_sst;
