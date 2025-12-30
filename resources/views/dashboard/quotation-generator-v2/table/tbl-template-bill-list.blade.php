@@ -146,6 +146,7 @@ $sst_percentage = $sst_rate * 0.01;
             
                     $formula_amt = $loan_sum * 0.005;
                 } elseif ($details->account_formula == '${memo_transfer}') {
+                    $overall_value = $purchase_price;
                     $tier = $memo_of_transfer_tier;
                     for ($i = 0; $i < count($tier); $i++) {
                         if ($overall_value <= $tier[$i]) {
