@@ -1807,7 +1807,7 @@ class ReportController extends Controller
             ->where('m.status', '<>', 99)
             ->whereMonth('m.recon_date', $d["month"])
             ->whereYear('m.recon_date', $d["year"])
-            ->whereIn('m.type', ['RECONADD', 'JOURNAL_IN', 'TRANSFER_IN', 'SST_IN', 'BILL_RECV', 'TRUST_RECV', 'REIMB_IN', 'REIMB_OUT', 'REIMB_SST_IN', 'REIMB_SST_OUT'])
+            ->whereIn('m.type', ['RECONADD', 'JOURNAL_IN', 'TRANSFER_IN', 'SST_IN', 'BILL_RECV', 'TRUST_RECV', 'REIMB_IN', 'REIMB_SST_IN'])
             ->where('m.is_recon', 1)
             ->where('m.bank_id', '=', $request->input("bank_id"))->get();
 
@@ -1869,7 +1869,7 @@ class ReportController extends Controller
                 $q->where('m.recon_date', '>', $request->input("recon_date"));
             })
             ->where('m.date', '<=', $request->input("recon_date"))
-            ->whereIn('m.type', ['RECONADD', 'JOURNAL_IN', 'TRANSFER_IN', 'SST_IN', 'BILL_RECV', 'TRUST_RECV', 'REIMB_IN', 'REIMB_OUT', 'REIMB_SST_IN', 'REIMB_SST_OUT'])
+            ->whereIn('m.type', ['RECONADD', 'JOURNAL_IN', 'TRANSFER_IN', 'SST_IN', 'BILL_RECV', 'TRUST_RECV', 'REIMB_IN', 'REIMB_SST_IN'])
             ->where('m.bank_id', '=', $request->input("bank_id"))->sum('amount');
 
         $totalAddUncreditDepositNull = DB::table('ledger_entries_v2 as m')
@@ -1880,7 +1880,7 @@ class ReportController extends Controller
             ->where('m.status', '<>', 99)
             ->whereNull('m.recon_date')
             ->where('m.date', '<=', $request->input("recon_date"))
-            ->whereIn('m.type', ['RECONADD', 'JOURNAL_IN', 'TRANSFER_IN', 'SST_IN', 'BILL_RECV', 'TRUST_RECV', 'REIMB_IN', 'REIMB_OUT', 'REIMB_SST_IN', 'REIMB_SST_OUT'])
+            ->whereIn('m.type', ['RECONADD', 'JOURNAL_IN', 'TRANSFER_IN', 'SST_IN', 'BILL_RECV', 'TRUST_RECV', 'REIMB_IN', 'REIMB_SST_IN'])
             ->where('m.bank_id', '=', $request->input("bank_id"))->sum('amount');
 
         $totalAddUncreditDeposit = $totalAddUncreditDeposit + $totalAddUncreditDepositNull;
@@ -1895,7 +1895,7 @@ class ReportController extends Controller
                 $q->where('m.recon_date', '>', $request->input("recon_date"));
             })
             ->where('m.date', '<=', $request->input("recon_date"))
-            ->whereIn('m.type', ['RECONADD', 'JOURNAL_IN', 'TRANSFER_IN', 'SST_IN', 'BILL_RECV', 'TRUST_RECV', 'REIMB_IN', 'REIMB_OUT', 'REIMB_SST_IN', 'REIMB_SST_OUT'])
+            ->whereIn('m.type', ['RECONADD', 'JOURNAL_IN', 'TRANSFER_IN', 'SST_IN', 'BILL_RECV', 'TRUST_RECV', 'REIMB_IN', 'REIMB_SST_IN'])
             ->where('m.bank_id', '=', $request->input("bank_id"));
 
         $UncreditDepositNull = DB::table('ledger_entries_v2 as m')
@@ -1906,7 +1906,7 @@ class ReportController extends Controller
             ->where('m.status', '<>', 99)
             ->whereNull('m.recon_date')
             ->where('m.date', '<=', $request->input("recon_date"))
-            ->whereIn('m.type', ['RECONADD', 'JOURNAL_IN', 'TRANSFER_IN', 'SST_IN', 'BILL_RECV', 'TRUST_RECV', 'REIMB_IN', 'REIMB_OUT', 'REIMB_SST_IN', 'REIMB_SST_OUT'])
+            ->whereIn('m.type', ['RECONADD', 'JOURNAL_IN', 'TRANSFER_IN', 'SST_IN', 'BILL_RECV', 'TRUST_RECV', 'REIMB_IN', 'REIMB_SST_IN'])
             ->where('m.bank_id', '=', $request->input("bank_id"));
 
         $merged = $UncreditDeposit->get()->merge($UncreditDepositNull->get());
@@ -1975,7 +1975,7 @@ class ReportController extends Controller
             ->whereMonth('m.recon_date', $d["month"])
             ->whereYear('m.recon_date', $d["year"])
             // ->whereIn('m.type',  ['JOURNAL_OUT', 'TRANSFER_OUT', 'SST_OUT', 'CLOSEFILE_OUT', 'BILL_DISB', 'TRUST_DISB'])
-            ->whereIn('m.type',  ['JOURNAL_OUT', 'TRANSFER_OUT', 'SST_OUT', 'CLOSEFILE_OUT', 'BILL_DISB', 'TRUST_DISB'])
+            ->whereIn('m.type',  ['JOURNAL_OUT', 'TRANSFER_OUT', 'SST_OUT', 'CLOSEFILE_OUT', 'BILL_DISB', 'TRUST_DISB', 'REIMB_OUT', 'REIMB_SST_OUT'])
             ->where('m.is_recon', 1)
             ->where('m.bank_id', '=', $request->input("bank_id"));
 
@@ -1999,7 +1999,7 @@ class ReportController extends Controller
             ->where('m.status', '<>', 99)
             ->where('m.recon_date', '>', $request->input("recon_date"))
             ->where('m.date', '<=', $request->input("recon_date"))
-            ->whereIn('m.type',  ['JOURNAL_OUT', 'TRANSFER_OUT', 'SST_OUT', 'CLOSEFILE_OUT', 'BILL_DISB', 'TRUST_DISB'])
+            ->whereIn('m.type',  ['JOURNAL_OUT', 'TRANSFER_OUT', 'SST_OUT', 'CLOSEFILE_OUT', 'BILL_DISB', 'TRUST_DISB', 'REIMB_OUT', 'REIMB_SST_OUT'])
             ->where('m.bank_id', '=', $request->input("bank_id"));
 
         $totalLessPresentedCheuquetNull = DB::table('ledger_entries_v2 as m')
@@ -2010,7 +2010,7 @@ class ReportController extends Controller
             ->where('m.status', '<>', 99)
             ->whereNull('m.recon_date')
             ->where('m.date', '<=', $request->input("recon_date"))
-            ->whereIn('m.type',  ['JOURNAL_OUT', 'TRANSFER_OUT', 'SST_OUT', 'CLOSEFILE_OUT', 'BILL_DISB', 'TRUST_DISB'])
+            ->whereIn('m.type',  ['JOURNAL_OUT', 'TRANSFER_OUT', 'SST_OUT', 'CLOSEFILE_OUT', 'BILL_DISB', 'TRUST_DISB', 'REIMB_OUT', 'REIMB_SST_OUT'])
             ->where('m.bank_id', '=', $request->input("bank_id"));
 
         $merged = $totalLessPresentedCheuque->get()->merge($totalLessPresentedCheuquetNull->get());
