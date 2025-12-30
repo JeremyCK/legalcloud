@@ -296,3 +296,4 @@ class AddUniqueConstraintJournalEntryDetails extends Migration
 }
 */
 
+

@@ -7469,7 +7469,17 @@ class CaseController extends Controller
         $invoice_v2 = array();
 
 
-        $invoice_main_id = LoanCaseInvoiceMain::where('loan_case_main_bill_id', $id)->pluck('id')->first();
+        // Get ALL invoice IDs for this bill (handles split invoices)
+        $invoiceIds = LoanCaseInvoiceMain::where('loan_case_main_bill_id', $id)
+            ->where('status', '<>', 99)
+            ->pluck('id')
+            ->toArray();
+        
+        // For backward compatibility, keep first invoice ID
+        $invoice_main_id = !empty($invoiceIds) ? $invoiceIds[0] : null;
+        
+        // Check if this is a split invoice
+        $isSplitInvoice = count($invoiceIds) > 1;
 
 
         for ($i = 0; $i < count($category); $i++) {
@@ -7507,25 +7517,58 @@ class CaseController extends Controller
                 $selectFields[] = DB::raw('NULL as ori_invoice_sst');
             }
             
-            $QuotationTemplateDetails = DB::table('loan_case_invoice_details AS qd')
+            // Query invoice details - for split invoices, get from ALL invoices and combine by account_item_id
+            $query = DB::table('loan_case_invoice_details AS qd')
                 ->leftJoin('account_item AS a', 'a.id', '=', 'qd.account_item_id')
                 ->select($selectFields)
-                // ->where('qd.loan_case_main_bill_id', '=',  $id)
-                ->where('qd.invoice_main_id', '=',  $invoice_main_id)
+                ->whereIn('qd.invoice_main_id', $invoiceIds)
                 ->where('qd.status', '=',  1)
-                ->where('a.account_cat_id', '=',  $category[$i]->id)
-                ->get();
+                ->where('a.account_cat_id', '=',  $category[$i]->id);
+            
+            // For split invoices, we need to combine details by account_item_id
+            // Use ori_invoice_amt and ori_invoice_sst which represent totals across all split invoices
+            if ($isSplitInvoice) {
+                // Get all details grouped by account_item_id
+                $allDetails = $query->get();
+                
+                // Group by account_item_id - use ori_invoice_amt and ori_invoice_sst (which are the same across all split invoices for same account_item_id)
+                $groupedDetails = [];
+                foreach ($allDetails as $detail) {
+                    $key = $detail->account_item_id;
+                    if (!isset($groupedDetails[$key])) {
+                        // Use ori_invoice_amt and ori_invoice_sst (total across all split invoices)
+                        // These values should be the same for all split invoices with the same account_item_id
+                        $groupedDetails[$key] = (object)[
+                            'id' => $detail->id, // Use first detail ID
+                            'account_item_id' => $detail->account_item_id,
+                            'amount' => (float)($detail->ori_invoice_amt ?? 0), // Use total amount across all split invoices
+                            'quo_amount' => $detail->quo_amount ?? 0,
+                            'ori_invoice_amt' => (float)($detail->ori_invoice_amt ?? 0),
+                            'item_remark' => $detail->item_remark ?? '', // Match the alias from query
+                            'quotation_item_id' => $detail->quotation_item_id ?? null,
+                            'account_name' => $detail->account_name ?? '',
+                            'account_name_cn' => $detail->account_name_cn ?? '',
+                            'formula' => $detail->account_formula ?? '',
+                            'min' => $detail->account_min ?? 0,
+                            'pfee1_item' => $detail->pfee1_item ?? 0,
+                            'item_desc' => $detail->item_desc ?? '',
+                            'sst' => $sstColumnExists ? (float)($detail->ori_invoice_sst ?? 0) : 0, // Use total SST across all split invoices
+                            'ori_invoice_sst' => (float)($detail->ori_invoice_sst ?? 0)
+                        ];
+                    }
+                }
+                
+                // Convert back to array for compatibility
+                $QuotationTemplateDetails = array_values($groupedDetails);
+            } else {
+                // Single invoice - use original query
+                $QuotationTemplateDetails = $query->get();
+            }
             
             // For split invoices, ensure ori_invoice_sst is set correctly
             // The view will use ori_invoice_sst directly, so we don't need to recalculate here
             // If ori_invoice_sst is NULL, we can calculate it from ori_invoice_amt for display purposes
-            if ($invoice_main_id) {
-                // Check if this is a split invoice
-                $invoiceCount = LoanCaseInvoiceMain::where('loan_case_main_bill_id', $id)
-                    ->where('status', '<>', 99)
-                    ->count();
-                $isSplitInvoice = $invoiceCount > 1;
-                
+            if (!empty($invoiceIds)) {
                 if ($isSplitInvoice) {
                     // Get bill for SST rate
                     $bill = LoanCaseBillMain::where('id', $id)->first();
@@ -7535,7 +7578,7 @@ class CaseController extends Controller
                     // This ensures the view has a value to display
                     foreach ($QuotationTemplateDetails as $detail) {
                         // Only process taxable items
-                        if (in_array($detail->account_cat_id ?? 0, [1, 4])) {
+                        if (in_array($category[$i]->id, [1, 4])) {
                             // If ori_invoice_sst is NULL or 0, calculate from ori_invoice_amt
                             if (!isset($detail->ori_invoice_sst) || $detail->ori_invoice_sst === null || $detail->ori_invoice_sst == 0) {
                                 $sst_calculation = $detail->ori_invoice_amt * ($sstRate / 100);
