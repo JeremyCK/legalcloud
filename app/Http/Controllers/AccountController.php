@@ -3104,7 +3104,7 @@ class AccountController extends Controller
                     }
                 })
                 ->addColumn('transaction_type', function ($data) {
-                    // if ($data->voucher_type == '1' || $data->voucher_type == '2')
+                    // if ($data->voucher_type == '1' || $data->voucher_type == '2') 
                     //     return 'Out';
                     // elseif ($data->voucher_type == '4' || $data->voucher_type == '3')
                     //     return 'In';

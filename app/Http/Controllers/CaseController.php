@@ -7589,20 +7589,40 @@ class CaseController extends Controller
                     $bill = LoanCaseBillMain::where('id', $id)->first();
                     $sstRate = $bill ? ($bill->sst_rate ?? 8) : 8;
                     
-                    // For split invoices, if ori_invoice_sst is NULL, calculate it from ori_invoice_amt
+                    // For split invoices, if ori_invoice_sst is NULL or 0, calculate it from ori_invoice_amt
                     // This ensures the view has a value to display
                     foreach ($QuotationTemplateDetails as $detail) {
                         // Only process taxable items
                         if (in_array($category[$i]->id, [1, 4])) {
                             // If ori_invoice_sst is NULL or 0, calculate from ori_invoice_amt
                             if (!isset($detail->ori_invoice_sst) || $detail->ori_invoice_sst === null || $detail->ori_invoice_sst == 0) {
-                                $sst_calculation = $detail->ori_invoice_amt * ($sstRate / 100);
-                                $sst_string = number_format($sst_calculation, 3, '.', '');
-                                
-                                if (substr($sst_string, -1) == '5') {
-                                    $detail->ori_invoice_sst = floor($sst_calculation * 100) / 100; // Round down
-                                } else {
-                                    $detail->ori_invoice_sst = round($sst_calculation, 2); // Normal rounding
+                                // Only calculate if ori_invoice_amt is greater than 0
+                                if (isset($detail->ori_invoice_amt) && $detail->ori_invoice_amt > 0) {
+                                    $sst_calculation = $detail->ori_invoice_amt * ($sstRate / 100);
+                                    $sst_string = number_format($sst_calculation, 3, '.', '');
+                                    
+                                    if (substr($sst_string, -1) == '5') {
+                                        $calculatedSst = floor($sst_calculation * 100) / 100; // Round down
+                                    } else {
+                                        $calculatedSst = round($sst_calculation, 2); // Normal rounding
+                                    }
+                                    
+                                    // Update both sst and ori_invoice_sst for display
+                                    $detail->ori_invoice_sst = $calculatedSst;
+                                    $detail->sst = $calculatedSst;
+                                    
+                                    // Also update in database to persist the calculation
+                                    if (isset($detail->account_item_id)) {
+                                        DB::table('loan_case_invoice_details')
+                                            ->where('loan_case_main_bill_id', $id)
+                                            ->where('account_item_id', $detail->account_item_id)
+                                            ->where('status', '<>', 99)
+                                            ->where(function($q) {
+                                                $q->whereNull('ori_invoice_sst')
+                                                  ->orWhere('ori_invoice_sst', 0);
+                                            })
+                                            ->update(['ori_invoice_sst' => $calculatedSst]);
+                                    }
                                 }
                             }
                         }

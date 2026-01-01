@@ -47,7 +47,7 @@
                 @endif
                 {{ $recon->remark }}
 
-                {{-- @if ($recon->transaction_type == 'C' || $recon->transaction_type == 'D')
+                {{-- @if ($recon->transaction_type == 'C' || $recon->transaction_type == 'D') 
                     <br />
                     @if ($recon->type == 'SST_IN' || $recon->type == 'SST_OUT')
                         SST

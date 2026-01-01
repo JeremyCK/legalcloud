@@ -211,14 +211,20 @@
                             }
                             
                             // If no custom SST, check ori_invoice_sst (for split invoices)
-                            if (!$hasCustomSst && property_exists($details, 'ori_invoice_sst') && isset($details->ori_invoice_sst) && $details->ori_invoice_sst !== null && trim((string)$details->ori_invoice_sst) !== '') {
-                                // Use ori_invoice_sst (total SST across all split invoices)
-                                $row_sst = (float) $details->ori_invoice_sst;
-                                $hasCustomSst = true;
+                            // For split invoices, ori_invoice_sst contains the total SST across all split invoices
+                            // We should use it if it's set and greater than 0
+                            if (!$hasCustomSst && property_exists($details, 'ori_invoice_sst') && isset($details->ori_invoice_sst) && $details->ori_invoice_sst !== null) {
+                                $oriSstValue = (float)$details->ori_invoice_sst;
+                                // Use ori_invoice_sst if it's greater than 0 (for split invoices, this is the total SST)
+                                if ($oriSstValue > 0) {
+                                    $row_sst = $oriSstValue;
+                                    $hasCustomSst = true;
+                                }
                             }
                             
                             // If still no SST value, calculate from ori_invoice_amt (fallback)
-                            if (!$hasCustomSst) {
+                            // This is important for split invoices where ori_invoice_sst might be 0 or NULL
+                            if (!$hasCustomSst && isset($details->ori_invoice_amt) && $details->ori_invoice_amt > 0) {
                                 // Calculate from ori_invoice_amt (fallback for backward compatibility)
                                 $sst_calculation = $details->ori_invoice_amt * $sst_rate;
                                 $sst_string = number_format($sst_calculation, 3, '.', '');
@@ -229,6 +235,9 @@
                                     $row_sst = round($sst_calculation, 2); // Normal rounding
                                 }
                                 
+                            } else if (!$hasCustomSst) {
+                                // If ori_invoice_amt is also 0 or not set, SST should be 0
+                                $row_sst = 0;
                             }
                             
                             $subtotalGST += $details->ori_invoice_amt + $row_sst;

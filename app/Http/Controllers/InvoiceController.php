@@ -1479,6 +1479,10 @@ class InvoiceController extends Controller
                         $newDetail->ori_invoice_amt = $originalDetail->ori_invoice_amt;
                         $newDetail->quo_amount = $originalDetail->quo_amount;
                         $newDetail->remark = $originalDetail->remark;
+                        // Set ori_invoice_sst from original detail if it exists
+                        if (property_exists($originalDetail, 'ori_invoice_sst') && $originalDetail->ori_invoice_sst !== null) {
+                            $newDetail->ori_invoice_sst = $originalDetail->ori_invoice_sst;
+                        }
                         $newDetail->created_by = $current_user->id;
                         $newDetail->status = 1;
                         $newDetail->created_at = now();
