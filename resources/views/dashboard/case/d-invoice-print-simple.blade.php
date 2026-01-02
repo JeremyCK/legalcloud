@@ -171,7 +171,7 @@
                     <h2 style="margin: 0; font-size: 16px; font-weight: bold;">Invoice</h2>
                 </td>
                 <td class="col-right">
-                    <b>Date:</b> {{ date('d-m-Y', strtotime($LoanCaseBillMain->invoice_date)) }}
+                    <b>Date:</b> {{ date('d-m-Y', strtotime(isset($invoiceMain) && $invoiceMain->Invoice_date ? $invoiceMain->Invoice_date : $LoanCaseBillMain->invoice_date)) }}
                 </td>
             </tr>
         </table>

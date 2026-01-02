@@ -113,7 +113,7 @@
             <div class="col-4">
                 <h2 class="text-center" style="position:absolute;bottom:0;right:0">
                     <small class="pull-right">Date: <span
-                            class="invoice-date">{{ date('d-m-Y', strtotime($LoanCaseBillMain->invoice_date)) }}</span>
+                            class="invoice-date">{{ date('d-m-Y', strtotime(isset($invoiceMain) && $invoiceMain->Invoice_date ? $invoiceMain->Invoice_date : $LoanCaseBillMain->invoice_date)) }}</span>
                     </small>
                 </h2>
             </div>
