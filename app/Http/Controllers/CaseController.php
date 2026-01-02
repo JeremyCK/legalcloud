@@ -7754,6 +7754,16 @@ class CaseController extends Controller
             ->where('m.masterlist_field_id', '=', 160)
             ->first();
 
+        // Get the main invoice (first invoice or the one matching main invoice_no)
+        $invoiceMain = LoanCaseInvoiceMain::where('loan_case_main_bill_id', $id)
+            ->where('invoice_no', $LoanCaseBillMain->invoice_no)
+            ->first();
+        
+        // If not found, get the first invoice for this bill
+        if (!$invoiceMain) {
+            $invoiceMain = LoanCaseInvoiceMain::where('loan_case_main_bill_id', $id)->first();
+        }
+
         return response()->json([
             'view' => view('dashboard.case.table.tbl-case-bill-list', compact('quotation', 'current_user', 'LoanCaseBillMain', 'blnCommPaid'))->render(),
             'view4' => view('dashboard.case.table.tbl-case-invoice-list', compact('invoice', 'current_user', 'LoanCaseBillMain'))->render(),
@@ -7763,7 +7773,7 @@ class CaseController extends Controller
             'receive' => view('dashboard.case.table.tbl-bill-receive-list', compact('bill_receive', 'current_user'))->render(),
             'summary' => view('dashboard.case.tabs.tab-bill-summary-report', compact('loanCaseBillMain', 'current_user'))->render(),
             'tab' => view('dashboard.case.tabs.bill.tab-bill-tablist', compact('LoanCaseBillMain', 'current_user', 'current_bill_tab'))->render(),
-            'invoiceView' => view('dashboard.case.tabs.bill.tab-invoice', compact('LoanCaseBillMain', 'current_user', 'invoice', 'case', 'InvoiceBillingParty'))->render(),
+            'invoiceView' => view('dashboard.case.tabs.bill.tab-invoice', compact('LoanCaseBillMain', 'current_user', 'invoice', 'case', 'InvoiceBillingParty', 'invoiceMain'))->render(),
             'invoicePrint' => view('dashboard.case.d-invoice-print', compact('LoanCaseBillMain', 'current_user', 'case', 'Branch', 'invoice_v2', 'pieces_inv',))->render(),
             'billPrint' => view('dashboard.case.d-quotation-print', compact('purchaser_financier_ref_no','LoanCaseBillMain', 'current_user', 'quotation', 'quotation_v3', 'pieces', 'case', 'Branch'))->render(),
             /// 'billSummary' => view('dashboard.case.section.d-bill-summary-details', compact('LoanCaseBillMain', 'current_user', 'quotation', 'case', 'Branch'))->render(),
@@ -8146,6 +8156,15 @@ class CaseController extends Controller
 
         $Branch = Branch::where('id', '=', $case->branch_id)->first();
 
+        // Get the main invoice (first invoice or the one matching main invoice_no)
+        $invoiceMain = LoanCaseInvoiceMain::where('loan_case_main_bill_id', $id)
+            ->where('invoice_no', $LoanCaseBillMain->invoice_no)
+            ->first();
+        
+        // If not found, get the first invoice for this bill
+        if (!$invoiceMain) {
+            $invoiceMain = LoanCaseInvoiceMain::where('loan_case_main_bill_id', $id)->first();
+        }
 
         return response()->json([
             'view' => view('dashboard.case.table.tbl-case-bill-list', compact('quotation', 'current_user', 'LoanCaseBillMain', 'blnCommPaid'))->render(),
@@ -8156,7 +8175,7 @@ class CaseController extends Controller
             'receive' => view('dashboard.case.table.tbl-bill-receive-list', compact('bill_receive', 'current_user'))->render(),
             'summary' => view('dashboard.case.tabs.tab-bill-summary-report', compact('loanCaseBillMain', 'current_user'))->render(),
             'tab' => view('dashboard.case.tabs.bill.tab-bill-tablist', compact('LoanCaseBillMain', 'current_user'))->render(),
-            'invoiceView' => view('dashboard.case.tabs.bill.tab-invoice', compact('LoanCaseBillMain', 'current_user', 'invoice', 'case'))->render(),
+            'invoiceView' => view('dashboard.case.tabs.bill.tab-invoice', compact('LoanCaseBillMain', 'current_user', 'invoice', 'case', 'invoiceMain'))->render(),
             'invoicePrint' => view('dashboard.case.d-invoice-print', compact('LoanCaseBillMain', 'current_user', 'invoice', 'case', 'Branch'))->render(),
             'billPrint' => view('dashboard.case.d-quotation-print', compact('LoanCaseBillMain', 'current_user', 'quotation', 'case', 'Branch'))->render(),
             'billSummary' => view('dashboard.case.section.d-bill-summary-details', compact('LoanCaseBillMain', 'current_user', 'quotation', 'case', 'Branch'))->render(),

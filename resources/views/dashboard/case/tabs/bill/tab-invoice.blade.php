@@ -15,7 +15,7 @@
                     </tr>
                     <tr>
                         <td class="fw-medium"><b>Invoice Date</b></td>
-                        <td><b class="invoice-date">{{ date('d-m-Y', strtotime($LoanCaseBillMain->invoice_date)) }}</b>
+                        <td><b class="invoice-date">{{ date('d-m-Y', strtotime(isset($invoiceMain) && $invoiceMain && $invoiceMain->Invoice_date ? $invoiceMain->Invoice_date : $LoanCaseBillMain->invoice_date)) }}</b>
                         </td>
                     </tr>
                     <tr>
@@ -46,7 +46,8 @@
                 <div class="dropdown-menu" style="padding:0">
 
                     @php
-                        $today = \Carbon\Carbon::parse($LoanCaseBillMain->invoice_date);
+                        $invoiceDateForComparison = isset($invoiceMain) && $invoiceMain && $invoiceMain->Invoice_date ? $invoiceMain->Invoice_date : $LoanCaseBillMain->invoice_date;
+                        $today = \Carbon\Carbon::parse($invoiceDateForComparison);
                         $targetDate = \Carbon\Carbon::parse('2025-06-23');
                     @endphp
 

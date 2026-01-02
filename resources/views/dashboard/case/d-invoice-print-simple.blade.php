@@ -139,6 +139,29 @@
             font-size: 8px;
             line-height: 1.3;
         }
+        .print-info-section {
+            margin-top: 8px;
+            margin-bottom: 8px;
+            font-size: 9px;
+        }
+        .print-info-row {
+            margin-bottom: 3px;
+            display: table;
+            width: 100%;
+            table-layout: fixed;
+        }
+        .print-info-label {
+            width: 25%;
+            font-weight: bold;
+            display: table-cell;
+            vertical-align: top;
+            padding-right: 5px;
+        }
+        .print-info-value {
+            width: 75%;
+            display: table-cell;
+            vertical-align: top;
+        }
     </style>
 </head>
 <body>
@@ -280,6 +303,13 @@
                 </td>
             </tr>
         </table>
+
+        @if ($index == 0)
+            <!-- Extra Info Section (Borrower, etc.) -->
+            <div class="print-info-section">
+                @include('dashboard.case.section.d-print-info')
+            </div>
+        @endif
 
         <!-- Invoice Items Table -->
         <table class="invoice-table">
