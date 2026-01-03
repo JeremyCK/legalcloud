@@ -137,12 +137,12 @@
                                         <div class="form-group ">
                                             <label>Year</label>
                                             <select id="ddl_year" class="form-control" name="ddl_year" required>
-                                                <option value="0">-- All --</option>
+                                                <option value="0" selected>-- All --</option>
                                                 <option value="2022">2022</option>
                                                 <option value='2023'>2023</option>
                                                 <option value='2024'>2024</option>
                                                 <option value='2025'>2025</option>
-                                                <option value='2026' selected>2026</option>
+                                                <option value='2026'>2026</option>
                                             </select>
                                         </div>
                                     </div>

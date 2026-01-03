@@ -2820,6 +2820,7 @@ class CaseController extends Controller
                 ->select('invoice_no', 'amount')
                 ->where('loan_case_main_bill_id', $bill->id)
                 ->where('status', '<>', 99)
+                ->where('bln_invoice', '=', 1)  // Only show active invoices (not reverted)
                 ->orderBy('id', 'ASC')
                 ->get();
             

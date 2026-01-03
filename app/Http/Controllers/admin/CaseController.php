@@ -11005,6 +11005,7 @@ class CaseController extends Controller
         $invoices = DB::table('loan_case_invoice_main')
             ->where("loan_case_main_bill_id", $id)
             ->where("status", "<>", 99)
+            ->where("bln_invoice", "=", 1)  // Only show active invoices (not reverted)
             ->get();
 
         $total_pfee1 = 0;
