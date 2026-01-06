@@ -11002,11 +11002,24 @@ class CaseController extends Controller
         }
 
         // Get all invoices for this bill
-        $invoices = DB::table('loan_case_invoice_main')
+        $LoanCaseBillMain = LoanCaseBillMain::where('id', $id)->first();
+        
+        $invoiceQuery = DB::table('loan_case_invoice_main')
             ->where("loan_case_main_bill_id", $id)
-            ->where("status", "<>", 99)
-            ->where("bln_invoice", "=", 1)  // Only show active invoices (not reverted)
-            ->get();
+            ->where("status", "<>", 99);
+        
+        // Only filter by bln_invoice if bill is reverted (to exclude reverted invoices)
+        // If bill is an invoice (bln_invoice = 1), show all invoices regardless of their bln_invoice value
+        if ($LoanCaseBillMain && $LoanCaseBillMain->bln_invoice == 0) {
+            // Bill is reverted: exclude invoices that are also explicitly reverted (bln_invoice = 0)
+            $invoiceQuery->where(function($q) {
+                $q->where("bln_invoice", "=", 1)
+                  ->orWhereNull("bln_invoice");
+            });
+        }
+        // If bill->bln_invoice == 1, show all invoices (no bln_invoice filter)
+        
+        $invoices = $invoiceQuery->get();
 
         $total_pfee1 = 0;
         $total_pfee2 = 0;

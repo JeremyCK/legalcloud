@@ -2816,13 +2816,24 @@ class CaseController extends Controller
         
         // Then get invoices for each bill and attach them
         foreach ($loanCaseBillMain as $bill) {
-            $invoices = DB::table('loan_case_invoice_main')
+            // Build query for invoices
+            $invoiceQuery = DB::table('loan_case_invoice_main')
                 ->select('invoice_no', 'amount')
                 ->where('loan_case_main_bill_id', $bill->id)
-                ->where('status', '<>', 99)
-                ->where('bln_invoice', '=', 1)  // Only show active invoices (not reverted)
-                ->orderBy('id', 'ASC')
-                ->get();
+                ->where('status', '<>', 99);
+            
+            // Only filter by bln_invoice if bill is reverted (to exclude reverted invoices)
+            // If bill is an invoice (bln_invoice = 1), show all invoices regardless of their bln_invoice value
+            if ($bill->bln_invoice == 0) {
+                // Bill is reverted: exclude invoices that are also explicitly reverted (bln_invoice = 0)
+                $invoiceQuery->where(function($q) {
+                    $q->where('bln_invoice', '=', 1)
+                      ->orWhereNull('bln_invoice');
+                });
+            }
+            // If bill->bln_invoice == 1, show all invoices (no bln_invoice filter)
+            
+            $invoices = $invoiceQuery->orderBy('id', 'ASC')->get();
             
             // Store invoices as array for the view
             $bill->invoices = $invoices;
