@@ -140,8 +140,8 @@
             line-height: 1.3;
         }
         .print-info-section {
-            margin-top: 8px;
-            margin-bottom: 8px;
+            margin-top: 2px;
+            margin-bottom: 2px;
             font-size: 9px;
         }
         .print-info-row {

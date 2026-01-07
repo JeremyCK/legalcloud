@@ -1,10 +1,9 @@
     
-<div style="margin:5px;">
+<div>
     
     @if(isset($masterlistValue))
     
         @if (count($masterlistValue) > 0)
-        <hr style="margin:5px;" />  
             @foreach ($masterlistValue['CaseMasterListMainCat'] as $masterlist)
                 @php
                     $count = 1;
