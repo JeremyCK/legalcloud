@@ -3039,7 +3039,7 @@ class CaseController extends Controller
                     ->where('e.id', '=', $id)
                     ->whereIn('a.bank_id', $officeBankAccountIds) // Only OA bank accounts
                     ->whereNotNull('c.id') // Ensure the join matched (bank_id exists in office_bank_account with account_type = 'OA')
-                    ->whereNotIn('a.type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'SST_IN', 'TRANSFER_IN', 'CLOSEFILE_IN', 'ABORTFILE_IN', 'REIMB_IN', 'REIMB_SST_IN']) 
+                    ->whereNotIn('a.type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'CLOSEFILE_IN', 'ABORTFILE_IN']) 
                     ->where('a.status', '<>', 99)
                     ->orderBy('a.date', 'ASC')
                     ->orderBy('a.last_row_entry', 'asc')
@@ -19698,7 +19698,7 @@ class CaseController extends Controller
                     ->where('e.id', '=', $case_id)
                     ->whereIn('a.bank_id', $officeBankAccountIds)
                     ->whereNotNull('c.id')
-                    ->whereNotIn('a.type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'SST_IN', 'TRANSFER_IN', 'CLOSEFILE_IN', 'ABORTFILE_IN', 'REIMB_IN', 'REIMB_SST_IN'])
+                    ->whereNotIn('a.type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'CLOSEFILE_IN', 'ABORTFILE_IN'])
                     ->where('a.status', '<>', 99)
                     ->orderBy('a.date', 'ASC')
                     ->orderBy('a.last_row_entry', 'asc')
