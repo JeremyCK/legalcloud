@@ -146,6 +146,44 @@
     #backToTop i {
         font-size: 20px;
     }
+    /* Hide no-print elements when printing - same as case detail page */
+    @media print {
+        .no-print,
+        .no-print * {
+            display: none !important;
+            visibility: hidden !important;
+        }
+        /* Hide modal backdrop and structure when printing */
+        .modal-backdrop,
+        .modal-backdrop.fade,
+        .modal-backdrop.show {
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+        }
+        /* Remove modal padding/margins when printing */
+        .modal,
+        .modal-dialog,
+        .modal-content,
+        .modal-body {
+            position: static !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: transparent !important;
+            box-shadow: none !important;
+            border: none !important;
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+        /* Ensure invoice content takes full width */
+        #div-print-inv {
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+        #dInvoice-p {
+            margin: 0 !important;
+        }
+    }
 </style>
 @endsection
 
@@ -396,7 +434,7 @@
 <div class="modal fade" id="modalPrintInvoice" tabindex="-1" role="dialog" aria-labelledby="modalPrintInvoiceLabel" aria-hidden="true">
     <div class="modal-dialog modal-xl" role="document" style="max-width: 95%; width: 95%;">
         <div class="modal-content">
-            <div class="modal-header">
+            <div class="modal-header no-print">
                 <h5 class="modal-title" id="modalPrintInvoiceLabel">
                     <i class="cil-print"></i> Print Invoice
                 </h5>
@@ -412,7 +450,7 @@
                     </div>
                 </div>
             </div>
-            <div class="modal-footer">
+            <div class="modal-footer no-print">
                 <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
                 <button type="button" class="btn btn-primary" onclick="printInvoiceContent()">
                     <i class="cil-print"></i> Print
@@ -516,35 +554,74 @@
         window.AddBilltoInvoice();
     }
 
-    // Print invoice function - loads print view in modal
+    // Print invoice function - extract only invoice content, exclude modal structure
     function printInvoiceContent() {
-        // Find the print container inside modal
+        // Find the invoice content element
         var printElement = $('#modalPrintInvoice #dInvoice-p');
+        
         if (printElement.length === 0) {
-            printElement = $('#modalPrintInvoice #div-print-inv');
+            if (typeof toastController === 'function') {
+                toastController('Invoice content not loaded', 'warning');
+            } else {
+                alert('Invoice content not loaded');
+            }
+            return;
         }
         
-        if (printElement.length > 0) {
-            // Use jQuery print plugin if available, otherwise use window.print
-            if (typeof $.fn.print !== 'undefined') {
-                printElement.print({
-                    addGlobalStyles: true,
-                    stylesheet: true,
-                    rejectWindow: true,
-                    noPrintSelector: ".no-print",
-                    iframe: false
-                });
+        // Get the HTML content and remove no-print elements
+        var invoiceHTML = printElement.clone();
+        invoiceHTML.find('.no-print').remove();
+        var invoiceContent = invoiceHTML[0].outerHTML;
+        
+        // Get all stylesheets
+        var styles = '';
+        $('style, link[rel="stylesheet"]').each(function() {
+            if ($(this).is('style')) {
+                styles += '<style>' + $(this).html() + '</style>';
             } else {
-                // Fallback to window.print
-                window.print();
+                var href = $(this).attr('href');
+                if (href) {
+                    styles += '<link rel="stylesheet" href="' + href + '">';
+                }
             }
-        } else {
-            if (typeof toastController === 'function') {
-                toastController('Print content not loaded', 'warning');
-            } else {
-                alert('Print content not loaded');
-            }
+        });
+        
+        // Create hidden iframe for isolated printing
+        var iframe = document.createElement('iframe');
+        iframe.name = 'printFrame';
+        iframe.style.position = 'absolute';
+        iframe.style.top = '-10000px';
+        iframe.style.left = '-10000px';
+        document.body.appendChild(iframe);
+        
+        var iframeDoc = iframe.contentWindow || iframe.contentDocument;
+        if (iframeDoc.document) {
+            iframeDoc = iframeDoc.document;
         }
+        
+        // Write isolated invoice content to iframe
+        iframeDoc.open();
+        iframeDoc.write('<!DOCTYPE html>');
+        iframeDoc.write('<html><head><title>Invoice</title>');
+        iframeDoc.write(styles);
+        iframeDoc.write('<style>');
+        iframeDoc.write('body { margin: 0; padding: 0; background: white; }');
+        iframeDoc.write('.no-print, .no-print * { display: none !important; }');
+        iframeDoc.write('</style>');
+        iframeDoc.write('</head><body>');
+        iframeDoc.write(invoiceContent);
+        iframeDoc.write('</body></html>');
+        iframeDoc.close();
+        
+        // Print from iframe
+        setTimeout(function() {
+            iframe.contentWindow.focus();
+            iframe.contentWindow.print();
+            // Remove iframe after printing
+            setTimeout(function() {
+                document.body.removeChild(iframe);
+            }, 1000);
+        }, 250);
     }
 
     $(document).ready(function() {

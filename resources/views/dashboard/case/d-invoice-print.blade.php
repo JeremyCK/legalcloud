@@ -1,6 +1,42 @@
 <div id="dInvoice-p" class="div2 invoice printableArea d_operation"
     style="{{ isset($isPDF) && $isPDF ? 'padding:30px;background-color:white !important;' : 'display: none;padding:30px;background-color:white !important;' }}">
     <title>invoice_{{ $case->case_ref_no }}</title>
+    <style>
+        @media print {
+            .no-print,
+            .no-print * {
+                display: none !important;
+                visibility: hidden !important;
+            }
+            /* Hide modal backdrop and structure when printing from modal */
+            .modal-backdrop,
+            .modal-backdrop.fade,
+            .modal-backdrop.show {
+                display: none !important;
+                visibility: hidden !important;
+                opacity: 0 !important;
+            }
+            /* Remove modal padding/margins when printing */
+            .modal,
+            .modal-dialog,
+            .modal-content,
+            .modal-body {
+                position: static !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                background: transparent !important;
+                box-shadow: none !important;
+                border: none !important;
+                width: 100% !important;
+                max-width: 100% !important;
+            }
+            /* Ensure invoice content takes full width */
+            #div-print-inv {
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+        }
+    </style>
 
     <div class="row no-print" style="margin-bottom:30px;{{ isset($isPDF) && $isPDF ? 'display: none !important;' : '' }}">
 
@@ -46,13 +82,13 @@
         </div>
 
         
-        <div class="col-12">
+        <div class="col-12 no-print">
             <hr />
         </div>
 
 
         <div class="col-12 no-print" style="{{ isset($isPDF) && $isPDF ? 'display: none !important;' : '' }}">
-            <button type="button" class="btn btn-warning pull-left " onclick="printloinv()" style="margin-right: 5px;">
+            <button type="button" class="btn btn-warning pull-left " onclick="if(typeof printInvoiceContent === 'function') { printInvoiceContent(); } else { printloinv(); }" style="margin-right: 5px;">
                 <span><i class="fa fa-print"></i> Print</span>
             </button>
             <a href="javascript:void(0);" onclick="cancelInvoicePrintMode()"
