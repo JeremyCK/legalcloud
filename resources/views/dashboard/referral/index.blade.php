@@ -125,7 +125,9 @@
       ajax: "{{ route('referral_main.list') }}",
       columns: [{
           data: 'DT_RowIndex',
-          name: 'DT_RowIndex'
+          name: 'DT_RowIndex',
+          orderable: false,
+          searchable: false
         },
         {
           data: 'name',
@@ -149,14 +151,15 @@
         },
         {
           data: 'case_count',
-          name: 'case_count'
+          name: 'case_count',
+          searchable: false
         },
         {
           data: 'action',
           className: "text-center",
           name: 'action',
-          orderable: true,
-          searchable: true
+          orderable: false,
+          searchable: false
         },
       ]
     });

@@ -133,6 +133,18 @@ class ReferralController extends Controller
             return DataTables::of($referral)
                 ->addIndexColumn()
                 ->orderColumn('DT_RowIndex', false) // Disable ordering on DT_RowIndex
+                ->filterColumn('DT_RowIndex', function($query, $keyword) {
+                    // DT_RowIndex is a virtual column, don't search on it
+                    return $query;
+                })
+                ->filterColumn('case_count', function($query, $keyword) {
+                    // case_count is a calculated column (subquery), don't search on it
+                    return $query;
+                })
+                ->filterColumn('action', function($query, $keyword) {
+                    // action is a virtual column (HTML), don't search on it
+                    return $query;
+                })
                 ->addColumn('action', function ($row)  {
                     $actionBtn = ' <a  href="/referral/' . $row->id . '/edit" class="btn btn-info shadow sharp mr-1" data-toggle="tooltip" data-placement="top" title="View"><i class="cil-pencil"></i></a>
                     ';
