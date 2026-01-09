@@ -166,7 +166,7 @@
             form.find('[name=payment_date]').val(payment_date);
         }
 
-        @if(in_array($current_user->menuroles, ['admin', 'account', 'maker']) || in_array($current_user->id, [179,182]))
+        @if(in_array($current_user->menuroles, ['admin', 'account', 'maker']) || in_array($current_user->id, [179,182,202]))
             $(".input_account").show();
         @else
             $(".input_account").hide();
