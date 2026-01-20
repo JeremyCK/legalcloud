@@ -3151,10 +3151,6 @@ class TransferFeeV3Controller extends Controller
                 
                 // Calculate Collected amt from bill collected amount (divided equally)
                 $totalAmount = $detail->bill_collected_amt ?? 0;
-                if ($totalAmount == 0 && $invoiceCount == 1 && ($detail->invoice_amount ?? 0) > 0) {
-                    // Use invoice amount when there's no collected amount recorded but invoice exists
-                    $totalAmount = $detail->invoice_amount ?? 0;
-                }
                 $calculatedCollectedAmount = round($totalAmount / $invoiceCount, 2);
                 $detail->bill_collected_amt_divided = $calculatedCollectedAmount;
                 

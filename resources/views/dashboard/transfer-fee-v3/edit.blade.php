@@ -144,8 +144,16 @@
                                             <div class="card mt-3">
                                                 <div class="card-header">
                                                     <div class="d-flex justify-content-between align-items-center">
-                                                        <h6 class="mb-0"><i class="fa fa-list-check"></i> Current Invoices
-                                                        </h6>
+                                                        <div class="d-flex align-items-center">
+                                                            <h6 class="mb-0 mr-3"><i class="fa fa-list-check"></i> Current Invoices
+                                                            </h6>
+                                                            <div style="position: relative; z-index: 10;">
+                                                                <input type="checkbox" id="filterDifferencesCheckbox" onchange="toggleDifferencesFilter()" style="margin-right: 5px; cursor: pointer; width: 16px; height: 16px;">
+                                                                <label for="filterDifferencesCheckbox" style="font-size: 12px; cursor: pointer; margin-bottom: 0; user-select: none;">
+                                                                    Show only invoices with Total ≠ Collected
+                                                                </label>
+                                                            </div>
+                                                        </div>
                                                         <div class="btn-group" role="group">
                                                             <button type="button" class="btn btn-sm btn-success"
                                                                 onclick="exportToExcel()" title="Export to Excel">
@@ -2678,6 +2686,86 @@
                 $('#selectAll').prop('checked', true);
             } else {
                 $('#selectAll').prop('checked', false);
+            }
+        }
+
+        // Filter to show only invoices with differences between Total and Collected amounts
+        function toggleDifferencesFilter() {
+            const isChecked = $('#filterDifferencesCheckbox').is(':checked');
+            const tbody = $('#selectedInvoicesTable table tbody');
+            const rows = tbody.find('tr');
+            
+            let visibleCount = 0;
+            
+            console.log('Filter toggled:', isChecked);
+            
+            rows.each(function() {
+                const row = $(this);
+                // Skip footer rows
+                if (row.find('th').length > 0) {
+                    row.show();
+                    return;
+                }
+                
+                // Get the Total Amount and Collected Amount from the row
+                const cells = row.find('td');
+                if (cells.length < 8) {
+                    row.show();
+                    return;
+                }
+                
+                // Column indices: 0=No, 1=Action, 2=RefNo, 3=InvoiceNo, 4=InvoiceDate, 5=TotalAmt, 6=CollectedAmt
+                const totalAmtText = $(cells[5]).text().trim().replace(/,/g, '');
+                const collectedAmtText = $(cells[6]).text().trim().replace(/,/g, '');
+                
+                const totalAmt = parseFloat(totalAmtText) || 0;
+                const collectedAmt = parseFloat(collectedAmtText) || 0;
+                
+                console.log('Row:', {
+                    invoice: $(cells[3]).text().trim(),
+                    totalAmt: totalAmt,
+                    collectedAmt: collectedAmt,
+                    difference: Math.abs(totalAmt - collectedAmt)
+                });
+                
+                // Show/hide based on filter
+                if (isChecked) {
+                    // Only show rows where Total ≠ Collected
+                    if (Math.abs(totalAmt - collectedAmt) > 0.01) { // Using 0.01 tolerance for floating point
+                        row.show();
+                        visibleCount++;
+                    } else {
+                        row.hide();
+                    }
+                } else {
+                    // Show all rows
+                    row.show();
+                    visibleCount++;
+                }
+            });
+            
+            // Update row numbers
+            let rowNum = 1;
+            rows.filter(':visible').each(function() {
+                const row = $(this);
+                // Skip footer rows
+                if (row.find('th').length === 0) {
+                    row.find('td:first').text(rowNum);
+                    rowNum++;
+                }
+            });
+            
+            console.log('Visible rows:', visibleCount);
+            
+            // Show message if no results
+            if (isChecked && visibleCount === 0) {
+                Swal.fire({
+                    icon: 'info',
+                    title: 'No Differences Found',
+                    text: 'All invoices have matching Total Amount and Collected Amount.',
+                    timer: 3000,
+                    showConfirmButton: false
+                });
             }
         }
 
