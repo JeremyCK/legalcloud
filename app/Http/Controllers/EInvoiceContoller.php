@@ -1174,23 +1174,55 @@ class EInvoiceContoller extends Controller
 
             // If LoanCaseBillMain and associated EInvoiceMain exist, update client_profile_completed
             if ($loanCaseBillMain && $loanCaseBillMain->id) {
-                $EInvoiceDetails = EInvoiceDetails::where('loan_case_main_bill_id', $billingParty->loan_case_main_bill_id)->first();
-                if ($EInvoiceDetails) {
-                    $EInvoiceDetails->client_profile_completed = $allRelatedCompleted ? 1 : 0;
-                    $EInvoiceDetails->save();
-
-
-                    $EInvoiceDetailsAll = EInvoiceDetails::where('einvoice_main_id', $EInvoiceDetails->einvoice_main_id)->get();
-
-                    $allRelatedCompleted = true;
-                    foreach ($EInvoiceDetailsAll as $relatedParty) {
-                        if ($relatedParty->client_profile_completed == 0) {
-                            $allRelatedCompleted = false;
+                // Get ALL einvoice_details for this bill (not just the first one)
+                $EInvoiceDetailsList = EInvoiceDetails::where('loan_case_main_bill_id', $billingParty->loan_case_main_bill_id)->get();
+                
+                if ($EInvoiceDetailsList->count() > 0) {
+                    // Update each detail based on correct logic
+                    foreach ($EInvoiceDetailsList as $EInvoiceDetail) {
+                        $shouldBeCompleted = false;
+                        
+                        // Get the invoice for this detail
+                        $invoice = LoanCaseInvoiceMain::find($EInvoiceDetail->loan_case_invoice_id);
+                        
+                        // First check: Invoice's billing party is completed (matches detail page)
+                        if ($invoice && $invoice->bill_party_id) {
+                            $invoiceBillingParty = InvoiceBillingParty::find($invoice->bill_party_id);
+                            if ($invoiceBillingParty && ($invoiceBillingParty->completed ?? 0) == 1) {
+                                $shouldBeCompleted = true;
+                            }
+                        }
+                        
+                        // Second check: If invoice's billing party is not completed, check all billing parties for the bill
+                        if (!$shouldBeCompleted) {
+                            // Check if all billing parties for the bill are completed
+                            $shouldBeCompleted = $allRelatedCompleted;
+                        }
+                        
+                        // Third check: If no billing parties exist, mark as completed by default
+                        if (!$shouldBeCompleted && $relatedBillingParties->count() == 0) {
+                            $shouldBeCompleted = true;
+                        }
+                        
+                        $EInvoiceDetail->client_profile_completed = $shouldBeCompleted ? 1 : 0;
+                        $EInvoiceDetail->save();
+                    }
+                    
+                    // Get the first detail to find the einvoice_main_id
+                    $firstDetail = $EInvoiceDetailsList->first();
+                    
+                    // Check all related EInvoiceDetails for this einvoice_main
+                    $EInvoiceDetailsAll = EInvoiceDetails::where('einvoice_main_id', $firstDetail->einvoice_main_id)->get();
+                    
+                    $allDetailsCompleted = true;
+                    foreach ($EInvoiceDetailsAll as $relatedDetail) {
+                        if ($relatedDetail->client_profile_completed == 0) {
+                            $allDetailsCompleted = false;
                             break;
                         }
                     }
-
-                    EInvoiceMain::where('id', $EInvoiceDetails->einvoice_main_id)->update(['client_profile_completed' => $allRelatedCompleted]);
+                    
+                    EInvoiceMain::where('id', $firstDetail->einvoice_main_id)->update(['client_profile_completed' => $allDetailsCompleted ? 1 : 0]);
                 }
             }
 
@@ -3265,22 +3297,64 @@ class EInvoiceContoller extends Controller
 
             // Update related EInvoiceDetails and EInvoiceMain if needed
             if ($billingParty->loan_case_main_bill_id) {
-                $EInvoiceDetails = EInvoiceDetails::where('loan_case_main_bill_id', $billingParty->loan_case_main_bill_id)->first();
-                if ($EInvoiceDetails) {
-                    $EInvoiceDetails->client_profile_completed = $allMandatoryFieldsFilled ? 1 : 0;
-                    $EInvoiceDetails->save();
-
-                    // Check all related EInvoiceDetails for this einvoice_main
-                    $EInvoiceDetailsAll = EInvoiceDetails::where('einvoice_main_id', $EInvoiceDetails->einvoice_main_id)->get();
-                    $allRelatedCompleted = true;
-                    foreach ($EInvoiceDetailsAll as $relatedDetail) {
-                        if ($relatedDetail->client_profile_completed == 0) {
-                            $allRelatedCompleted = false;
+                // Get ALL einvoice_details for this bill (not just the first one)
+                $EInvoiceDetailsList = EInvoiceDetails::where('loan_case_main_bill_id', $billingParty->loan_case_main_bill_id)->get();
+                
+                if ($EInvoiceDetailsList->count() > 0) {
+                    // Get all billing parties for this bill to check if all are completed
+                    $allBillingParties = InvoiceBillingParty::where('loan_case_main_bill_id', $billingParty->loan_case_main_bill_id)->get();
+                    $allBillPartiesCompleted = true;
+                    foreach ($allBillingParties as $party) {
+                        if (($party->completed ?? 0) != 1) {
+                            $allBillPartiesCompleted = false;
                             break;
                         }
                     }
-
-                    EInvoiceMain::where('id', $EInvoiceDetails->einvoice_main_id)->update(['client_profile_completed' => $allRelatedCompleted]);
+                    
+                    // Update each detail based on correct logic
+                    foreach ($EInvoiceDetailsList as $EInvoiceDetail) {
+                        $shouldBeCompleted = false;
+                        
+                        // Get the invoice for this detail
+                        $invoice = LoanCaseInvoiceMain::find($EInvoiceDetail->loan_case_invoice_id);
+                        
+                        // First check: Invoice's billing party is completed (matches detail page)
+                        if ($invoice && $invoice->bill_party_id) {
+                            $invoiceBillingParty = InvoiceBillingParty::find($invoice->bill_party_id);
+                            if ($invoiceBillingParty && ($invoiceBillingParty->completed ?? 0) == 1) {
+                                $shouldBeCompleted = true;
+                            }
+                        }
+                        
+                        // Second check: If invoice's billing party is not completed, check all billing parties for the bill
+                        if (!$shouldBeCompleted) {
+                            $shouldBeCompleted = $allBillPartiesCompleted;
+                        }
+                        
+                        // Third check: If no billing parties exist, mark as completed by default
+                        if (!$shouldBeCompleted && $allBillingParties->count() == 0) {
+                            $shouldBeCompleted = true;
+                        }
+                        
+                        $EInvoiceDetail->client_profile_completed = $shouldBeCompleted ? 1 : 0;
+                        $EInvoiceDetail->save();
+                    }
+                    
+                    // Get the first detail to find the einvoice_main_id
+                    $firstDetail = $EInvoiceDetailsList->first();
+                    
+                    // Check all related EInvoiceDetails for this einvoice_main
+                    $EInvoiceDetailsAll = EInvoiceDetails::where('einvoice_main_id', $firstDetail->einvoice_main_id)->get();
+                    
+                    $allDetailsCompleted = true;
+                    foreach ($EInvoiceDetailsAll as $relatedDetail) {
+                        if ($relatedDetail->client_profile_completed == 0) {
+                            $allDetailsCompleted = false;
+                            break;
+                        }
+                    }
+                    
+                    EInvoiceMain::where('id', $firstDetail->einvoice_main_id)->update(['client_profile_completed' => $allDetailsCompleted ? 1 : 0]);
                 }
             }
 
