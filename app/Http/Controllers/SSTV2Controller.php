@@ -140,7 +140,7 @@ class SSTV2Controller extends Controller
             ->select(
                 'sd.*',
                 'im.invoice_no',
-                'im.Invoice_date as invoice_date',
+                DB::raw('COALESCE(DATE(im.Invoice_date), DATE(b.invoice_date)) as invoice_date'),
                 'im.amount as total_amount',
                 'im.pfee1_inv as pfee1',
                 'im.pfee2_inv as pfee2',

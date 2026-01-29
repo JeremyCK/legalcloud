@@ -283,7 +283,25 @@
                                                                                 </td>
                                                                                 <td style="font-size: 11px;">{{ $detail->client_name ?? 'N/A' }}</td>
                                                                                 <td style="font-size: 11px;">{{ $detail->invoice_no ?? 'N/A' }}</td>
-                                                                                <td style="font-size: 11px;">{{ $detail->invoice_date ?? 'N/A' }}</td>
+                                                                                <td style="font-size: 11px;">
+                                                                                    @php
+                                                                                        $invoiceDate = $detail->invoice_date ?? null;
+                                                                                        if ($invoiceDate && $invoiceDate != '0000-00-00' && $invoiceDate != '1970-01-01') {
+                                                                                            try {
+                                                                                                $parsed = \Carbon\Carbon::parse($invoiceDate);
+                                                                                                if ($parsed->year >= 1900) {
+                                                                                                    echo $parsed->format('Y-m-d');
+                                                                                                } else {
+                                                                                                    echo 'N/A';
+                                                                                                }
+                                                                                            } catch (\Exception $e) {
+                                                                                                echo 'N/A';
+                                                                                            }
+                                                                                        } else {
+                                                                                            echo 'N/A';
+                                                                                        }
+                                                                                    @endphp
+                                                                                </td>
                                                                                 <td class="text-right" style="font-size: 11px;">{{ number_format($detail->total_amount ?? 0, 2) }}</td>
                                                                                 @php
                                                                                     $totalPfee = ($detail->pfee1 ?? 0) + ($detail->pfee2 ?? 0);

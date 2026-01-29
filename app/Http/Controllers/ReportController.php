@@ -2582,30 +2582,49 @@ class ReportController extends Controller
 
         $staff = User::where('id', $request->input("staff"))->first();
 
+        if (!$staff) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'Staff not found'
+            ], 404);
+        }
+
         $accessInfo = AccessController::manageAccess();
         
         $CaseCountActive = LoanCase::where(function ($query) use($staff) {
             $query->where('lawyer_id', $staff->id)
                   ->orWhere('clerk_id', $staff->id);
-        })->whereIn('status', [1,2,3])->whereYear('created_at', $request->input("year"))->get();
+        })->where('status', '<>', 99)
+          ->whereIn('status', [1,2,3])
+          ->whereYear('created_at', $request->input("year"))
+          ->get();
 
         
         $CaseCountPendingClose = LoanCase::where(function ($query) use($staff) {
             $query->where('lawyer_id', $staff->id)
                   ->orWhere('clerk_id', $staff->id);
-        })->whereIn('status', [4])->whereYear('created_at', $request->input("year"))->get();
+        })->where('status', '<>', 99)
+          ->whereIn('status', [4])
+          ->whereYear('created_at', $request->input("year"))
+          ->get();
 
         
         $CaseCountReviewing = LoanCase::where(function ($query) use($staff) {
             $query->where('lawyer_id', $staff->id)
                   ->orWhere('clerk_id', $staff->id);
-        })->whereIn('status', [7])->whereYear('created_at', $request->input("year"))->get();
+        })->where('status', '<>', 99)
+          ->whereIn('status', [7])
+          ->whereYear('created_at', $request->input("year"))
+          ->get();
 
         
         $CaseCountClose = LoanCase::where(function ($query) use($staff) {
             $query->where('lawyer_id', $staff->id)
                   ->orWhere('clerk_id', $staff->id);
-        })->whereIn('status', [0])->whereYear('created_at', $request->input("year"))->get();
+        })->where('status', '<>', 99)
+          ->whereIn('status', [0])
+          ->whereYear('created_at', $request->input("year"))
+          ->get();
 
         // $CaseCountPendingClose = LoanCase::where('lawyer_id', $staff->id)->orWhere('clerk_id', $staff->id)->where('status', 4)->whereYear('created_at', $request->input("year"))->count();
         // $CaseCountReviewing = LoanCase::where('lawyer_id', $staff->id)->orWhere('clerk_id', $staff->id)->where('status', 7)->whereYear('created_at', $request->input("year"))->count();
@@ -2640,10 +2659,12 @@ class ReportController extends Controller
             ->leftJoin('portfolio as p', 'p.id', '=', 'l.bank_id')
             ->select('bank_id', 'p.name', DB::raw('count(*) as total'))
             ->groupBy('bank_id', 'p.name')
+            ->where(function ($query) use($staff) {
+                $query->where('l.lawyer_id', $staff->id)
+                      ->orWhere('l.clerk_id', $staff->id);
+            })
             ->where('l.status', '<>', 99)
             ->where('l.bank_id', '<>', 0)
-            ->where('l.lawyer_id', $staff->id)
-            ->orWhere('clerk_id', $staff->id)
             ->orderBy('p.name', 'asc');
 
         $Chart_data = $Chart_data->whereIn('branch_id', $accessInfo['brancAccessList']);
