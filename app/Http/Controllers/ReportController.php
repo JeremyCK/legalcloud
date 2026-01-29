@@ -2590,13 +2590,44 @@ class ReportController extends Controller
         }
 
         $accessInfo = AccessController::manageAccess();
+        $year = $request->input("year");
         
+        // Get ALL active cases (currently managing) - NOT filtered by year
+        $CaseCountTotalActive = LoanCase::where(function ($query) use($staff) {
+            $query->where('lawyer_id', $staff->id)
+                  ->orWhere('clerk_id', $staff->id);
+        })->where('status', '<>', 99)
+          ->whereIn('status', [1,2,3,4,7]) // All active statuses
+          ->whereIn('branch_id', $accessInfo['brancAccessList'])
+          ->get();
+
+        // Get accepted cases (created/assigned in selected year)
+        $CaseCountAccepted = LoanCase::where(function ($query) use($staff) {
+            $query->where('lawyer_id', $staff->id)
+                  ->orWhere('clerk_id', $staff->id);
+        })->where('status', '<>', 99)
+          ->whereYear('created_at', $year)
+          ->whereIn('branch_id', $accessInfo['brancAccessList'])
+          ->get();
+
+        // Get closed cases in selected year (closed in that year, using close_date field)
+        $CaseCountClosedInYear = LoanCase::where(function ($query) use($staff) {
+            $query->where('lawyer_id', $staff->id)
+                  ->orWhere('clerk_id', $staff->id);
+        })->where('status', 0) // Closed
+          ->whereNotNull('close_date') // Must have close_date set
+          ->whereYear('close_date', $year) // Closed in selected year
+          ->whereIn('branch_id', $accessInfo['brancAccessList'])
+          ->get();
+        
+        // Existing status-based breakdown (cases created in selected year)
         $CaseCountActive = LoanCase::where(function ($query) use($staff) {
             $query->where('lawyer_id', $staff->id)
                   ->orWhere('clerk_id', $staff->id);
         })->where('status', '<>', 99)
           ->whereIn('status', [1,2,3])
-          ->whereYear('created_at', $request->input("year"))
+          ->whereYear('created_at', $year)
+          ->whereIn('branch_id', $accessInfo['brancAccessList'])
           ->get();
 
         
@@ -2605,7 +2636,8 @@ class ReportController extends Controller
                   ->orWhere('clerk_id', $staff->id);
         })->where('status', '<>', 99)
           ->whereIn('status', [4])
-          ->whereYear('created_at', $request->input("year"))
+          ->whereYear('created_at', $year)
+          ->whereIn('branch_id', $accessInfo['brancAccessList'])
           ->get();
 
         
@@ -2614,16 +2646,17 @@ class ReportController extends Controller
                   ->orWhere('clerk_id', $staff->id);
         })->where('status', '<>', 99)
           ->whereIn('status', [7])
-          ->whereYear('created_at', $request->input("year"))
+          ->whereYear('created_at', $year)
+          ->whereIn('branch_id', $accessInfo['brancAccessList'])
           ->get();
 
-        
+        // Get closed cases (created in selected year) for the table breakdown
         $CaseCountClose = LoanCase::where(function ($query) use($staff) {
             $query->where('lawyer_id', $staff->id)
                   ->orWhere('clerk_id', $staff->id);
-        })->where('status', '<>', 99)
-          ->whereIn('status', [0])
-          ->whereYear('created_at', $request->input("year"))
+        })->where('status', 0) // Closed
+          ->whereYear('created_at', $year) // Created in selected year
+          ->whereIn('branch_id', $accessInfo['brancAccessList'])
           ->get();
 
         // $CaseCountPendingClose = LoanCase::where('lawyer_id', $staff->id)->orWhere('clerk_id', $staff->id)->where('status', 4)->whereYear('created_at', $request->input("year"))->count();
@@ -2634,22 +2667,36 @@ class ReportController extends Controller
         $case_count = [];
         $cases_count = [];
         $cases_Mon = [];
+        $accepted_by_month = [];
+        $closed_by_month = [];
 
         $totalCount = 0;
 
+        // Monthly breakdown for chart (accepted vs closed)
         for ($j = 1; $j <= 12; $j++) {
+            // Accepted cases (created) per month
+            $acceptedCount = LoanCase::where(function ($query) use($staff) {
+                $query->where('lawyer_id', $staff->id)
+                      ->orWhere('clerk_id', $staff->id);
+            })->where('status', '<>', 99)
+              ->whereYear('created_at', $year)
+              ->whereMonth('created_at', $j)
+              ->whereIn('branch_id', $accessInfo['brancAccessList'])
+              ->count();
 
-            
-        $LoanCaseCount = LoanCase::where(function ($query) use($staff) {
-            $query->where('lawyer_id', $staff->id)
-                  ->orWhere('clerk_id', $staff->id);
-        })->where('status',  '<>', 99)->whereYear('created_at', $request->input("year"))->whereMonth('created_at', $j)->count();
-            
-            // $LoanCaseCount = LoanCase::where('status', '<>', 99)->where('lawyer_id', $staff->id)->orWhere('clerk_id', $staff->id)->whereYear('created_at', $request->input("year"))
-            // ->whereMonth('created_at', $j)->count();
+            // Closed cases (closed) per month
+            $closedCount = LoanCase::where(function ($query) use($staff) {
+                $query->where('lawyer_id', $staff->id)
+                      ->orWhere('clerk_id', $staff->id);
+            })->where('status', 0) // Closed
+              ->whereNotNull('close_date') // Must have close_date set
+              ->whereYear('close_date', $year) // Closed in selected year
+              ->whereMonth('close_date', $j)
+              ->whereIn('branch_id', $accessInfo['brancAccessList'])
+              ->count();
 
-            // $totalCount += $LoanCaseCount;
-            $cases_count[] = $LoanCaseCount;
+            $accepted_by_month[] = $acceptedCount;
+            $closed_by_month[] = $closedCount;
             $cases_Mon[] = $j;
         }
 
@@ -2669,8 +2716,8 @@ class ReportController extends Controller
 
         $Chart_data = $Chart_data->whereIn('branch_id', $accessInfo['brancAccessList']);
 
-        if ($request->input("year") <> 0) {
-            $Chart_data = $Chart_data->whereYear('l.created_at', $request->input("year"));
+        if ($year <> 0) {
+            $Chart_data = $Chart_data->whereYear('l.created_at', $year);
         }
 
 
@@ -2687,18 +2734,19 @@ class ReportController extends Controller
 
         
         return [
-            // 'view_lawyer' => view('dashboard.reports.staff.tbl-lawyer-report', compact('lawyer_cases'))->render(),
-            // 'view_clerk' => view('dashboard.reports.staff.tbl-clerk-report', compact('clerk_cases'))->render(),
-            // 'status' => 1,
             'CaseCountActive' => $CaseCountActive,
             'CaseCountPendingClose' => $CaseCountPendingClose,
             'CaseCountReviewing' => $CaseCountReviewing,
-            'CaseCountClose' => $CaseCountClose,
+            'CaseCountTotalActive' => $CaseCountTotalActive, // All active cases (not filtered by year)
+            'CaseCountAccepted' => $CaseCountAccepted, // Accepted in selected year
+            'CaseCountClosedInYear' => $CaseCountClosedInYear, // Closed in selected year
             'cases_count' => $cases_count,
             'cases_Mon' => $cases_Mon,
+            'accepted_by_month' => $accepted_by_month, // For new chart
+            'closed_by_month' => $closed_by_month, // For new chart
             'case_label' => $case_label,
             'case_count' => $case_count,
-            'divCaseSummary' => view('dashboard.reports.staff-details.div-case-summary', compact('CaseCountActive', 'CaseCountPendingClose', 'CaseCountReviewing', 'CaseCountClose'))->render(),
+            'divCaseSummary' => view('dashboard.reports.staff-details.div-case-summary', compact('CaseCountActive', 'CaseCountPendingClose', 'CaseCountReviewing', 'CaseCountTotalActive', 'CaseCountAccepted', 'CaseCountClosedInYear', 'year'))->render(),
             'tblCaseActive' => view('dashboard.reports.staff-details.tbl-case', ['caseCount' => $CaseCountActive])->render(),
             'tblCaseReviewing' => view('dashboard.reports.staff-details.tbl-case', ['caseCount' => $CaseCountReviewing])->render(),
             'tblCasePendingClose' => view('dashboard.reports.staff-details.tbl-case', ['caseCount' => $CaseCountPendingClose])->render(),
@@ -4593,4 +4641,5 @@ class ReportController extends Controller
     public function destroy($id, Request $request)
     {
     }
+
 }

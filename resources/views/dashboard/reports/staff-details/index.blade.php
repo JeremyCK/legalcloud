@@ -79,6 +79,25 @@
                 <div class="col-12 ">
                     <div class="card">
                         <div class="card-header">
+                            <strong>Monthly Case Statistics - Accepted vs Closed</strong>
+                        </div>
+                        <div class="card-body">
+
+                            <div class="div-chart div-chart2022  ">
+                                <div id="case_Count_Monthly" class="c-chart-wrapper c-chart-wrapper2022 mt-3 mx-3"
+                                    style="height: 400px">
+                                    <canvas height="392" class="chart" id="caseCountMonthly"></canvas>
+                                </div>
+                            </div>
+
+
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-12 ">
+                    <div class="card">
+                        <div class="card-header">
                             <strong>Case Status Breakdown</strong>
                         </div>
                         <div class="card-body">
@@ -111,8 +130,7 @@
 
                                     <li class="nav-item">
                                         <a class="nav-link " data-toggle="tab" href="#tab_close"
-                                            role="tab" aria-controls="trust" aria-selected="true">Close
-                                            case
+                                            role="tab" aria-controls="trust" aria-selected="true">Close case
                                         </a>
                                     </li>
 
@@ -201,26 +219,6 @@
 
 
                             </div>
-
-                        </div>
-                    </div>
-                </div>
-
-
-                <div class="col-12 ">
-                    <div class="card">
-                        <div class="card-header">
-                            <strong>Case Type Monhtly</strong>
-                        </div>
-                        <div class="card-body">
-
-                            <div class="div-chart div-chart2022  ">
-                                <div id="case_Count_Monthly" class="c-chart-wrapper c-chart-wrapper2022 mt-3 mx-3"
-                                    style="height: 400px">
-                                    <canvas height="392" class="chart" id="caseCountMonthly"></canvas>
-                                </div>
-                            </div>
-
 
                         </div>
                     </div>
@@ -443,14 +441,37 @@
                     $("#tab_pending_close").html(result.tblCasePendingClose);
                     $("#tab_close").html(result.tblCaseClose);
 
+                    // Portfolio/Bank chart (existing)
                     chart.data.datasets[0].data = result.case_count;
                     chart.data.labels = result.case_label;
                     chart.update();
 
-
-                    chartMon.data.datasets[0].data = result.cases_count;
-                    chartMon.data.labels = result.cases_Mon;
-                    chartMon.update();
+                    // Monthly chart - Updated to show Accepted vs Closed
+                    if (result.accepted_by_month && result.closed_by_month) {
+                        chartMon.data.datasets = [
+                            {
+                                label: 'Accepted Cases',
+                                data: result.accepted_by_month,
+                                backgroundColor: 'rgba(40, 167, 69, 0.6)',
+                                borderColor: 'rgba(40, 167, 69, 1)',
+                                borderWidth: 1
+                            },
+                            {
+                                label: 'Closed Cases',
+                                data: result.closed_by_month,
+                                backgroundColor: 'rgba(108, 117, 125, 0.6)',
+                                borderColor: 'rgba(108, 117, 125, 1)',
+                                borderWidth: 1
+                            }
+                        ];
+                        chartMon.data.labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                        chartMon.update();
+                    } else {
+                        // Fallback to old chart if new data not available
+                        chartMon.data.datasets[0].data = result.cases_count;
+                        chartMon.data.labels = result.cases_Mon;
+                        chartMon.update();
+                    }
 
                     // chart.data.datasets[0].data = result.lawyer_case_count;
                     // chart.data.labels = result.lawyer_label;
@@ -501,23 +522,34 @@
             chartMon = new Chart("caseCountMonthly", {
                 type: "bar",
                 data: {
-                    labels: [],
-                    datasets: [{
-                        data: [],
-                        label: 'Cases',
-                        borderColor: "green",
-                        backgroundColor: "green",
-                        fill: false
-                    }, ]
+                    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+                    datasets: [
+                        {
+                            label: 'Accepted Cases',
+                            data: [],
+                            backgroundColor: 'rgba(40, 167, 69, 0.6)',
+                            borderColor: 'rgba(40, 167, 69, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Closed Cases',
+                            data: [],
+                            backgroundColor: 'rgba(108, 117, 125, 0.6)',
+                            borderColor: 'rgba(108, 117, 125, 1)',
+                            borderWidth: 1
+                        }
+                    ]
                 },
                 options: {
                     legend: {
-                        display: true
+                        display: true,
+                        position: 'top'
                     },
                     scales: {
                         yAxes: [{
                             ticks: {
-                                beginAtZero: true
+                                beginAtZero: true,
+                                stepSize: 1
                             }
                         }]
                     }
