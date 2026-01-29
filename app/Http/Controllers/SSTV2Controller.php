@@ -144,6 +144,7 @@ class SSTV2Controller extends Controller
                 'im.amount as total_amount',
                 'im.pfee1_inv as pfee1',
                 'im.pfee2_inv as pfee2',
+                'im.reimbursement_amount',
                 'im.reimbursement_sst',
                 'im.transferred_reimbursement_sst_amt',
                 'b.collected_amt as collected_amount',
@@ -293,6 +294,11 @@ class SSTV2Controller extends Controller
             $sortField = $request->input('sort_field');
             $sortOrder = $request->input('sort_order', 'asc');
             
+            // Validate sort order
+            if (!in_array(strtolower($sortOrder), ['asc', 'desc'])) {
+                $sortOrder = 'asc';
+            }
+            
             // Build query using loan_case_invoice_main as primary table
             $query = DB::table('loan_case_invoice_main as im')
                 ->leftJoin('loan_case_bill_main as b', 'b.id', '=', 'im.loan_case_main_bill_id')
@@ -344,14 +350,16 @@ class SSTV2Controller extends Controller
             if ($filterBranch && $filterBranch != 0) {
                 // User selected a specific branch - check if they have access
                 if (in_array($filterBranch, $accessibleBranches)) {
-                    // User has access to selected branch - filter by that branch with fallback to case branch_id
-                    $query->where(function($q) use ($filterBranch) {
-                        $q->where('b.invoice_branch_id', $filterBranch)
-                          ->orWhere(function($subQ) use ($filterBranch) {
-                              $subQ->whereNull('b.invoice_branch_id')
-                                   ->where('l.branch_id', $filterBranch);
-                          });
-                    });
+                    // User has access to selected branch - filter STRICTLY by that branch only
+                    // Effective branch logic: 
+                    // - If invoice_branch_id is NOT NULL and NOT 0, use invoice_branch_id
+                    // - Otherwise, use case_branch_id (l.branch_id)
+                    // Only show invoices where effective branch = filterBranch
+                    $query->whereRaw("(
+                        (b.invoice_branch_id IS NOT NULL AND b.invoice_branch_id <> 0 AND b.invoice_branch_id = ?)
+                        OR
+                        ((b.invoice_branch_id IS NULL OR b.invoice_branch_id = 0) AND l.branch_id = ?)
+                    )", [$filterBranch, $filterBranch]);
                 } else {
                     // User doesn't have access to selected branch - return empty result
                     $query->whereRaw('1 = 0'); // Force no results
@@ -362,16 +370,22 @@ class SSTV2Controller extends Controller
                     $query->where(function($q) use ($accessibleBranches) {
                         $q->where('b.invoice_branch_id', '=', $accessibleBranches[0])
                           ->orWhere(function($subQ) use ($accessibleBranches) {
-                              $subQ->whereNull('b.invoice_branch_id')
-                                   ->where('l.branch_id', '=', $accessibleBranches[0]);
+                              $subQ->where(function($nullQ) {
+                                  $nullQ->whereNull('b.invoice_branch_id')
+                                        ->orWhere('b.invoice_branch_id', 0);
+                              })
+                              ->where('l.branch_id', '=', $accessibleBranches[0]);
                           });
                     });
                 } else {
                     $query->where(function($q) use ($accessibleBranches) {
                         $q->whereIn('b.invoice_branch_id', $accessibleBranches)
                           ->orWhere(function($subQ) use ($accessibleBranches) {
-                              $subQ->whereNull('b.invoice_branch_id')
-                                   ->whereIn('l.branch_id', $accessibleBranches);
+                              $subQ->where(function($nullQ) {
+                                  $nullQ->whereNull('b.invoice_branch_id')
+                                        ->orWhere('b.invoice_branch_id', 0);
+                              })
+                              ->whereIn('l.branch_id', $accessibleBranches);
                           });
                     });
                 }
@@ -468,11 +482,36 @@ class SSTV2Controller extends Controller
             // Get total count for pagination
             $totalCount = $query->count();
 
+            // Apply sorting
+            $orderByColumn = 'im.invoice_no';
+            $orderByDirection = 'asc';
+            
+            if ($sortField) {
+                // Map frontend sort fields to database columns
+                $sortFieldMap = [
+                    'case_ref_no' => 'l.case_ref_no',
+                    'client_name' => 'c.name',
+                    'invoice_no' => 'im.invoice_no',
+                    'invoice_date' => 'im.Invoice_date',
+                    'total_amt' => 'im.amount',
+                    'collected_amt' => 'b.collected_amt',
+                    'sst' => 'im.sst_inv',
+                    'reimb_sst' => 'im.reimbursement_sst',
+                    'total_sst' => DB::raw('(COALESCE(im.sst_inv, 0) + COALESCE(im.reimbursement_sst, 0))'),
+                    'payment_date' => 'b.payment_receipt_date'
+                ];
+                
+                if (isset($sortFieldMap[$sortField])) {
+                    $orderByColumn = $sortFieldMap[$sortField];
+                    $orderByDirection = $sortOrder;
+                }
+            }
+            
             // Apply pagination
             $offset = ($page - 1) * $perPage;
             $rows = $query->offset($offset)
                 ->limit($perPage)
-                ->orderBy('im.invoice_no', 'asc')
+                ->orderBy($orderByColumn, $orderByDirection)
                 ->get();
 
             $invoiceList = view('dashboard.sst-v2.table.tbl-sst-invoice-list', [

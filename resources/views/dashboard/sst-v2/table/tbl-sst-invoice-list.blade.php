@@ -4,16 +4,46 @@
             <tr>
                 <th width="30">No</th>
                 <th width="40">Action</th>
-                <th width="120">Ref No</th>
-                <th width="120">Client Name</th>
-                <th width="100">Invoice No</th>
-                <th width="90">Invoice Date</th>
-                <th width="80">Total amt</th>
-                <th width="80">Collected amt</th>
-                <th width="60">SST</th>
-                <th width="80">Reimb SST</th>
-                <th width="80">Total SST</th>
-                <th width="90">Payment Date</th>
+                <th width="120" class="sortable-header" data-sort="case_ref_no" style="cursor: pointer;">
+                    Ref No
+                    <span class="sort-icon" id="sort-case_ref_no"></span>
+                </th>
+                <th width="120" class="sortable-header" data-sort="client_name" style="cursor: pointer;">
+                    Client Name
+                    <span class="sort-icon" id="sort-client_name"></span>
+                </th>
+                <th width="100" class="sortable-header" data-sort="invoice_no" style="cursor: pointer;">
+                    Invoice No
+                    <span class="sort-icon" id="sort-invoice_no"></span>
+                </th>
+                <th width="90" class="sortable-header" data-sort="invoice_date" style="cursor: pointer;">
+                    Invoice Date
+                    <span class="sort-icon" id="sort-invoice_date"></span>
+                </th>
+                <th width="80" class="sortable-header" data-sort="total_amt" style="cursor: pointer;">
+                    Total amt
+                    <span class="sort-icon" id="sort-total_amt"></span>
+                </th>
+                <th width="80" class="sortable-header" data-sort="collected_amt" style="cursor: pointer;">
+                    Collected amt
+                    <span class="sort-icon" id="sort-collected_amt"></span>
+                </th>
+                <th width="60" class="sortable-header" data-sort="sst" style="cursor: pointer;">
+                    SST
+                    <span class="sort-icon" id="sort-sst"></span>
+                </th>
+                <th width="80" class="sortable-header" data-sort="reimb_sst" style="cursor: pointer;">
+                    Reimb SST
+                    <span class="sort-icon" id="sort-reimb_sst"></span>
+                </th>
+                <th width="80" class="sortable-header" data-sort="total_sst" style="cursor: pointer;">
+                    Total SST
+                    <span class="sort-icon" id="sort-total_sst"></span>
+                </th>
+                <th width="90" class="sortable-header" data-sort="payment_date" style="cursor: pointer;">
+                    Payment Date
+                    <span class="sort-icon" id="sort-payment_date"></span>
+                </th>
             </tr>
         </thead>
         <tbody>
@@ -86,3 +116,97 @@
         </tbody>
     </table>
 </div>
+
+@if (isset($totalPages) && $totalPages > 1)
+<div class="pagination-container mt-3" style="background: white; border-top: 1px solid #dee2e6; padding: 10px 0;">
+    <div class="row">
+        <div class="col-md-12">
+            <nav aria-label="Invoice pagination">
+                <ul class="pagination justify-content-center mb-0" style="font-size: 12px;">
+                    <!-- First Page -->
+                    @if ($currentPage > 1)
+                        <li class="page-item">
+                            <a class="page-link" href="javascript:void(0)" onclick="loadInvoicePage(1)" style="cursor: pointer; padding: 4px 8px;" title="First Page">
+                                <i class="fa fa-angle-double-left"></i>
+                            </a>
+                        </li>
+                        <li class="page-item">
+                            <a class="page-link" href="javascript:void(0)" onclick="loadInvoicePage({{ $currentPage - 1 }})" style="cursor: pointer; padding: 4px 8px;" title="Previous Page">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+                        </li>
+                    @endif
+
+                    <!-- Page Numbers with Smart Display -->
+                    @php
+                        $startRange = max(1, $currentPage - 2);
+                        $endRange = min($totalPages, $currentPage + 2);
+                        
+                        // Determine which pages to show
+                        $pagesToShow = [];
+                        
+                        // Always show page 1 if we're not near the beginning
+                        if ($currentPage > 4) {
+                            $pagesToShow[] = 1;
+                            if ($currentPage > 5) {
+                                $pagesToShow[] = '...';
+                            }
+                        }
+                        
+                        // Show the range around current page
+                        for ($i = $startRange; $i <= $endRange; $i++) {
+                            $pagesToShow[] = $i;
+                        }
+                        
+                        // Always show last page if we're not near the end
+                        if ($currentPage < ($totalPages - 3)) {
+                            if ($currentPage < ($totalPages - 4)) {
+                                $pagesToShow[] = '...';
+                            }
+                            $pagesToShow[] = $totalPages;
+                        }
+                    @endphp
+
+                    @foreach ($pagesToShow as $page)
+                        @if ($page === '...')
+                            <li class="page-item disabled">
+                                <span class="page-link" style="padding: 4px 8px;">...</span>
+                            </li>
+                        @elseif ($page == $currentPage)
+                            <li class="page-item active">
+                                <span class="page-link" style="padding: 4px 8px;">{{ $page }}</span>
+                            </li>
+                        @else
+                            <li class="page-item">
+                                <a class="page-link" href="javascript:void(0)" onclick="loadInvoicePage({{ $page }})" style="cursor: pointer; padding: 4px 8px;">{{ $page }}</a>
+                            </li>
+                        @endif
+                    @endforeach
+
+                    <!-- Next Page -->
+                    @if ($currentPage < $totalPages)
+                        <li class="page-item">
+                            <a class="page-link" href="javascript:void(0)" onclick="loadInvoicePage({{ $currentPage + 1 }})" style="cursor: pointer; padding: 4px 8px;" title="Next Page">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+                        </li>
+                        <li class="page-item">
+                            <a class="page-link" href="javascript:void(0)" onclick="loadInvoicePage({{ $totalPages }})" style="cursor: pointer; padding: 4px 8px;" title="Last Page">
+                                <i class="fa fa-angle-double-right"></i>
+                            </a>
+                        </li>
+                    @endif
+                </ul>
+                <div class="text-center mt-2">
+                    <small style="font-size: 11px; color: #6c757d;">
+                        Showing page {{ $currentPage }} of {{ $totalPages }} 
+                        @if (isset($totalCount))
+                            (Total: {{ number_format($totalCount) }} invoices)
+                        @endif
+                    </small>
+                </div>
+            </nav>
+        </div>
+    </div>
+</div>
+@endif

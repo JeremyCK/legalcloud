@@ -138,6 +138,34 @@
                                     </div>
                                     </div>
                                                 <div class="card-body">
+                                                    <!-- Search Box for Current Invoices -->
+                                                    <div class="mb-3">
+                                                        <div class="row">
+                                                            <div class="col-md-6">
+                                                                <div class="input-group">
+                                                                    <div class="input-group-prepend">
+                                                                        <span class="input-group-text">
+                                                                            <i class="fa fa-search"></i>
+                                                                        </span>
+                                                                    </div>
+                                                                    <input type="text" id="currentInvoicesSearch" class="form-control" 
+                                                                        placeholder="Search by Invoice No, Case Ref, Client Name..." 
+                                                                        onkeyup="filterCurrentInvoices()">
+                                                                    <div class="input-group-append">
+                                                                        <button type="button" class="btn btn-outline-secondary" onclick="clearCurrentInvoicesSearch()" title="Clear search">
+                                                                            <i class="fa fa-times"></i>
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                                <small class="text-muted">Type to filter table rows instantly</small>
+                                                            </div>
+                                                            <div class="col-md-6 text-right">
+                                                                <span class="badge badge-info" id="currentInvoicesCount" style="display:none;">
+                                                                    <span id="currentInvoicesVisibleCount">0</span> of <span id="currentInvoicesTotalCount">0</span> invoices
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                     <div id="selectedInvoicesTable" style="display:block;">
                                                         <div class="table-responsive">
                                                             <table class="table table-bordered table-striped"
@@ -183,18 +211,18 @@
                                                                                 id="sort-selected-total_amount"></span>
                                                                         </th>
                                                                         <th width="80" class="sortable-header"
-                                                                            data-sort="pfee1"
+                                                                            data-sort="total_pfee"
                                                                             style="cursor: pointer;">
-                                                                            Pfee1
+                                                                            P1+P2 (excl SST)
                                                                             <span class="sort-icon"
-                                                                                id="sort-selected-pfee1"></span>
+                                                                                id="sort-selected-total_pfee"></span>
                                                                         </th>
                                                                         <th width="80" class="sortable-header"
-                                                                            data-sort="pfee2"
+                                                                            data-sort="reimbursement_amount"
                                                                             style="cursor: pointer;">
-                                                                            Pfee2
+                                                                            Reimbursement (excl SST)
                                                                             <span class="sort-icon"
-                                                                                id="sort-selected-pfee2"></span>
+                                                                                id="sort-selected-reimbursement_amount"></span>
                                                                         </th>
                                                                         <th width="80" class="sortable-header"
                                                                             data-sort="collected_amount"
@@ -209,8 +237,18 @@
                                                                             <span class="sort-icon"
                                                                                 id="sort-selected-sst"></span>
                                                                         </th>
-                                                                        <th width="80">Reimb SST</th>
-                                                                        <th width="80">Total SST</th>
+                                                                        <th width="80" class="sortable-header"
+                                                                            data-sort="reimb_sst" style="cursor: pointer;">
+                                                                            Reimb SST
+                                                                            <span class="sort-icon"
+                                                                                id="sort-selected-reimb_sst"></span>
+                                                                        </th>
+                                                                        <th width="80" class="sortable-header"
+                                                                            data-sort="total_sst" style="cursor: pointer;">
+                                                                            Total SST
+                                                                            <span class="sort-icon"
+                                                                                id="sort-selected-total_sst"></span>
+                                                                        </th>
                                                                         <th width="90" class="sortable-header"
                                                                             data-sort="payment_date"
                                                                             style="cursor: pointer;">
@@ -247,8 +285,12 @@
                                                                                 <td style="font-size: 11px;">{{ $detail->invoice_no ?? 'N/A' }}</td>
                                                                                 <td style="font-size: 11px;">{{ $detail->invoice_date ?? 'N/A' }}</td>
                                                                                 <td class="text-right" style="font-size: 11px;">{{ number_format($detail->total_amount ?? 0, 2) }}</td>
-                                                                                <td class="text-right" style="font-size: 11px;">{{ number_format($detail->pfee1 ?? 0, 2) }}</td>
-                                                                                <td class="text-right" style="font-size: 11px;">{{ number_format($detail->pfee2 ?? 0, 2) }}</td>
+                                                                                @php
+                                                                                    $totalPfee = ($detail->pfee1 ?? 0) + ($detail->pfee2 ?? 0);
+                                                                                    $reimbursementAmount = $detail->reimbursement_amount ?? 0;
+                                                                                @endphp
+                                                                                <td class="text-right" style="font-size: 11px;">{{ number_format($totalPfee, 2) }}</td>
+                                                                                <td class="text-right" style="font-size: 11px;">{{ number_format($reimbursementAmount, 2) }}</td>
                                                                                 <td class="text-right" style="font-size: 11px;">{{ number_format($detail->collected_amount ?? 0, 2) }}</td>
                                                                                 <td class="text-right" style="font-size: 11px;">{{ number_format($detail->amount, 2) }}</td>
                                                                                 @php
@@ -276,11 +318,17 @@
                                                                         <th class="text-right" id="footerTotalAmt">
                                                                             {{ number_format($SSTDetails->sum('total_amount'), 2) }}
                                                                         </th>
-                                                                        <th class="text-right" id="footerPfee1">
-                                                                            {{ number_format($SSTDetails->sum('pfee1'), 2) }}
+                                                                        @php
+                                                                            $totalPfeeSum = $SSTDetails->sum(function($detail) {
+                                                                                return ($detail->pfee1 ?? 0) + ($detail->pfee2 ?? 0);
+                                                                            });
+                                                                            $totalReimbursementSum = $SSTDetails->sum('reimbursement_amount') ?? 0;
+                                                                        @endphp
+                                                                        <th class="text-right" id="footerTotalPfee">
+                                                                            {{ number_format($totalPfeeSum, 2) }}
                                                                         </th>
-                                                                        <th class="text-right" id="footerPfee2">
-                                                                            {{ number_format($SSTDetails->sum('pfee2'), 2) }}
+                                                                        <th class="text-right" id="footerReimbursement">
+                                                                            {{ number_format($totalReimbursementSum, 2) }}
                                                                         </th>
                                                                         <th class="text-right" id="footerCollectedAmt">
                                                                             {{ number_format($SSTDetails->sum('collected_amount'), 2) }}
@@ -578,17 +626,26 @@
         }
         
         .sortable-header:hover {
-            background-color: #f8f9fa;
+            background-color: rgba(255, 255, 255, 0.1) !important;
         }
         
         .sort-icon {
             margin-left: 5px;
             font-weight: bold;
-            color: #007bff;
+            color: #6c757d;
+            font-size: 0.9em;
         }
         
         .sortable-header:hover .sort-icon {
-            color: #0056b3;
+            color: #fff;
+        }
+        
+        .sortable-header .sort-icon:not(:empty) {
+            color: #007bff;
+        }
+        
+        .thead-dark .sortable-header .sort-icon:not(:empty) {
+            color: #80bdff;
         }
     </style>
     <script>
@@ -610,7 +667,10 @@
             loadExistingSSTDetails();
             
             // Initialize table sorting
-            initializeTableSorting();
+            initializeInvoiceTableSorting();
+            
+            // Initialize Current Invoices table sorting
+            initializeCurrentInvoicesSorting();
             
             // Set up event listeners
             $('#perPageSelect').on('change', function() {
@@ -716,15 +776,15 @@
             const searchData = {
                 page: currentPage,
                 per_page: perPage,
-                invoice_no: $('#searchInvoiceNo').val(),
-                case_ref: $('#searchCaseRef').val(),
-                client_name: $('#searchClient').val(),
-                billing_party: $('#searchBillingParty').val(),
-                branch: $('#filterBranch').val(),
-                start_date: $('#filterStartDate').val(),
-                end_date: $('#filterEndDate').val(),
-                sort_column: sortColumn,
-                sort_direction: sortDirection,
+                search_invoice_no: $('#searchInvoiceNo').val(),
+                search_case_ref: $('#searchCaseRef').val(),
+                search_client: $('#searchClient').val(),
+                search_billing_party: $('#searchBillingParty').val(),
+                filter_branch: $('#filterBranch').val(),
+                filter_start_date: $('#filterStartDate').val(),
+                filter_end_date: $('#filterEndDate').val(),
+                sort_field: sortColumn,
+                sort_order: sortDirection,
                 transfer_list: JSON.stringify(transfer_fee_add_list)
             };
 
@@ -751,6 +811,9 @@
             
             const container = $('#invoiceListContainer');
             container.html(data.invoiceList || data.html || '');
+            
+            // Re-initialize table sorting after loading new data
+            initializeInvoiceTableSorting();
             
             // Update pagination info
             if (data.pagination) {
@@ -786,8 +849,13 @@
         }
 
         function updatePagination() {
-            // Update pagination controls if they exist
-            // This would be implemented based on the pagination structure
+            // Pagination is handled server-side and rendered in the table template
+            // No additional client-side update needed
+        }
+        
+        function loadInvoicePage(page) {
+            currentPage = page;
+            searchInvoices();
         }
 
         function updateModalSelectionSummary() {
@@ -1158,15 +1226,15 @@
             let totalReimbSST = 0;
             let grandTotalSST = 0;
             let totalAmt = 0;
-            let totalPfee1 = 0;
-            let totalPfee2 = 0;
+            let totalPfeeSum = 0;
+            let totalReimbursementSum = 0;
             let totalCollected = 0;
             
             $('.selected-invoice-row').each(function() {
-                // Column indices: 0=No, 1=Action, 2=Ref No, 3=Client Name, 4=Invoice No, 5=Invoice Date, 6=Total amt, 7=Pfee1, 8=Pfee2, 9=Collected amt, 10=SST, 11=Reimb SST, 12=Total SST, 13=Payment Date
+                // Column indices: 0=No, 1=Action, 2=Ref No, 3=Client Name, 4=Invoice No, 5=Invoice Date, 6=Total amt, 7=P1+P2, 8=Reimbursement, 9=Collected amt, 10=SST, 11=Reimb SST, 12=Total SST, 13=Payment Date
                 const totalCell = $(this).find('td:nth-child(7)');
-                const pfee1Cell = $(this).find('td:nth-child(8)');
-                const pfee2Cell = $(this).find('td:nth-child(9)');
+                const totalPfeeCell = $(this).find('td:nth-child(8)');
+                const reimbursementCell = $(this).find('td:nth-child(9)');
                 const collectedCell = $(this).find('td:nth-child(10)');
                 const sstCell = $(this).find('td:nth-child(11)');
                 const reimbSstCell = $(this).find('td:nth-child(12)');
@@ -1174,16 +1242,16 @@
                 
                 if (totalCell.length) {
                     const totalValue = parseFloat(totalCell.text().replace(/,/g, '')) || 0;
-                    const pfee1Value = parseFloat(pfee1Cell.text().replace(/,/g, '')) || 0;
-                    const pfee2Value = parseFloat(pfee2Cell.text().replace(/,/g, '')) || 0;
+                    const totalPfeeValue = parseFloat(totalPfeeCell.text().replace(/,/g, '')) || 0;
+                    const reimbursementValue = parseFloat(reimbursementCell.text().replace(/,/g, '')) || 0;
                     const collectedValue = parseFloat(collectedCell.text().replace(/,/g, '')) || 0;
                     const sstValue = parseFloat(sstCell.text().replace(/,/g, '')) || 0;
                     const reimbSstValue = parseFloat(reimbSstCell.text().replace(/,/g, '')) || 0;
                     const totalSstValue = parseFloat(totalSstCell.text().replace(/,/g, '')) || 0;
                     
                     totalAmt += totalValue;
-                    totalPfee1 += pfee1Value;
-                    totalPfee2 += pfee2Value;
+                    totalPfeeSum += totalPfeeValue;
+                    totalReimbursementSum += reimbursementValue;
                     totalCollected += collectedValue;
                     totalSST += sstValue;
                     totalReimbSST += reimbSstValue;
@@ -1193,8 +1261,8 @@
             
             $('#selectedTotalSST').text(totalSST.toFixed(2));
             $('#footerTotalAmt').text(totalAmt.toFixed(2));
-            $('#footerPfee1').text(totalPfee1.toFixed(2));
-            $('#footerPfee2').text(totalPfee2.toFixed(2));
+            $('#footerTotalPfee').text(totalPfeeSum.toFixed(2));
+            $('#footerReimbursement').text(totalReimbursementSum.toFixed(2));
             $('#footerCollectedAmt').text(totalCollected.toFixed(2));
             
             // Update summary box
@@ -1443,9 +1511,13 @@
             return true; // Allow form submission
         }
 
-        // Table sorting functionality
-        function initializeTableSorting() {
-            $('.sortable-header').on('click', function() {
+        // Initialize sorting for Current Invoices table
+        function initializeCurrentInvoicesSorting() {
+            // Remove existing event handlers to prevent duplicates
+            $('#selectedInvoicesTable .sortable-header').off('click');
+            
+            // Add click handlers to sortable headers in the Current Invoices table
+            $('#selectedInvoicesTable .sortable-header').on('click', function() {
                 const sortField = $(this).data('sort');
                 const currentDirection = $(this).data('direction') || 'asc';
                 const newDirection = currentDirection === 'asc' ? 'desc' : 'asc';
@@ -1453,8 +1525,8 @@
                 // Update sort direction
                 $(this).data('direction', newDirection);
                 
-                // Clear all sort icons
-                $('.sort-icon').html('');
+                // Clear all sort icons in the Current Invoices table
+                $('#selectedInvoicesTable .sort-icon').html('');
                 
                 // Update current sort icon
                 const sortIcon = $(this).find('.sort-icon');
@@ -1465,18 +1537,21 @@
                 }
                 
                 // Sort the table
-                sortTable(sortField, newDirection);
+                sortCurrentInvoicesTable(sortField, newDirection);
             });
         }
-
-        function sortTable(sortField, direction) {
+        
+        // Sort Current Invoices table
+        function sortCurrentInvoicesTable(sortField, direction) {
             const tbody = $('#selectedInvoicesTableBody');
-            const rows = tbody.find('tr').toArray();
+            const rows = tbody.find('tr:visible').toArray();
             
             rows.sort(function(a, b) {
                 let aValue, bValue;
                 
                 // Get the appropriate cell value based on sort field
+                // Column indices: 0=No, 1=Action, 2=Ref No, 3=Client Name, 4=Invoice No, 5=Invoice Date, 
+                // 6=Total amt, 7=Pfee1, 8=Pfee2, 9=Collected amt, 10=SST, 11=Reimb SST, 12=Total SST, 13=Payment Date
                 switch(sortField) {
                     case 'case_ref_no':
                         aValue = $(a).find('td:nth-child(3)').text().trim();
@@ -1498,17 +1573,33 @@
                         aValue = parseFloat($(a).find('td:nth-child(7)').text().replace(/,/g, '')) || 0;
                         bValue = parseFloat($(b).find('td:nth-child(7)').text().replace(/,/g, '')) || 0;
                         break;
-                    case 'collected_amount':
+                    case 'total_pfee':
                         aValue = parseFloat($(a).find('td:nth-child(8)').text().replace(/,/g, '')) || 0;
                         bValue = parseFloat($(b).find('td:nth-child(8)').text().replace(/,/g, '')) || 0;
                         break;
-                    case 'sst':
+                    case 'reimbursement_amount':
                         aValue = parseFloat($(a).find('td:nth-child(9)').text().replace(/,/g, '')) || 0;
                         bValue = parseFloat($(b).find('td:nth-child(9)').text().replace(/,/g, '')) || 0;
                         break;
+                    case 'collected_amount':
+                        aValue = parseFloat($(a).find('td:nth-child(10)').text().replace(/,/g, '')) || 0;
+                        bValue = parseFloat($(b).find('td:nth-child(10)').text().replace(/,/g, '')) || 0;
+                        break;
+                    case 'sst':
+                        aValue = parseFloat($(a).find('td:nth-child(11)').text().replace(/,/g, '')) || 0;
+                        bValue = parseFloat($(b).find('td:nth-child(11)').text().replace(/,/g, '')) || 0;
+                        break;
+                    case 'reimb_sst':
+                        aValue = parseFloat($(a).find('td:nth-child(12)').text().replace(/,/g, '')) || 0;
+                        bValue = parseFloat($(b).find('td:nth-child(12)').text().replace(/,/g, '')) || 0;
+                        break;
+                    case 'total_sst':
+                        aValue = parseFloat($(a).find('td:nth-child(13)').text().replace(/,/g, '')) || 0;
+                        bValue = parseFloat($(b).find('td:nth-child(13)').text().replace(/,/g, '')) || 0;
+                        break;
                     case 'payment_date':
-                        aValue = $(a).find('td:nth-child(10)').text().trim();
-                        bValue = $(b).find('td:nth-child(10)').text().trim();
+                        aValue = $(a).find('td:nth-child(14)').text().trim();
+                        bValue = $(b).find('td:nth-child(14)').text().trim();
                         break;
                     default:
                         return 0;
@@ -1516,8 +1607,10 @@
                 
                 // Handle date sorting
                 if (sortField === 'invoice_date' || sortField === 'payment_date') {
-                    aValue = new Date(aValue);
-                    bValue = new Date(bValue);
+                    if (aValue === 'N/A') aValue = new Date(0);
+                    else aValue = new Date(aValue) || new Date(0);
+                    if (bValue === 'N/A') bValue = new Date(0);
+                    else bValue = new Date(bValue) || new Date(0);
                 }
                 
                 // Compare values
@@ -1537,13 +1630,85 @@
             });
             
             // Update row numbers after sorting
-            updateRowNumbers();
+            updateCurrentInvoicesRowNumbers();
         }
-
-        function updateRowNumbers() {
-            $('#selectedInvoicesTableBody tr').each(function(index) {
+        
+        // Update row numbers for Current Invoices table
+        function updateCurrentInvoicesRowNumbers() {
+            $('#selectedInvoicesTableBody tr:visible').each(function(index) {
                 $(this).find('td:first').text(index + 1);
             });
         }
+        
+        // Filter Current Invoices table
+        function filterCurrentInvoices() {
+            const term = $('#currentInvoicesSearch').val().toLowerCase();
+            let visibleCount = 0;
+            const totalCount = $('#selectedInvoicesTableBody tr').length;
+            
+            $('#selectedInvoicesTableBody tr').each(function() {
+                const row = $(this);
+                const text = row.text().toLowerCase();
+                
+                if (text.includes(term)) {
+                    row.show();
+                    visibleCount++;
+                } else {
+                    row.hide();
+                }
+            });
+            
+            // Update count badge
+            if (term) {
+                $('#currentInvoicesVisibleCount').text(visibleCount);
+                $('#currentInvoicesTotalCount').text(totalCount);
+                $('#currentInvoicesCount').show();
+            } else {
+                $('#currentInvoicesCount').hide();
+            }
+        }
+        
+        // Clear Current Invoices search
+        function clearCurrentInvoicesSearch() {
+            $('#currentInvoicesSearch').val('');
+            filterCurrentInvoices();
+        }
+        
+        // Table sorting functionality for invoice selection modal
+        function initializeInvoiceTableSorting() {
+            // Remove existing event handlers to prevent duplicates
+            $('#invoiceListContainer .sortable-header').off('click');
+            
+            // Add click handlers to sortable headers in the modal
+            $('#invoiceListContainer .sortable-header').on('click', function() {
+                const sortField = $(this).data('sort');
+                
+                // If clicking the same column, toggle direction; otherwise, set to asc
+                if (sortColumn === sortField) {
+                    sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+                } else {
+                    sortColumn = sortField;
+                    sortDirection = 'asc';
+                }
+                
+                // Clear all sort icons in the modal table
+                $('#invoiceListContainer .sort-icon').html('');
+                
+                // Update current sort icon
+                const sortIcon = $(this).find('.sort-icon');
+                if (sortDirection === 'asc') {
+                    sortIcon.html('↑');
+                } else {
+                    sortIcon.html('↓');
+                }
+                
+                // Reset to first page when sorting changes
+                currentPage = 1;
+                
+                // Reload invoices with new sort parameters
+                searchInvoices();
+            });
+        }
+
     </script>
 @endsection
