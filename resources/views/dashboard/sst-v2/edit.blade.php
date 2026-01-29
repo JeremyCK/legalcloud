@@ -803,7 +803,8 @@
                 filter_end_date: $('#filterEndDate').val(),
                 sort_field: sortColumn,
                 sort_order: sortDirection,
-                transfer_list: JSON.stringify(transfer_fee_add_list)
+                transfer_list: JSON.stringify(transfer_fee_add_list),
+                sst_main_id: {{ $SSTMain->id }}  // Pass SST main ID for direct checking
             };
 
                     $.ajax({

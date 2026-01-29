@@ -337,7 +337,8 @@ class SSTV2Controller extends Controller
                 ->whereNotNull('im.loan_case_main_bill_id')
                 ->where('im.loan_case_main_bill_id', '>', 0)
                 ->where('b.bln_invoice', '=', 1)  // Bill is an invoice
-                ->where('im.bln_invoice', '=', 1)  // Invoice flag is set (should match bill level)
+                // Removed im.bln_invoice check - if record exists in loan_case_invoice_main, it's already an invoice
+                // The bill-level check (b.bln_invoice = 1) is sufficient
                 ->where('b.bln_sst', '=', 0)  // SST not yet transferred on bill
                 ->where('im.bln_sst', '=', 0);  // SST not yet transferred on invoice
 
@@ -460,6 +461,20 @@ class SSTV2Controller extends Controller
                         }
                     }
                 } else {
+                    // Get invoice IDs already in the current SST record (if SST main ID is provided)
+                    $sstMainId = $request->input('sst_main_id');
+                    $excludedInvoiceIds = [];
+                    
+                    if ($sstMainId) {
+                        // Get invoices already in this SST record directly from database
+                        $existingSSTDetails = SSTDetails::where('sst_main_id', $sstMainId)
+                            ->where('status', '<>', 99)
+                            ->pluck('loan_case_invoice_main_id')
+                            ->toArray();
+                        $excludedInvoiceIds = array_merge($excludedInvoiceIds, $existingSSTDetails);
+                    }
+                    
+                    // Also check transfer_list from frontend (for consistency)
                     if ($request->input('transfer_list')) {
                         $transfer_list = json_decode($request->input('transfer_list'), true);
                         // Extract only the IDs from the transfer list
@@ -471,11 +486,18 @@ class SSTV2Controller extends Controller
                                 }
                             }
                         }
-                        if (!empty($transfer_ids)) {
-                            $query = $query->whereNotIn('im.id', $transfer_ids);
-                        }
-                        $query = $query->where('im.transferred_sst_amt', '=', 0);
+                        // Merge with SST record IDs
+                        $excludedInvoiceIds = array_merge($excludedInvoiceIds, $transfer_ids);
                     }
+                    
+                    // Remove duplicates
+                    $excludedInvoiceIds = array_unique($excludedInvoiceIds);
+                    
+                    if (!empty($excludedInvoiceIds)) {
+                        $query = $query->whereNotIn('im.id', $excludedInvoiceIds);
+                    }
+                    // Removed transferred_sst_amt = 0 check - bln_sst = 0 is sufficient
+                    // An invoice with bln_sst = 0 may have partial transfers but still has remaining SST available
                 }
             }
 
