@@ -30,6 +30,12 @@
                                     </small>
                                 </div>
                                 <div class="col-md-4 text-right">
+                                    @if(auth()->user()->menuroles === 'admin')
+                                    <button type="button" class="btn btn-warning btn-lg mr-2" id="fixSSTAmountsBtn" 
+                                        title="Fix SST transfer amounts based on current invoice SST values (Admin Only)">
+                                        <i class="fa fa-calculator"></i> Fix SST Amounts
+                                    </button>
+                                    @endif
                                     <button type="button" class="btn btn-primary btn-lg" id="scanAndFixDiscrepanciesBtn" 
                                         title="Scan for discrepancies and automatically fix them">
                                         <i class="fa fa-search"></i> Scan & Fix Discrepancies
@@ -4037,6 +4043,58 @@
             
             // Auto-check on page load (silent, no modal popup)
             checkDiscrepancies(false);
+        });
+
+        // Fix SST Amounts button
+        $('#fixSSTAmountsBtn').on('click', function() {
+            const btn = $(this);
+            const originalText = btn.html();
+            
+            if (!confirm('This will recalculate all SST transfer amounts based on current invoice SST values. Continue?')) {
+                return;
+            }
+            
+            btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Fixing SST...');
+            
+            $.ajax({
+                url: '/transferfee/fix-sst/{{ $TransferFeeMain->id }}',
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                },
+                success: function(response) {
+                    btn.prop('disabled', false).html(originalText);
+                    
+                    if (response.status == 1) {
+                        Swal.fire({
+                            icon: 'success',
+                            title: 'SST Amounts Fixed!',
+                            html: `
+                                <p>Successfully fixed SST transfer amounts for ${response.updated_details} invoice(s).</p>
+                                <p><strong>Total SST Fixed:</strong> RM ${parseFloat(response.total_sst_fixed).toFixed(2)}</p>
+                                <p><strong>New Total Amount:</strong> RM ${parseFloat(response.new_total_amount).toFixed(2)}</p>
+                            `,
+                            confirmButtonText: 'OK'
+                        }).then(() => {
+                            location.reload();
+                        });
+                    } else {
+                        Swal.fire({
+                            icon: 'error',
+                            title: 'Error',
+                            text: response.message || 'Failed to fix SST amounts'
+                        });
+                    }
+                },
+                error: function(xhr) {
+                    btn.prop('disabled', false).html(originalText);
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Error',
+                        text: xhr.responseJSON?.message || 'Failed to fix SST amounts'
+                    });
+                }
+            });
         });
 
         // Scan and Fix button (prominent button in header) - shows modal

@@ -1293,6 +1293,7 @@ Route::get('transfer-fee-create', [AccountController::class, 'transferFeeCreate'
     Route::post('/{id}/revert-recon', [TransferFeeV3Controller::class, 'revertReconTransferFeeV3'])->name('transferfee.revert-recon');
     Route::post('/export', [TransferFeeV3Controller::class, 'exportTransferFeeInvoices'])->name('transferfee.export');
     Route::post('/fix-transferred-amounts', [TransferFeeV3Controller::class, 'fixExistingTransferredAmounts'])->name('transferfee.fix-amounts');
+    Route::post('/fix-sst/{id}', [TransferFeeV3Controller::class, 'fixTransferFeeSST'])->name('transferfee.fix-sst');
     Route::post('/update-from-ledger/{id}', [AccountController::class, 'updateTransferFeeMainFromLedger'])->name('transferfee.update-from-ledger');
     Route::get('/verify-totals/{id}', [AccountController::class, 'verifyTransferFeeTotals'])->name('transferfee.verify-totals');
     Route::get('/find-discrepancies/{id}', [AccountController::class, 'findTransferFeeDiscrepancies'])->name('transferfee.find-discrepancies');

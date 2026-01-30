@@ -3704,6 +3704,158 @@ class TransferFeeV3Controller extends Controller
     }
 
     /**
+     * Fix SST transfer amounts for a specific transfer fee record
+     * This recalculates SST amounts in transfer_fee_details based on current invoice SST values
+     * Useful when invoice SST values have been corrected but transfer fee details still have old values
+     */
+    public function fixTransferFeeSST($id)
+    {
+        try {
+            $current_user = auth()->user();
+            
+            // Only allow admin role
+            if ($current_user->menuroles !== 'admin') {
+                return response()->json(['status' => 0, 'message' => 'Access denied. Admin only.'], 403);
+            }
+            
+            $transferFeeMain = TransferFeeMain::where('id', $id)->first();
+            
+            if (!$transferFeeMain) {
+                return response()->json(['status' => 0, 'message' => 'Transfer fee not found'], 404);
+            }
+            
+            // Get all transfer fee details for this transfer fee
+            $transferFeeDetails = TransferFeeDetails::where('transfer_fee_main_id', $id)
+                ->where('status', '<>', 99)
+                ->get();
+            
+            if ($transferFeeDetails->isEmpty()) {
+                return response()->json(['status' => 0, 'message' => 'No transfer fee details found'], 404);
+            }
+            
+            $updatedCount = 0;
+            $totalSstFixed = 0;
+            $changes = [];
+            
+            foreach ($transferFeeDetails as $detail) {
+                $invoice = LoanCaseInvoiceMain::where('id', $detail->loan_case_invoice_main_id)->first();
+                
+                if (!$invoice) {
+                    continue;
+                }
+                
+                $oldSstAmount = $detail->sst_amount ?? 0;
+                $oldReimbursementSstAmount = $detail->reimbursement_sst_amount ?? 0;
+                
+                // Get current invoice SST values
+                $currentInvoiceSst = $invoice->sst_inv ?? 0;
+                $currentInvoiceReimbursementSst = $invoice->reimbursement_sst ?? 0;
+                
+                // Get all transfer fee details for this invoice across ALL transfer fees
+                $allTransferDetailsForInvoice = TransferFeeDetails::where('loan_case_invoice_main_id', $invoice->id)
+                    ->where('status', '<>', 99)
+                    ->get();
+                
+                // Calculate total already transferred for this invoice
+                $totalTransferredSst = $allTransferDetailsForInvoice->sum('sst_amount');
+                $totalTransferredReimbursementSst = $allTransferDetailsForInvoice->sum('reimbursement_sst_amount');
+                
+                // Calculate available SST to transfer
+                $availableSst = max(0, $currentInvoiceSst - ($totalTransferredSst - $oldSstAmount));
+                $availableReimbursementSst = max(0, $currentInvoiceReimbursementSst - ($totalTransferredReimbursementSst - $oldReimbursementSstAmount));
+                
+                // If this is the only transfer or it's the full amount, use available amount
+                if ($allTransferDetailsForInvoice->count() == 1) {
+                    $newSstAmount = $availableSst;
+                    $newReimbursementSstAmount = $availableReimbursementSst;
+                } else {
+                    // Multiple transfers - maintain proportion
+                    $totalTransferredSstWithoutThis = $totalTransferredSst - $oldSstAmount;
+                    $totalTransferredReimbursementSstWithoutThis = $totalTransferredReimbursementSst - $oldReimbursementSstAmount;
+                    
+                    if ($totalTransferredSstWithoutThis > 0) {
+                        $proportion = $oldSstAmount / ($totalTransferredSstWithoutThis + $oldSstAmount);
+                        $newSstAmount = round($availableSst * $proportion, 2);
+                    } else {
+                        $newSstAmount = $oldSstAmount; // Keep original if no other transfers
+                    }
+                    
+                    if ($totalTransferredReimbursementSstWithoutThis > 0) {
+                        $proportion = $oldReimbursementSstAmount / ($totalTransferredReimbursementSstWithoutThis + $oldReimbursementSstAmount);
+                        $newReimbursementSstAmount = round($availableReimbursementSst * $proportion, 2);
+                    } else {
+                        $newReimbursementSstAmount = $oldReimbursementSstAmount; // Keep original if no other transfers
+                    }
+                }
+                
+                // Update transfer fee detail
+                if (abs($oldSstAmount - $newSstAmount) > 0.01 || abs($oldReimbursementSstAmount - $newReimbursementSstAmount) > 0.01) {
+                    $detail->sst_amount = $newSstAmount;
+                    $detail->reimbursement_sst_amount = $newReimbursementSstAmount;
+                    $detail->save();
+                    
+                    $updatedCount++;
+                    $totalSstFixed += abs($oldSstAmount - $newSstAmount);
+                    
+                    $changes[] = [
+                        'invoice_no' => $invoice->invoice_no,
+                        'old_sst' => $oldSstAmount,
+                        'new_sst' => $newSstAmount,
+                        'old_reimb_sst' => $oldReimbursementSstAmount,
+                        'new_reimb_sst' => $newReimbursementSstAmount
+                    ];
+                    
+                    \Illuminate\Support\Facades\Log::info('Fixed transfer fee detail SST', [
+                        'transfer_fee_detail_id' => $detail->id,
+                        'invoice_id' => $invoice->id,
+                        'invoice_no' => $invoice->invoice_no,
+                        'old_sst_amount' => $oldSstAmount,
+                        'new_sst_amount' => $newSstAmount,
+                        'old_reimbursement_sst_amount' => $oldReimbursementSstAmount,
+                        'new_reimbursement_sst_amount' => $newReimbursementSstAmount
+                    ]);
+                }
+            }
+            
+            // Recalculate all invoice totals
+            $this->recalculateAllInvoiceTotals($id);
+            
+            // Update transfer fee main amount
+            $this->updateTransferFeeMainAmt($id);
+            
+            // Refresh transfer fee main
+            $transferFeeMain->refresh();
+            
+            \Illuminate\Support\Facades\Log::info('Fixed SST for transfer fee', [
+                'transfer_fee_main_id' => $id,
+                'updated_details' => $updatedCount,
+                'total_sst_fixed' => $totalSstFixed,
+                'new_total_amount' => $transferFeeMain->transfer_amount
+            ]);
+            
+            return response()->json([
+                'status' => 1,
+                'message' => 'SST transfer amounts fixed successfully',
+                'transfer_fee_main_id' => $id,
+                'updated_details' => $updatedCount,
+                'total_sst_fixed' => round($totalSstFixed, 2),
+                'new_total_amount' => $transferFeeMain->transfer_amount,
+                'changes' => $changes
+            ]);
+            
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Error fixing transfer fee SST: ' . $e->getMessage(), [
+                'transfer_fee_main_id' => $id,
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'status' => 0,
+                'message' => 'Error fixing transfer fee SST: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
      * Get current invoices for display (existing invoices that cannot be edited)
      */
     public function getCurrentInvoices($transferFeeId)
