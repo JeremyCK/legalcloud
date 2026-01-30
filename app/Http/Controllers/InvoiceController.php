@@ -2450,5 +2450,221 @@ class InvoiceController extends Controller
         // Remove duplicates and return
         return array_unique($accessCaseList);
     }
+
+    /**
+     * Force recalculate SST for an invoice
+     * This method recalculates SST values for all invoice details based on the bill's SST rate
+     * Useful for fixing incorrect SST values stored in the database
+     */
+    public function recalculateSST($invoiceId)
+    {
+        try {
+            $current_user = auth()->user();
+            
+            // Only allow admin, management, or account roles
+            if (!in_array($current_user->menuroles, ['admin', 'management', 'account'])) {
+                return response()->json(['status' => 0, 'message' => 'Access denied'], 403);
+            }
+            
+            $invoice = LoanCaseInvoiceMain::where('id', $invoiceId)
+                ->where('status', '<>', 99)
+                ->first();
+            
+            if (!$invoice) {
+                return response()->json(['status' => 0, 'message' => 'Invoice not found'], 404);
+            }
+            
+            // Get bill for SST rate
+            $bill = LoanCaseBillMain::where('id', $invoice->loan_case_main_bill_id)->first();
+            if (!$bill) {
+                return response()->json(['status' => 0, 'message' => 'Bill not found'], 404);
+            }
+            
+            $sstRate = $bill->sst_rate ?? 8; // Default to 8% if not set
+            
+            // Check if sst column exists
+            $hasSstColumn = DB::select("SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = DATABASE() 
+                AND TABLE_NAME = 'loan_case_invoice_details' 
+                AND COLUMN_NAME = 'sst'");
+            $sstColumnExists = isset($hasSstColumn[0]) && $hasSstColumn[0]->count > 0;
+            
+            if (!$sstColumnExists) {
+                return response()->json(['status' => 0, 'message' => 'SST column does not exist in database'], 400);
+            }
+            
+            // Get all invoice details
+            $invoiceDetails = LoanCaseInvoiceDetails::where('invoice_main_id', $invoiceId)
+                ->where('status', '<>', 99)
+                ->get();
+            
+            $updatedCount = 0;
+            $skippedCount = 0;
+            
+            foreach ($invoiceDetails as $detail) {
+                // Get account item to check if taxable
+                $accountItem = DB::table('account_item')
+                    ->where('id', $detail->account_item_id)
+                    ->first();
+                
+                if ($accountItem && in_array($accountItem->account_cat_id, [1, 4])) {
+                    // Calculate SST from individual amount with special rounding rule
+                    $sstRaw = $detail->amount * ($sstRate / 100);
+                    $sstString = number_format($sstRaw, 3, '.', '');
+                    
+                    if (substr($sstString, -1) == '5') {
+                        $sstValue = floor($sstRaw * 100) / 100; // Round down
+                    } else {
+                        $sstValue = round($sstRaw, 2); // Normal rounding
+                    }
+                    
+                    // Update SST value
+                    $oldSst = $detail->sst;
+                    $detail->sst = $sstValue;
+                    $detail->save();
+                    
+                    $updatedCount++;
+                    
+                    Log::info("Recalculated SST for invoice detail", [
+                        'invoice_id' => $invoiceId,
+                        'invoice_no' => $invoice->invoice_no,
+                        'detail_id' => $detail->id,
+                        'amount' => $detail->amount,
+                        'sst_rate' => $sstRate,
+                        'old_sst' => $oldSst,
+                        'new_sst' => $sstValue
+                    ]);
+                } else {
+                    // Non-taxable items: clear SST
+                    if ($detail->sst !== null) {
+                        $detail->sst = null;
+                        $detail->save();
+                        $updatedCount++;
+                    } else {
+                        $skippedCount++;
+                    }
+                }
+            }
+            
+            // Check if ori_invoice_sst column exists and update it
+            $hasOriSstColumn = DB::select("SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = DATABASE() 
+                AND TABLE_NAME = 'loan_case_invoice_details' 
+                AND COLUMN_NAME = 'ori_invoice_sst'");
+            $oriSstColumnExists = isset($hasOriSstColumn[0]) && $hasOriSstColumn[0]->count > 0;
+            
+            // Check if this is a split invoice
+            $invoiceCount = LoanCaseInvoiceMain::where('loan_case_main_bill_id', $invoice->loan_case_main_bill_id)
+                ->where('status', '<>', 99)
+                ->count();
+            $isSplitInvoice = $invoiceCount > 1;
+            
+            if ($oriSstColumnExists) {
+                if ($isSplitInvoice) {
+                    // For split invoices, update ori_invoice_sst from sum of individual sst values
+                    $accountItemIds = $invoiceDetails->pluck('account_item_id')->unique();
+                    
+                    foreach ($accountItemIds as $accountItemId) {
+                        // Get all details for this account_item_id across all invoices for this bill
+                        $allDetailsForItem = LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $bill->id)
+                            ->where('account_item_id', $accountItemId)
+                            ->where('status', '<>', 99)
+                            ->get();
+                        
+                        // Sum all SST values for this account_item_id
+                        $totalSst = $allDetailsForItem->sum('sst');
+                        
+                        // Update ori_invoice_sst for ALL invoices with the same account_item_id
+                        LoanCaseInvoiceDetails::where('loan_case_main_bill_id', $bill->id)
+                            ->where('account_item_id', $accountItemId)
+                            ->where('status', '<>', 99)
+                            ->update(['ori_invoice_sst' => round($totalSst, 2)]);
+                    }
+                } else {
+                    // For single invoice, ori_invoice_sst should equal sst
+                    foreach ($invoiceDetails as $detail) {
+                        $accountItem = DB::table('account_item')
+                            ->where('id', $detail->account_item_id)
+                            ->first();
+                        
+                        if ($accountItem && in_array($accountItem->account_cat_id, [1, 4])) {
+                            $detail->ori_invoice_sst = $detail->sst;
+                            $detail->save();
+                        }
+                    }
+                }
+            }
+            
+            // Recalculate invoice totals
+            $calculated = $this->calculateInvoiceAmountsFromDetails($invoiceId, $sstRate);
+            
+            // Update invoice with calculated amounts
+            $invoice->pfee1_inv = $calculated['pfee1'];
+            $invoice->pfee2_inv = $calculated['pfee2'];
+            $invoice->sst_inv = $calculated['sst'];
+            $invoice->reimbursement_amount = $calculated['reimbursement_amount'];
+            $invoice->reimbursement_sst = $calculated['reimbursement_sst'];
+            $invoice->amount = $calculated['total'];
+            $invoice->save();
+            
+            Log::info("SST recalculation completed for invoice", [
+                'invoice_id' => $invoiceId,
+                'invoice_no' => $invoice->invoice_no,
+                'sst_rate' => $sstRate,
+                'updated_details' => $updatedCount,
+                'skipped_details' => $skippedCount,
+                'new_sst_inv' => $calculated['sst'],
+                'new_total' => $calculated['total']
+            ]);
+            
+            return response()->json([
+                'status' => 1,
+                'message' => 'SST recalculated successfully',
+                'invoice_no' => $invoice->invoice_no,
+                'sst_rate' => $sstRate,
+                'updated_details' => $updatedCount,
+                'skipped_details' => $skippedCount,
+                'calculated' => $calculated
+            ]);
+            
+        } catch (\Exception $e) {
+            Log::error('Error recalculating SST: ' . $e->getMessage(), [
+                'invoice_id' => $invoiceId,
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'status' => 0,
+                'message' => 'Error recalculating SST: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Force recalculate SST for an invoice by invoice number
+     */
+    public function recalculateSSTByInvoiceNo($invoiceNo)
+    {
+        try {
+            $invoice = LoanCaseInvoiceMain::where('invoice_no', $invoiceNo)
+                ->where('status', '<>', 99)
+                ->first();
+            
+            if (!$invoice) {
+                return response()->json(['status' => 0, 'message' => 'Invoice not found'], 404);
+            }
+            
+            // Call the recalculateSST method with the invoice ID
+            return $this->recalculateSST($invoice->id);
+            
+        } catch (\Exception $e) {
+            Log::error('Error recalculating SST by invoice number: ' . $e->getMessage(), [
+                'invoice_no' => $invoiceNo
+            ]);
+            return response()->json([
+                'status' => 0,
+                'message' => 'Error recalculating SST: ' . $e->getMessage()
+            ], 500);
+        }
+    }
 }
 

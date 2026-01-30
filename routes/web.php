@@ -584,6 +584,8 @@ Route::group(['middleware' => ['get.menu']], function () {
             Route::get('invoice/{invoiceId}/details', [InvoiceController::class, 'show'])->name('invoice.details.page');
             Route::get('invoice/{invoiceId}/details/data', [InvoiceController::class, 'getInvoiceDetails'])->name('invoice.details');
             Route::post('invoice/{invoiceId}/update', [InvoiceController::class, 'update'])->name('invoice.update');
+            Route::post('invoice/{invoiceId}/recalculate-sst', [InvoiceController::class, 'recalculateSST'])->name('invoice.recalculate-sst');
+            Route::post('invoice/recalculate-sst-by-no/{invoiceNo}', [InvoiceController::class, 'recalculateSSTByInvoiceNo'])->name('invoice.recalculate-sst-by-no');
             Route::post('invoice/split/{billId}', [InvoiceController::class, 'splitInvoice'])->name('invoice.split');
             Route::delete('invoice/{invoiceId}/remove', [InvoiceController::class, 'removeInvoice'])->name('invoice.remove');
             Route::post('invoice/add-item/{billId}', [InvoiceController::class, 'addInvoiceItem'])->name('invoice.add-item');

@@ -7641,12 +7641,23 @@ class CaseController extends Controller
                                         $calculatedSst = round($sst_calculation, 2); // Normal rounding
                                     }
                                     
-                                    // Update both sst and ori_invoice_sst for display
+                                    // Only update ori_invoice_sst for display (don't overwrite sst if it's already set correctly)
+                                    // The sst column should be calculated from individual amount, not from ori_invoice_amt
                                     $detail->ori_invoice_sst = $calculatedSst;
-                                    $detail->sst = $calculatedSst;
+                                    // Don't overwrite sst - it should be calculated from individual amount, not ori_invoice_amt
+                                    // Only set sst if it's null or 0 (meaning it hasn't been calculated yet)
+                                    if (!isset($detail->sst) || $detail->sst === null || $detail->sst == 0) {
+                                        $detail->sst = $calculatedSst;
+                                    }
                                     
                                     // Also update in database to persist the calculation
                                     if (isset($detail->account_item_id)) {
+                                        $updateFields = ['ori_invoice_sst' => $calculatedSst];
+                                        // Only update sst if it's null or 0
+                                        if (!isset($detail->sst) || $detail->sst === null || $detail->sst == 0) {
+                                            $updateFields['sst'] = $calculatedSst;
+                                        }
+                                        
                                         DB::table('loan_case_invoice_details')
                                             ->where('loan_case_main_bill_id', $id)
                                             ->where('account_item_id', $detail->account_item_id)
@@ -7655,7 +7666,7 @@ class CaseController extends Controller
                                                 $q->whereNull('ori_invoice_sst')
                                                   ->orWhere('ori_invoice_sst', 0);
                                             })
-                                            ->update(['ori_invoice_sst' => $calculatedSst]);
+                                            ->update($updateFields);
                                     }
                                 }
                             }
