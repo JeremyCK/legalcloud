@@ -738,6 +738,7 @@ Route::group(['middleware' => ['get.menu']], function () {
             Route::get('recon_list/list/', [AccountController::class, 'getBankReconListV2'])->name('recon_list.list');
             // Route::get('recon_list/list/', [AccountController::class, 'getBankReconListV3'])->name('recon_list.list');
             Route::post('getBankReconTotal', [AccountController::class, 'getBankReconTotal']);
+            Route::post('diagnoseBankReconDiscrepancy', [AccountController::class, 'diagnoseBankReconDiscrepancy']);
             // Route::post('updateRecon', [AccountController::class, 'updateRecon']); 
             Route::post('updateRecon', [AccountController::class, 'updateReconV2']);
             Route::post('getMonthRecon', [AccountController::class, 'getMonthRecon']);
@@ -1290,6 +1291,12 @@ Route::get('transfer-fee-create', [AccountController::class, 'transferFeeCreate'
     Route::post('/{id}/revert-recon', [TransferFeeV3Controller::class, 'revertReconTransferFeeV3'])->name('transferfee.revert-recon');
     Route::post('/export', [TransferFeeV3Controller::class, 'exportTransferFeeInvoices'])->name('transferfee.export');
     Route::post('/fix-transferred-amounts', [TransferFeeV3Controller::class, 'fixExistingTransferredAmounts'])->name('transferfee.fix-amounts');
+    Route::post('/update-from-ledger/{id}', [AccountController::class, 'updateTransferFeeMainFromLedger'])->name('transferfee.update-from-ledger');
+    Route::get('/verify-totals/{id}', [AccountController::class, 'verifyTransferFeeTotals'])->name('transferfee.verify-totals');
+    Route::get('/find-discrepancies/{id}', [AccountController::class, 'findTransferFeeDiscrepancies'])->name('transferfee.find-discrepancies');
+    Route::post('/fix-discrepancies/{id}', [AccountController::class, 'fixTransferFeeDiscrepancies'])->name('transferfee.fix-discrepancies');
+    Route::post('/remove-duplicate-entries/{id}', [AccountController::class, 'removeDuplicateLedgerEntries'])->name('transferfee.remove-duplicates');
+    Route::post('/recalculate-total/{id}', [AccountController::class, 'recalculateTransferFeeTotal'])->name('transferfee.recalculate-total');
             
                             // AJAX endpoints
                 // Route::get('/getTransferInvoiceListV3', [TransferFeeV3Controller::class, 'getTransferInvoiceListV3'])->name('transferfee.invoice-list');

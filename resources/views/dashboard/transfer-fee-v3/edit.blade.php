@@ -4,9 +4,6 @@
 
 <meta name="csrf-token" content="{{ csrf_token() }}">
 
-<!-- Bootstrap Modal JavaScript -->
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.0/dist/js/bootstrap.bundle.min.js"></script>
 
 @section('content')
     <div class="container-fluid">
@@ -77,11 +74,63 @@
                                     <div class="col-md-6">
                                         <div class="form-group">
                                             <label>Transfer Total Amount</label>
-                                            <input type="text" class="form-control" name="transfer_total_amount"
-                                                id="transferTotalAmount"
-                                                value="{{ number_format($TransferFeeMain->transfer_amount ?? 0, 2) }}"
-                                                readonly
-                                                style="background-color: #f8f9fa; font-weight: bold; color: #495057;">
+                                            <div class="input-group">
+                                                <input type="text" class="form-control" name="transfer_total_amount"
+                                                    id="transferTotalAmount"
+                                                    value="{{ number_format($TransferFeeMain->transfer_amount ?? 0, 2) }}"
+                                                    readonly
+                                                    style="background-color: #f8f9fa; font-weight: bold; color: #495057;">
+                                                <div class="input-group-append">
+                                                    <button type="button" class="btn btn-info btn-sm" id="checkDiscrepanciesBtn" 
+                                                        title="Check for discrepancies between transfer details and ledger entries">
+                                                        <i class="fa fa-search"></i> Check
+                                                    </button>
+                                                    <button type="button" class="btn btn-warning btn-sm" id="fixDiscrepanciesBtn" 
+                                                        title="Fix discrepancies by updating transfer details to match ledger entries"
+                                                        style="display: none;">
+                                                        <i class="fa fa-wrench"></i> Fix
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <small class="text-muted" id="discrepancyMessage"></small>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Discrepancy Details Modal -->
+                                <div class="modal fade" id="discrepancyModal" tabindex="-1" role="dialog" aria-labelledby="discrepancyModalLabel" aria-hidden="true">
+                                    <div class="modal-dialog modal-lg" role="document">
+                                        <div class="modal-content">
+                                            <div class="modal-header">
+                                                <h5 class="modal-title" id="discrepancyModalLabel">
+                                                    <i class="fa fa-exclamation-triangle text-warning"></i> Transfer Fee Discrepancy Details
+                                                </h5>
+                                                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                                    <span aria-hidden="true">&times;</span>
+                                                </button>
+                                            </div>
+                                            <div class="modal-body">
+                                                <div id="discrepancyModalContent">
+                                                    <div class="text-center">
+                                                        <div class="spinner-border text-primary" role="status">
+                                                            <span class="sr-only">Loading...</span>
+                                                        </div>
+                                                        <p class="mt-2">Checking for discrepancies...</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="modal-footer">
+                                                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                                                <button type="button" class="btn btn-danger" id="removeDuplicatesModalBtn" style="display: none;">
+                                                    <i class="fa fa-trash"></i> Remove Duplicates
+                                                </button>
+                                                <button type="button" class="btn btn-warning" id="fixDiscrepanciesModalBtn" style="display: none;">
+                                                    <i class="fa fa-wrench"></i> Fix Discrepancies
+                                                </button>
+                                                <button type="button" class="btn btn-primary" id="recalculateTotalBtn" style="display: none;">
+                                                    <i class="fa fa-calculator"></i> Recalculate & Update Total
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -148,9 +197,13 @@
                                                             <h6 class="mb-0 mr-3"><i class="fa fa-list-check"></i> Current Invoices
                                                             </h6>
                                                             <div style="position: relative; z-index: 10;">
-                                                                <input type="checkbox" id="filterDifferencesCheckbox" onchange="toggleDifferencesFilter()" style="margin-right: 5px; cursor: pointer; width: 16px; height: 16px;">
-                                                                <label for="filterDifferencesCheckbox" style="font-size: 12px; cursor: pointer; margin-bottom: 0; user-select: none;">
+                                                                <input type="checkbox" id="filterDifferencesCheckbox" onchange="applyFilters()" style="margin-right: 5px; cursor: pointer; width: 16px; height: 16px;">
+                                                                <label for="filterDifferencesCheckbox" style="font-size: 12px; cursor: pointer; margin-bottom: 0; user-select: none; margin-right: 15px;">
                                                                     Show only invoices with Total ≠ Collected
+                                                                </label>
+                                                                <input type="checkbox" id="filterRemainingAmountsCheckbox" onchange="applyFilters()" style="margin-right: 5px; cursor: pointer; width: 16px; height: 16px;">
+                                                                <label for="filterRemainingAmountsCheckbox" style="font-size: 12px; cursor: pointer; margin-bottom: 0; user-select: none;">
+                                                                    Show only invoices with remaining amounts to transfer
                                                                 </label>
                                                             </div>
                                                         </div>
@@ -925,6 +978,20 @@
 @endsection
 
 @section('javascript')
+    <!-- Load jQuery 3.6.0 and Bootstrap 4.6.0 for modal functionality -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Use jQuery 3.6.0 for modal functionality
+        var $jq3 = jQuery.noConflict(true);
+        
+        // Override the global $ and jQuery with version 3.6.0 for modal
+        window.$ = $jq3;
+        window.jQuery = $jq3;
+        
+        console.log('jQuery version:', $.fn.jquery);
+        console.log('Bootstrap modal available:', typeof $.fn.modal !== 'undefined');
+    </script>
     <script>
         // Check if the transfer fee is reconciled
         const isReconciled = {{ $TransferFeeMain->is_recon == '1' ? 'true' : 'false' }};
@@ -955,6 +1022,13 @@
                     return false;
                 });
             }
+            
+            // Apply filters on page load if any checkbox is checked
+            setTimeout(function() {
+                if ($('#filterDifferencesCheckbox').is(':checked') || $('#filterRemainingAmountsCheckbox').is(':checked')) {
+                    applyFilters();
+                }
+            }, 100);
         });
     </script>
 
@@ -1836,24 +1910,26 @@
 
                 // For existing records (already transferred), show available balance
                 // For new records (not transferred), show editable amounts
+                // Use amounts from THIS transfer fee record, not cumulative from invoice
+                const currentTransferPfee = parseFloat(invoice.current_transfer_pfee || 0);
+                const currentTransferSst = parseFloat(invoice.current_transfer_sst || 0);
+                const currentTransferReimb = parseFloat(invoice.current_transfer_reimbursement || 0);
+                const currentTransferReimbSst = parseFloat(invoice.current_transfer_reimbursement_sst || 0);
+                
                 if (transferredPfee > 0 || transferredSst > 0) {
                     // Existing record - show available balance
                     totals.pfeeToTransfer += Math.max(0, pfeeAmount - transferredPfee);
                     totals.sstToTransfer += Math.max(0, sstAmount - transferredSst);
-                    totals.transferredBal += transferredPfee + (parseFloat(invoice.transferred_reimbursement) || 0);
-                    totals.transferredSst += transferredSst + (parseFloat(invoice.transferred_reimbursement_sst) || 0);
+                    totals.transferredBal += currentTransferPfee + currentTransferReimb;
+                    totals.transferredSst += currentTransferSst + currentTransferReimbSst;
                 } else {
                     // New record - show editable amounts
-                    const editablePfee = parseFloat(invoice.current_transfer_pfee || 0);
-                    const editableSst = parseFloat(invoice.current_transfer_sst || 0);
-                    const editableReimb = parseFloat(invoice.current_transfer_reimbursement || 0);
-                    const editableReimbSst = parseFloat(invoice.current_transfer_reimbursement_sst || 0);
-                    totals.pfeeToTransfer += editablePfee;
-                    totals.sstToTransfer += editableSst;
-                    totals.reimbToTransfer += editableReimb;
-                    totals.reimbSstToTransfer += editableReimbSst;
-                    totals.transferredBal += editablePfee;
-                    totals.transferredSst += editableSst;
+                    totals.pfeeToTransfer += currentTransferPfee;
+                    totals.sstToTransfer += currentTransferSst;
+                    totals.reimbToTransfer += currentTransferReimb;
+                    totals.reimbSstToTransfer += currentTransferReimbSst;
+                    totals.transferredBal += currentTransferPfee + currentTransferReimb;
+                    totals.transferredSst += currentTransferSst + currentTransferReimbSst;
                 }
 
                 tableHTML += `
@@ -1911,14 +1987,17 @@
                             onchange="updateTransferAmounts(${index}, 'reimb-sst')"
                             oninput="updateTransferAmounts(${index}, 'reimb-sst')">
                  </td>
-                                  <td class="text-right" style="font-size: 11px;">${(transferredPfee + (parseFloat(invoice.transferred_reimbursement) || 0)).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
-                 <td class="text-right" style="font-size: 11px;">${(transferredSst + (parseFloat(invoice.transferred_reimbursement_sst) || 0)).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                                  <td class="text-right" style="font-size: 11px;">${((parseFloat(invoice.current_transfer_pfee || 0)) + (parseFloat(invoice.current_transfer_reimbursement || 0))).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                 <td class="text-right" style="font-size: 11px;">${((parseFloat(invoice.current_transfer_sst || 0)) + (parseFloat(invoice.current_transfer_reimbursement_sst || 0))).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
                 <td style="font-size: 11px;">${invoice.payment_date}</td>
             </tr>
         `;
             });
 
             tableBody.html(tableHTML);
+
+            // Re-apply filters after table update
+            applyFilters();
 
             // Footer totals are calculated server-side for edit view
         }
@@ -2029,30 +2108,28 @@
                 totals.sst += sstAmount;
                 totals.reimb += reimbAmount;
                 totals.reimbSst += reimbSstAmount;
-                // For existing records (already transferred), show available balance
-                // For new records (not transferred), show editable amounts
-                if (transferredPfee > 0 || transferredSst > 0 || transferredReimb > 0 || transferredReimbSst > 0) {
-                    // Existing record - show available balance
+                
+                // Use amounts from THIS transfer fee record, not cumulative from invoice
+                const currentTransferPfee = parseFloat(invoice.current_transfer_pfee || 0);
+                const currentTransferSst = parseFloat(invoice.current_transfer_sst || 0);
+                const currentTransferReimb = parseFloat(invoice.current_transfer_reimbursement || 0);
+                const currentTransferReimbSst = parseFloat(invoice.current_transfer_reimbursement_sst || 0);
+                
+                // For existing records (already transferred in THIS transfer fee), show available balance
+                // For new records (not transferred in THIS transfer fee), show editable amounts
+                if (currentTransferPfee > 0 || currentTransferSst > 0 || currentTransferReimb > 0 || currentTransferReimbSst > 0) {
+                    // Existing record in THIS transfer fee - show available balance
                     totals.pfeeToTransfer += Math.max(0, pfeeAmount - transferredPfee);
                     totals.sstToTransfer += Math.max(0, sstAmount - transferredSst);
                     totals.reimbToTransfer += Math.max(0, reimbAmount - transferredReimb);
                     totals.reimbSstToTransfer += Math.max(0, reimbSstAmount - transferredReimbSst);
                 } else {
                     // New record - show editable amounts
-                    const editablePfee = parseFloat(invoice.current_transfer_pfee || 0);
-                    const editableSst = parseFloat(invoice.current_transfer_sst || 0);
-                    const editableReimb = parseFloat(invoice.current_transfer_reimbursement || 0);
-                    const editableReimbSst = parseFloat(invoice.current_transfer_reimbursement_sst || 0);
-                    totals.pfeeToTransfer += editablePfee;
-                    totals.sstToTransfer += editableSst;
-                    totals.reimbToTransfer += editableReimb;
-                    totals.reimbSstToTransfer += editableReimbSst;
+                    totals.pfeeToTransfer += currentTransferPfee;
+                    totals.sstToTransfer += currentTransferSst;
+                    totals.reimbToTransfer += currentTransferReimb;
+                    totals.reimbSstToTransfer += currentTransferReimbSst;
                 }
-                // Use amounts from THIS transfer fee record, not cumulative from invoice
-                const currentTransferPfee = parseFloat(invoice.current_transfer_pfee || 0);
-                const currentTransferSst = parseFloat(invoice.current_transfer_sst || 0);
-                const currentTransferReimb = parseFloat(invoice.current_transfer_reimbursement || 0);
-                const currentTransferReimbSst = parseFloat(invoice.current_transfer_reimbursement_sst || 0);
                 
                 totals.transferredBal += currentTransferPfee + currentTransferReimb;
                 totals.transferredSst += currentTransferSst + currentTransferReimbSst;
@@ -2689,60 +2766,117 @@
             }
         }
 
-        // Filter to show only invoices with differences between Total and Collected amounts
-        function toggleDifferencesFilter() {
-            const isChecked = $('#filterDifferencesCheckbox').is(':checked');
-            const tbody = $('#selectedInvoicesTable table tbody');
+        // Apply filters to show/hide invoices based on checkbox selections
+        function applyFilters() {
+            const filterDifferences = $('#filterDifferencesCheckbox').is(':checked');
+            const filterRemainingAmounts = $('#filterRemainingAmountsCheckbox').is(':checked');
+            // Use the tbody ID directly
+            const tbody = $('#selectedInvoicesTableBody');
+            if (tbody.length === 0) {
+                console.warn('Table body not found');
+                return;
+            }
             const rows = tbody.find('tr');
             
             let visibleCount = 0;
             
-            console.log('Filter toggled:', isChecked);
-            
-            rows.each(function() {
-                const row = $(this);
-                // Skip footer rows
-                if (row.find('th').length > 0) {
+            // If no filters are active, show all rows
+            if (!filterDifferences && !filterRemainingAmounts) {
+                rows.each(function() {
+                    const row = $(this);
+                    // Always show footer rows
+                    if (row.find('th').length > 0) {
+                        row.show();
+                        return;
+                    }
                     row.show();
-                    return;
-                }
-                
-                // Get the Total Amount and Collected Amount from the row
-                const cells = row.find('td');
-                if (cells.length < 8) {
-                    row.show();
-                    return;
-                }
-                
-                // Column indices: 0=No, 1=Action, 2=RefNo, 3=InvoiceNo, 4=InvoiceDate, 5=TotalAmt, 6=CollectedAmt
-                const totalAmtText = $(cells[5]).text().trim().replace(/,/g, '');
-                const collectedAmtText = $(cells[6]).text().trim().replace(/,/g, '');
-                
-                const totalAmt = parseFloat(totalAmtText) || 0;
-                const collectedAmt = parseFloat(collectedAmtText) || 0;
-                
-                console.log('Row:', {
-                    invoice: $(cells[3]).text().trim(),
-                    totalAmt: totalAmt,
-                    collectedAmt: collectedAmt,
-                    difference: Math.abs(totalAmt - collectedAmt)
+                    visibleCount++;
                 });
-                
-                // Show/hide based on filter
-                if (isChecked) {
-                    // Only show rows where Total ≠ Collected
-                    if (Math.abs(totalAmt - collectedAmt) > 0.01) { // Using 0.01 tolerance for floating point
+            } else {
+                // Apply filters
+                rows.each(function() {
+                    const row = $(this);
+                    // Always show footer rows
+                    if (row.find('th').length > 0) {
+                        row.show();
+                        return;
+                    }
+                    
+                    // Get the cells from the row
+                    const cells = row.find('td');
+                    if (cells.length < 15) {
+                        row.show();
+                        return;
+                    }
+                    
+                    let shouldShow = true;
+                    
+                    // Filter 1: Show only invoices with Total ≠ Collected
+                    if (filterDifferences) {
+                        // Column indices: 0=No, 1=Action, 2=RefNo, 3=InvoiceNo, 4=InvoiceDate, 5=TotalAmt, 6=CollectedAmt
+                        const totalAmtText = $(cells[5]).text().trim().replace(/,/g, '');
+                        const collectedAmtText = $(cells[6]).text().trim().replace(/,/g, '');
+                        
+                        const totalAmt = parseFloat(totalAmtText) || 0;
+                        const collectedAmt = parseFloat(collectedAmtText) || 0;
+                        
+                        // Only show if Total ≠ Collected (with 0.01 tolerance for floating point)
+                        if (Math.abs(totalAmt - collectedAmt) <= 0.01) {
+                            shouldShow = false;
+                        }
+                    }
+                    
+                    // Filter 2: Show only invoices with remaining amounts to transfer
+                    if (filterRemainingAmounts && shouldShow) {
+                        // Column indices: 11=Pfee to transfer, 12=SST to transfer, 13=Reimb to transfer, 14=Reimb SST to transfer
+                        // Make sure we have enough cells
+                        if (cells.length < 15) {
+                            shouldShow = false;
+                        } else {
+                            const pfeeToTransferText = $(cells[11]).text().trim().replace(/,/g, '').replace(/[^\d.-]/g, '');
+                            const sstToTransferText = $(cells[12]).text().trim().replace(/,/g, '').replace(/[^\d.-]/g, '');
+                            const reimbToTransferText = $(cells[13]).text().trim().replace(/,/g, '').replace(/[^\d.-]/g, '');
+                            const reimbSstToTransferText = $(cells[14]).text().trim().replace(/,/g, '').replace(/[^\d.-]/g, '');
+                            
+                            const pfeeToTransfer = parseFloat(pfeeToTransferText) || 0;
+                            const sstToTransfer = parseFloat(sstToTransferText) || 0;
+                            const reimbToTransfer = parseFloat(reimbToTransferText) || 0;
+                            const reimbSstToTransfer = parseFloat(reimbSstToTransferText) || 0;
+                            
+                            // Debug: log first row to see what we're getting
+                            if (visibleCount === 0) {
+                                console.log('First row check:', {
+                                    invoiceNo: $(cells[3]).text().trim(),
+                                    cellCount: cells.length,
+                                    pfeeToTransferText: pfeeToTransferText,
+                                    sstToTransferText: sstToTransferText,
+                                    pfeeToTransfer: pfeeToTransfer,
+                                    sstToTransfer: sstToTransfer,
+                                    hasRemaining: Math.abs(pfeeToTransfer) > 0.01 || Math.abs(sstToTransfer) > 0.01 || Math.abs(reimbToTransfer) > 0.01 || Math.abs(reimbSstToTransfer) > 0.01
+                                });
+                            }
+                            
+                            // Only show if any of the "to transfer" amounts is greater than or equal to 0.01
+                            const hasRemainingAmount = Math.abs(pfeeToTransfer) >= 0.01 || 
+                                                      Math.abs(sstToTransfer) >= 0.01 || 
+                                                      Math.abs(reimbToTransfer) >= 0.01 || 
+                                                      Math.abs(reimbSstToTransfer) >= 0.01;
+                            
+                            if (!hasRemainingAmount) {
+                                shouldShow = false;
+                            }
+                        }
+                    }
+                    
+                    // Show/hide the row
+                    if (shouldShow) {
                         row.show();
                         visibleCount++;
                     } else {
                         row.hide();
                     }
-                } else {
-                    // Show all rows
-                    row.show();
-                    visibleCount++;
-                }
-            });
+                });
+            }
             
             // Update row numbers
             let rowNum = 1;
@@ -2755,7 +2889,7 @@
                 }
             });
             
-            console.log('Visible rows:', visibleCount);
+            // console.log('Visible rows after filtering:', visibleCount);
             
             // Show message if no results
             if (isChecked && visibleCount === 0) {
@@ -3834,5 +3968,399 @@
                 }
             });
         }
+    </script>
+
+    <script>
+        // Check for discrepancies
+        $('#checkDiscrepanciesBtn').on('click', function() {
+            const btn = $(this);
+            const originalText = btn.html();
+            btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Checking...');
+            
+            // Show modal
+            $('#discrepancyModal').modal('show');
+            $('#discrepancyModalContent').html(`
+                <div class="text-center">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="sr-only">Loading...</span>
+                    </div>
+                    <p class="mt-2">Checking for discrepancies...</p>
+                </div>
+            `);
+            
+            $.ajax({
+                url: '/transferfee/find-discrepancies/{{ $TransferFeeMain->id }}',
+                method: 'GET',
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                },
+                success: function(response) {
+                    btn.prop('disabled', false).html(originalText);
+                    
+                    let modalContent = '';
+                    let hasDuplicates = false;
+                    let hasDiscrepancies = false;
+                    let reimbTotal = 0;
+                    let reimbSstTotal = 0;
+                    
+                    if (response.total_discrepancies > 0) {
+                        hasDiscrepancies = true;
+                        modalContent += `<div class="alert alert-warning">
+                            <strong><i class="fa fa-exclamation-triangle"></i> Found ${response.total_discrepancies} invoice(s) with discrepancies</strong>
+                        </div>`;
+                        
+                        modalContent += `<div class="table-responsive">
+                            <table class="table table-sm table-bordered">
+                                <thead class="thead-light">
+                                    <tr>
+                                        <th>Invoice No</th>
+                                        <th>Type</th>
+                                        <th>Detail Amount</th>
+                                        <th>Ledger Amount</th>
+                                        <th>Difference</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>`;
+                        
+                        response.discrepancies.forEach(function(discrepancy) {
+                            hasDuplicates = hasDuplicates || (discrepancy.has_duplicate_entries === true);
+                            
+                            if (discrepancy.has_duplicate_entries && discrepancy.duplicate_info) {
+                                modalContent += `<tr class="table-danger">
+                                    <td><strong>${discrepancy.invoice_no}</strong></td>
+                                    <td colspan="5">
+                                        <strong class="text-danger">⚠️ DUPLICATE LEDGER ENTRIES DETECTED:</strong><br>`;
+                                discrepancy.duplicate_info.forEach(function(dup) {
+                                    modalContent += `<small class="text-danger">${dup}</small><br>`;
+                                });
+                                modalContent += `</td></tr>`;
+                            }
+                            
+                            if (!discrepancy.reimb_match) {
+                                modalContent += `<tr>
+                                    <td>${discrepancy.invoice_no}</td>
+                                    <td>Reimbursement</td>
+                                    <td class="text-right">${discrepancy.reimb_detail.toFixed(2)}</td>
+                                    <td class="text-right">${discrepancy.reimb_ledger.toFixed(2)}</td>
+                                    <td class="text-right text-danger"><strong>${discrepancy.reimb_diff.toFixed(2)}</strong></td>
+                                    <td><span class="badge badge-danger">Mismatch</span></td>
+                                </tr>`;
+                                reimbTotal += discrepancy.reimb_diff;
+                            }
+                            
+                            if (!discrepancy.reimb_sst_match) {
+                                modalContent += `<tr>
+                                    <td>${discrepancy.invoice_no}</td>
+                                    <td>Reimb SST</td>
+                                    <td class="text-right">${discrepancy.reimb_sst_detail.toFixed(2)}</td>
+                                    <td class="text-right">${discrepancy.reimb_sst_ledger.toFixed(2)}</td>
+                                    <td class="text-right text-danger"><strong>${discrepancy.reimb_sst_diff.toFixed(2)}</strong></td>
+                                    <td><span class="badge badge-danger">Mismatch</span></td>
+                                </tr>`;
+                                reimbSstTotal += discrepancy.reimb_sst_diff;
+                            }
+                            
+                            if (discrepancy.split_note) {
+                                modalContent += `<tr>
+                                    <td colspan="6"><small class="text-warning">${discrepancy.split_note}</small></td>
+                                </tr>`;
+                            }
+                        });
+                        
+                        modalContent += `</tbody>
+                            </table>
+                        </div>`;
+                        
+                        const currentTotal = parseFloat('{{ $TransferFeeMain->transfer_amount ?? 0 }}');
+                        const expectedTotal = currentTotal - (reimbTotal + reimbSstTotal);
+                        modalContent += `<div class="alert alert-info mt-3">
+                            <strong>Total Difference: RM ${(reimbTotal + reimbSstTotal).toFixed(2)}</strong><br>
+                            <small>Current Total: RM ${currentTotal.toFixed(2)}</small><br>
+                            <small>Expected Total: RM ${expectedTotal.toFixed(2)}</small>
+                        </div>`;
+                        
+                        // Show appropriate buttons
+                        if (hasDuplicates) {
+                            $('#removeDuplicatesModalBtn').show();
+                            $('#fixDiscrepanciesModalBtn').hide();
+                            $('#recalculateTotalBtn').hide();
+                        } else {
+                            $('#removeDuplicatesModalBtn').hide();
+                            $('#fixDiscrepanciesModalBtn').show();
+                            $('#recalculateTotalBtn').show();
+                        }
+                        
+                        // Update small message below input
+                        $('#discrepancyMessage').html(`<span class="text-warning"><i class="fa fa-exclamation-triangle"></i> ${response.total_discrepancies} discrepancy/discrepancies found. Click "Check" to view details.</span>`);
+                    } else {
+                        modalContent = `<div class="alert alert-success">
+                            <i class="fa fa-check-circle"></i> <strong>No discrepancies found!</strong><br>
+                            All transfer fee details match the ledger entries perfectly.
+                        </div>`;
+                        $('#removeDuplicatesModalBtn').hide();
+                        $('#fixDiscrepanciesModalBtn').hide();
+                        $('#recalculateTotalBtn').hide();
+                        $('#discrepancyMessage').html('<span class="text-success"><i class="fa fa-check"></i> No discrepancies found.</span>');
+                    }
+                    
+                    $('#discrepancyModalContent').html(modalContent);
+                },
+                error: function(xhr) {
+                    btn.prop('disabled', false).html(originalText);
+                    $('#discrepancyModalContent').html(`
+                        <div class="alert alert-danger">
+                            <strong>Error:</strong> ${xhr.responseJSON?.error || 'Unknown error occurred while checking discrepancies.'}
+                        </div>
+                    `);
+                    $('#discrepancyMessage').html('<span class="text-danger">Error checking discrepancies</span>');
+                }
+            });
+        });
+
+        // Fix discrepancies (for non-duplicate cases)
+        $('#fixDiscrepanciesBtn').on('click', function() {
+            // Check if there are duplicate entries
+            const hasDuplicates = $('#discrepancyMessage').text().includes('DUPLICATE LEDGER ENTRIES');
+            
+            if (hasDuplicates) {
+                alert('⚠️ Duplicate ledger entries detected! Please use "Remove Duplicates" button instead.');
+                return;
+            }
+            
+            if (!confirm('This will update transfer fee details to match ledger entries. Continue?')) {
+                return;
+            }
+            
+            const btn = $(this);
+            const originalText = btn.html();
+            btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Fixing...');
+            
+            $.ajax({
+                url: '/transferfee/fix-discrepancies/{{ $TransferFeeMain->id }}',
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                },
+                success: function(response) {
+                    btn.prop('disabled', false).html(originalText);
+                    
+                    if (response.success) {
+                        let message = `<span class="text-success"><strong>Fixed ${response.fixed_details_count} invoice(s):</strong><br>`;
+                        
+                        if (response.fixed_details.length > 0) {
+                            response.fixed_details.forEach(function(detail) {
+                                if (detail.reimbursement) {
+                                    message += `Invoice ${detail.invoice_no}: Reimb ${detail.reimbursement.old} → ${detail.reimbursement.new}<br>`;
+                                }
+                                if (detail.reimbursement_sst) {
+                                    message += `Invoice ${detail.invoice_no}: Reimb SST ${detail.reimbursement_sst.old} → ${detail.reimbursement_sst.new}<br>`;
+                                }
+                            });
+                        }
+                        
+                        message += `</span><br><strong>Updated total: ${response.updated_transfer_amount.toFixed(2)}</strong>`;
+                        $('#discrepancyMessage').html(message);
+                        
+                        // Update the transfer total amount field
+                        $('#transferTotalAmount').val(response.updated_transfer_amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ","));
+                        
+                        // Reload the page after a short delay to show updated values
+                        setTimeout(function() {
+                            location.reload();
+                        }, 2000);
+                    } else {
+                        $('#discrepancyMessage').html('<span class="text-danger">Failed to fix discrepancies</span>');
+                    }
+                },
+                error: function(xhr) {
+                    btn.prop('disabled', false).html(originalText);
+                    $('#discrepancyMessage').html('<span class="text-danger">Error fixing discrepancies: ' + (xhr.responseJSON?.error || 'Unknown error') + '</span>');
+                }
+            });
+        });
+
+        // Remove duplicate ledger entries
+        $(document).on('click', '#removeDuplicatesBtn', function() {
+            if (!confirm('This will remove duplicate ledger entries. The first entry of each duplicate set will be kept. Continue?')) {
+                return;
+            }
+            
+            const btn = $(this);
+            const originalText = btn.html();
+            btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Removing...');
+            
+            $.ajax({
+                url: '/transferfee/remove-duplicate-entries/{{ $TransferFeeMain->id }}',
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                },
+                success: function(response) {
+                    btn.prop('disabled', false).html(originalText);
+                    
+                    if (response.success) {
+                        let message = `<span class="text-success"><strong>Removed ${response.removed_duplicates_count} duplicate entry/entries:</strong><br>`;
+                        message += `Updated total: ${response.updated_transfer_amount.toFixed(2)}</span>`;
+                        $('#discrepancyMessage').html(message);
+                        
+                        // Update the transfer total amount field
+                        $('#transferTotalAmount').val(response.updated_transfer_amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ","));
+                        
+                        // Reload the page after a short delay to show updated values
+                        setTimeout(function() {
+                            location.reload();
+                        }, 2000);
+                    } else {
+                        $('#discrepancyMessage').html('<span class="text-danger">Failed to remove duplicates</span>');
+                    }
+                },
+                error: function(xhr) {
+                    btn.prop('disabled', false).html(originalText);
+                    $('#discrepancyMessage').html('<span class="text-danger">Error removing duplicates: ' + (xhr.responseJSON?.error || 'Unknown error') + '</span>');
+                }
+            });
+        });
+
+        // Recalculate Total button in modal
+        $(document).on('click', '#recalculateTotalBtn', function() {
+            if (!confirm('This will recalculate the total from transfer_fee_details and update the main record. Continue?')) {
+                return;
+            }
+            
+            const btn = $(this);
+            const originalText = btn.html();
+            btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Recalculating...');
+            
+            $.ajax({
+                url: '/transferfee/recalculate-total/{{ $TransferFeeMain->id }}',
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                },
+                success: function(response) {
+                    btn.prop('disabled', false).html(originalText);
+                    
+                    if (response.success) {
+                        let message = `<div class="alert alert-success">
+                            <strong><i class="fa fa-check-circle"></i> Total Updated Successfully!</strong><br>
+                            Old Amount: RM ${response.old_amount.toFixed(2)}<br>
+                            New Amount: RM ${response.new_amount.toFixed(2)}<br>
+                            Difference: RM ${response.difference.toFixed(2)}
+                        </div>`;
+                        $('#discrepancyModalContent').prepend(message);
+                        
+                        // Update the transfer total amount field
+                        $('#transferTotalAmount').val(response.new_amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ","));
+                        
+                        // Update small message
+                        $('#discrepancyMessage').html(`<span class="text-success"><i class="fa fa-check"></i> Total updated to RM ${response.new_amount.toFixed(2)}</span>`);
+                        
+                        // Reload the page after a short delay
+                        setTimeout(function() {
+                            location.reload();
+                        }, 2000);
+                    } else {
+                        $('#discrepancyModalContent').prepend(`<div class="alert alert-danger">Failed to recalculate total</div>`);
+                    }
+                },
+                error: function(xhr) {
+                    btn.prop('disabled', false).html(originalText);
+                    $('#discrepancyModalContent').prepend(`<div class="alert alert-danger">Error: ${xhr.responseJSON?.error || 'Unknown error'}</div>`);
+                }
+            });
+        });
+
+        // Remove Duplicates button in modal
+        $(document).on('click', '#removeDuplicatesModalBtn', function() {
+            if (!confirm('This will remove duplicate ledger entries. The first entry of each duplicate set will be kept. Continue?')) {
+                return;
+            }
+            
+            const btn = $(this);
+            const originalText = btn.html();
+            btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Removing...');
+            
+            $.ajax({
+                url: '/transferfee/remove-duplicate-entries/{{ $TransferFeeMain->id }}',
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                },
+                success: function(response) {
+                    btn.prop('disabled', false).html(originalText);
+                    
+                    if (response.success) {
+                        let message = `<div class="alert alert-success">
+                            <strong><i class="fa fa-check-circle"></i> Duplicates Removed!</strong><br>
+                            Removed ${response.removed_duplicates_count} duplicate entry/entries<br>
+                            Updated Total: RM ${response.updated_transfer_amount.toFixed(2)}
+                        </div>`;
+                        $('#discrepancyModalContent').prepend(message);
+                        
+                        // Update the transfer total amount field
+                        $('#transferTotalAmount').val(response.updated_transfer_amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ","));
+                        
+                        // Update small message
+                        $('#discrepancyMessage').html(`<span class="text-success"><i class="fa fa-check"></i> ${response.removed_duplicates_count} duplicate(s) removed. Total updated.</span>`);
+                        
+                        // Reload the page after a short delay
+                        setTimeout(function() {
+                            location.reload();
+                        }, 2000);
+                    } else {
+                        $('#discrepancyModalContent').prepend(`<div class="alert alert-danger">Failed to remove duplicates</div>`);
+                    }
+                },
+                error: function(xhr) {
+                    btn.prop('disabled', false).html(originalText);
+                    $('#discrepancyModalContent').prepend(`<div class="alert alert-danger">Error: ${xhr.responseJSON?.error || 'Unknown error'}</div>`);
+                }
+            });
+        });
+
+        // Fix Discrepancies button in modal
+        $(document).on('click', '#fixDiscrepanciesModalBtn', function() {
+            if (!confirm('This will update transfer fee details to match ledger entries. Continue?')) {
+                return;
+            }
+            
+            const btn = $(this);
+            const originalText = btn.html();
+            btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Fixing...');
+            
+            $.ajax({
+                url: '/transferfee/fix-discrepancies/{{ $TransferFeeMain->id }}',
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                },
+                success: function(response) {
+                    btn.prop('disabled', false).html(originalText);
+                    
+                    if (response.success) {
+                        let message = `<div class="alert alert-success">
+                            <strong><i class="fa fa-check-circle"></i> Fixed ${response.fixed_details_count} invoice(s):</strong><br>
+                            Updated Total: RM ${response.updated_transfer_amount.toFixed(2)}
+                        </div>`;
+                        $('#discrepancyModalContent').prepend(message);
+                        
+                        // Update the transfer total amount field
+                        $('#transferTotalAmount').val(response.updated_transfer_amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ","));
+                        
+                        // Reload the page after a short delay
+                        setTimeout(function() {
+                            location.reload();
+                        }, 2000);
+                    } else {
+                        $('#discrepancyModalContent').prepend(`<div class="alert alert-danger">Failed to fix discrepancies</div>`);
+                    }
+                },
+                error: function(xhr) {
+                    btn.prop('disabled', false).html(originalText);
+                    $('#discrepancyModalContent').prepend(`<div class="alert alert-danger">Error: ${xhr.responseJSON?.error || 'Unknown error'}</div>`);
+                }
+            });
+        });
     </script>
 @endsection

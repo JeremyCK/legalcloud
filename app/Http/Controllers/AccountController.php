@@ -943,16 +943,537 @@ class AccountController extends Controller
         $SumTransgerFee = 0;
 
         $TransferFeeMain  = TransferFeeMain::where('id', '=', $id)->first();
-        $TransferFeeDetailsSum  = TransferFeeDetails::where('transfer_fee_main_id', '=', $id)->get();
+        $TransferFeeDetailsSum  = TransferFeeDetails::where('transfer_fee_main_id', '=', $id)
+            ->where('status', '<>', 99)
+            ->get();
 
         if (count($TransferFeeDetailsSum) > 0) {
             for ($j = 0; $j < count($TransferFeeDetailsSum); $j++) {
-                $SumTransgerFee += $TransferFeeDetailsSum[$j]->transfer_amount + $TransferFeeDetailsSum[$j]->sst_amount;
+                // Include all components: transfer_amount + sst_amount + reimbursement_amount + reimbursement_sst_amount
+                $SumTransgerFee += ($TransferFeeDetailsSum[$j]->transfer_amount ?? 0);
+                $SumTransgerFee += ($TransferFeeDetailsSum[$j]->sst_amount ?? 0);
+                $SumTransgerFee += ($TransferFeeDetailsSum[$j]->reimbursement_amount ?? 0);
+                $SumTransgerFee += ($TransferFeeDetailsSum[$j]->reimbursement_sst_amount ?? 0);
             }
         }
 
-        $TransferFeeMain->transfer_amount = $SumTransgerFee;
+        $TransferFeeMain->transfer_amount = round($SumTransgerFee, 2);
         $TransferFeeMain->save();
+    }
+
+    /**
+     * Verify transfer fee totals from both sources
+     */
+    public function verifyTransferFeeTotals($id)
+    {
+        $TransferFeeMain = TransferFeeMain::where('id', '=', $id)->first();
+        
+        if (!$TransferFeeMain) {
+            return response()->json(['error' => 'Transfer fee not found'], 404);
+        }
+        
+        // Get totals from transfer_fee_details
+        $transferFeeDetails = TransferFeeDetails::where('transfer_fee_main_id', '=', $id)
+            ->where('status', '<>', 99)
+            ->get();
+        
+        $detailsTotal = 0;
+        $detailsBreakdown = [
+            'transfer_amount' => 0,
+            'sst_amount' => 0,
+            'reimbursement_amount' => 0,
+            'reimbursement_sst_amount' => 0
+        ];
+        
+        foreach ($transferFeeDetails as $detail) {
+            $detailsBreakdown['transfer_amount'] += ($detail->transfer_amount ?? 0);
+            $detailsBreakdown['sst_amount'] += ($detail->sst_amount ?? 0);
+            $detailsBreakdown['reimbursement_amount'] += ($detail->reimbursement_amount ?? 0);
+            $detailsBreakdown['reimbursement_sst_amount'] += ($detail->reimbursement_sst_amount ?? 0);
+            $detailsTotal += ($detail->transfer_amount ?? 0) + ($detail->sst_amount ?? 0) + ($detail->reimbursement_amount ?? 0) + ($detail->reimbursement_sst_amount ?? 0);
+        }
+        
+        // Get totals from ledger entries
+        $ledgerEntries = DB::table('ledger_entries_v2')
+            ->where('transaction_id', '=', $TransferFeeMain->transaction_id)
+            ->where('status', '<>', 99)
+            ->whereIn('type', ['TRANSFER_IN', 'SST_IN', 'REIMB_IN', 'REIMB_SST_IN'])
+            ->select('type', DB::raw('SUM(amount) as total'), DB::raw('COUNT(*) as count'))
+            ->groupBy('type')
+            ->get();
+        
+        $ledgerTotal = 0;
+        $ledgerBreakdown = [
+            'TRANSFER_IN' => 0,
+            'SST_IN' => 0,
+            'REIMB_IN' => 0,
+            'REIMB_SST_IN' => 0
+        ];
+        
+        foreach ($ledgerEntries as $entry) {
+            $ledgerTotal += $entry->total;
+            $ledgerBreakdown[$entry->type] = [
+                'total' => round($entry->total, 2),
+                'count' => $entry->count
+            ];
+        }
+        
+        // Calculate what "Transferred Bal" and "Transferred SST" should be
+        $transferredBal = $detailsBreakdown['transfer_amount'] + $detailsBreakdown['reimbursement_amount'];
+        $transferredSst = $detailsBreakdown['sst_amount'] + $detailsBreakdown['reimbursement_sst_amount'];
+        
+        return response()->json([
+            'transfer_fee_main_id' => $id,
+            'transaction_id' => $TransferFeeMain->transaction_id,
+            'transfer_fee_main_transfer_amount' => round($TransferFeeMain->transfer_amount ?? 0, 2),
+            'details_total' => round($detailsTotal, 2),
+            'ledger_total' => round($ledgerTotal, 2),
+            'difference' => round($ledgerTotal - $detailsTotal, 2),
+            'details_breakdown' => [
+                'transfer_amount' => round($detailsBreakdown['transfer_amount'], 2),
+                'sst_amount' => round($detailsBreakdown['sst_amount'], 2),
+                'reimbursement_amount' => round($detailsBreakdown['reimbursement_amount'], 2),
+                'reimbursement_sst_amount' => round($detailsBreakdown['reimbursement_sst_amount'], 2),
+                'transferred_bal' => round($transferredBal, 2),
+                'transferred_sst' => round($transferredSst, 2),
+                'transferred_bal_plus_sst' => round($transferredBal + $transferredSst, 2)
+            ],
+            'ledger_breakdown' => $ledgerBreakdown,
+            'details_count' => $transferFeeDetails->count(),
+            'ledger_entry_count' => $ledgerEntries->sum('count')
+        ]);
+    }
+
+    /**
+     * Find discrepancies between transfer_fee_details and ledger entries
+     * Handles split invoices correctly by checking if amounts should be split
+     */
+    public function findTransferFeeDiscrepancies($id)
+    {
+        $TransferFeeMain = TransferFeeMain::where('id', '=', $id)->first();
+        
+        if (!$TransferFeeMain) {
+            return response()->json(['error' => 'Transfer fee not found'], 404);
+        }
+        
+        // Get all transfer fee details
+        $transferFeeDetails = TransferFeeDetails::where('transfer_fee_main_id', '=', $id)
+            ->where('status', '<>', 99)
+            ->get();
+        
+        $discrepancies = [];
+        
+        foreach ($transferFeeDetails as $detail) {
+            // Get invoice info to check if it's a split invoice
+            $invoice = DB::table('loan_case_invoice_main')
+                ->where('id', '=', $detail->loan_case_invoice_main_id)
+                ->first();
+            
+            if (!$invoice) {
+                continue;
+            }
+            
+            // Check if this is a split invoice (multiple invoices for same bill)
+            $billId = $invoice->loan_case_main_bill_id ?? null;
+            $splitInvoiceCount = 0;
+            $splitInvoiceIds = [];
+            
+            if ($billId) {
+                $splitInvoices = DB::table('loan_case_invoice_main')
+                    ->where('loan_case_main_bill_id', '=', $billId)
+                    ->where('status', '<>', 99)
+                    ->pluck('id')
+                    ->toArray();
+                $splitInvoiceCount = count($splitInvoices);
+                $splitInvoiceIds = $splitInvoices;
+            }
+            
+            // Get ledger entries for this detail record
+            $ledgerEntries = DB::table('ledger_entries_v2')
+                ->where('key_id_2', '=', $detail->id)
+                ->where('transaction_id', '=', $TransferFeeMain->transaction_id)
+                ->where('status', '<>', 99)
+                ->get();
+            
+            $ledgerPfee = 0;
+            $ledgerSst = 0;
+            $ledgerReimb = 0;
+            $ledgerReimbSst = 0;
+            
+            // Track entries to detect duplicates
+            $entryGroups = [
+                'TRANSFER_IN' => [],
+                'SST_IN' => [],
+                'REIMB_IN' => [],
+                'REIMB_SST_IN' => []
+            ];
+            
+            foreach ($ledgerEntries as $entry) {
+                if ($entry->type == 'TRANSFER_IN') {
+                    $ledgerPfee += $entry->amount;
+                    $entryGroups['TRANSFER_IN'][] = ['id' => $entry->id, 'amount' => $entry->amount];
+                } elseif ($entry->type == 'SST_IN') {
+                    $ledgerSst += $entry->amount;
+                    $entryGroups['SST_IN'][] = ['id' => $entry->id, 'amount' => $entry->amount];
+                } elseif ($entry->type == 'REIMB_IN') {
+                    $ledgerReimb += $entry->amount;
+                    $entryGroups['REIMB_IN'][] = ['id' => $entry->id, 'amount' => $entry->amount];
+                } elseif ($entry->type == 'REIMB_SST_IN') {
+                    $ledgerReimbSst += $entry->amount;
+                    $entryGroups['REIMB_SST_IN'][] = ['id' => $entry->id, 'amount' => $entry->amount];
+                }
+            }
+            
+            // Check for duplicates
+            $hasDuplicates = false;
+            $duplicateInfo = [];
+            foreach ($entryGroups as $type => $entries) {
+                if (count($entries) > 1) {
+                    // Check if amounts are the same (duplicates)
+                    $amounts = array_column($entries, 'amount');
+                    $uniqueAmounts = array_unique($amounts);
+                    if (count($uniqueAmounts) == 1 && count($amounts) > 1) {
+                        $hasDuplicates = true;
+                        $duplicateInfo[] = "{$type}: {$amounts[0]} appears " . count($amounts) . " times (entry IDs: " . implode(', ', array_column($entries, 'id')) . ")";
+                    }
+                }
+            }
+            
+            $detailPfee = $detail->transfer_amount ?? 0;
+            $detailSst = $detail->sst_amount ?? 0;
+            $detailReimb = $detail->reimbursement_amount ?? 0;
+            $detailReimbSst = $detail->reimbursement_sst_amount ?? 0;
+            
+            // For split invoices, check if ledger has full amount but detail has half
+            $isSplitInvoice = $splitInvoiceCount > 1;
+            $splitNote = '';
+            
+            if ($isSplitInvoice && ($ledgerReimb > $detailReimb || $ledgerReimbSst > $detailReimbSst)) {
+                // Check if ledger has full amount (sum of all split invoices)
+                $totalDetailReimb = TransferFeeDetails::where('transfer_fee_main_id', '=', $id)
+                    ->whereIn('loan_case_invoice_main_id', $splitInvoiceIds)
+                    ->where('status', '<>', 99)
+                    ->sum('reimbursement_amount');
+                
+                $totalDetailReimbSst = TransferFeeDetails::where('transfer_fee_main_id', '=', $id)
+                    ->whereIn('loan_case_invoice_main_id', $splitInvoiceIds)
+                    ->where('status', '<>', 99)
+                    ->sum('reimbursement_sst_amount');
+                
+                // If ledger has full amount but detail has half, this is a split invoice issue
+                // The ledger entries are wrong - they should be split between invoices
+                if (abs($ledgerReimb - $totalDetailReimb) < 0.01 && abs($ledgerReimb - $detailReimb) > 0.01) {
+                    $splitNote = " ⚠️ Split invoice: Ledger has FULL amount ({$ledgerReimb}) but this invoice should have HALF ({$detailReimb}). The transfer_fee_details is CORRECT - ledger entries need to be split between split invoices.";
+                    // Still flag as discrepancy but note that transfer_fee_details is correct
+                }
+                if (abs($ledgerReimbSst - $totalDetailReimbSst) < 0.01 && abs($ledgerReimbSst - $detailReimbSst) > 0.01) {
+                    $splitNote .= " Same for SST: Ledger has {$ledgerReimbSst} but should be {$detailReimbSst}.";
+                }
+            }
+            
+            $hasDiscrepancy = false;
+            $discrepancy = [
+                'transfer_fee_detail_id' => $detail->id,
+                'invoice_id' => $detail->loan_case_invoice_main_id,
+                'invoice_no' => $invoice->invoice_no ?? 'N/A',
+                'is_split_invoice' => $isSplitInvoice,
+                'split_invoice_count' => $splitInvoiceCount,
+                'has_duplicate_entries' => $hasDuplicates,
+                'duplicate_info' => $duplicateInfo,
+                'pfee_match' => abs($ledgerPfee - $detailPfee) < 0.01,
+                'sst_match' => abs($ledgerSst - $detailSst) < 0.01,
+                'reimb_match' => abs($ledgerReimb - $detailReimb) < 0.01,
+                'reimb_sst_match' => abs($ledgerReimbSst - $detailReimbSst) < 0.01,
+                'pfee_detail' => round($detailPfee, 2),
+                'pfee_ledger' => round($ledgerPfee, 2),
+                'pfee_diff' => round($ledgerPfee - $detailPfee, 2),
+                'sst_detail' => round($detailSst, 2),
+                'sst_ledger' => round($ledgerSst, 2),
+                'sst_diff' => round($ledgerSst - $detailSst, 2),
+                'reimb_detail' => round($detailReimb, 2),
+                'reimb_ledger' => round($ledgerReimb, 2),
+                'reimb_diff' => round($ledgerReimb - $detailReimb, 2),
+                'reimb_sst_detail' => round($detailReimbSst, 2),
+                'reimb_sst_ledger' => round($ledgerReimbSst, 2),
+                'reimb_sst_diff' => round($ledgerReimbSst - $detailReimbSst, 2),
+                'split_note' => $splitNote,
+            ];
+            
+            if (!$discrepancy['pfee_match'] || !$discrepancy['sst_match'] || !$discrepancy['reimb_match'] || !$discrepancy['reimb_sst_match']) {
+                $hasDiscrepancy = true;
+            }
+            
+            if ($hasDiscrepancy) {
+                $discrepancies[] = $discrepancy;
+            }
+        }
+        
+        return response()->json([
+            'transfer_fee_main_id' => $id,
+            'transaction_id' => $TransferFeeMain->transaction_id,
+            'total_discrepancies' => count($discrepancies),
+            'discrepancies' => $discrepancies
+        ]);
+    }
+
+    /**
+     * Remove duplicate ledger entries for a transfer fee
+     * This fixes discrepancies caused by duplicate ledger entries
+     */
+    public function removeDuplicateLedgerEntries($id)
+    {
+        $TransferFeeMain = TransferFeeMain::where('id', '=', $id)->first();
+        
+        if (!$TransferFeeMain) {
+            return response()->json(['error' => 'Transfer fee not found'], 404);
+        }
+        
+        // Get all transfer fee details
+        $transferFeeDetails = TransferFeeDetails::where('transfer_fee_main_id', '=', $id)
+            ->where('status', '<>', 99)
+            ->get();
+        
+        $removedCount = 0;
+        $removedEntries = [];
+        
+        foreach ($transferFeeDetails as $detail) {
+            // Get all ledger entries for this detail record
+            $ledgerEntries = DB::table('ledger_entries_v2')
+                ->where('key_id_2', '=', $detail->id)
+                ->where('transaction_id', '=', $TransferFeeMain->transaction_id)
+                ->where('status', '<>', 99)
+                ->orderBy('id', 'asc')
+                ->get();
+            
+            // Group by type and amount to find duplicates
+            $entryGroups = [];
+            foreach ($ledgerEntries as $entry) {
+                $key = $entry->type . '_' . $entry->amount;
+                if (!isset($entryGroups[$key])) {
+                    $entryGroups[$key] = [];
+                }
+                $entryGroups[$key][] = $entry;
+            }
+            
+            // For each group, keep the first entry and delete duplicates
+            foreach ($entryGroups as $key => $entries) {
+                if (count($entries) > 1) {
+                    // Keep the first entry (oldest ID), delete the rest
+                    $firstEntry = array_shift($entries);
+                    foreach ($entries as $duplicate) {
+                        DB::table('ledger_entries_v2')
+                            ->where('id', '=', $duplicate->id)
+                            ->delete();
+                        $removedCount++;
+                        $removedEntries[] = [
+                            'entry_id' => $duplicate->id,
+                            'type' => $duplicate->type,
+                            'amount' => $duplicate->amount,
+                            'transfer_fee_detail_id' => $detail->id
+                        ];
+                    }
+                }
+            }
+        }
+        
+        // Update transfer_fee_main amount after removing duplicates
+        $this->updateTransferFeeMainAmt($id);
+        
+        // Get updated total
+        $TransferFeeMain->refresh();
+        
+        return response()->json([
+            'success' => true,
+            'transfer_fee_main_id' => $id,
+            'transaction_id' => $TransferFeeMain->transaction_id,
+            'removed_duplicates_count' => $removedCount,
+            'updated_transfer_amount' => round($TransferFeeMain->transfer_amount, 2),
+            'removed_entries' => $removedEntries
+        ]);
+    }
+
+    /**
+     * Fix transfer fee discrepancies by updating transfer_fee_details to match ledger entries
+     * NOTE: This should NOT be used if discrepancies are caused by duplicate ledger entries
+     * Use removeDuplicateLedgerEntries() instead
+     */
+    public function fixTransferFeeDiscrepancies($id)
+    {
+        $TransferFeeMain = TransferFeeMain::where('id', '=', $id)->first();
+        
+        if (!$TransferFeeMain) {
+            return response()->json(['error' => 'Transfer fee not found'], 404);
+        }
+        
+        // Get all transfer fee details
+        $transferFeeDetails = TransferFeeDetails::where('transfer_fee_main_id', '=', $id)
+            ->where('status', '<>', 99)
+            ->get();
+        
+        $fixedCount = 0;
+        $fixedDetails = [];
+        $totalFixedReimb = 0;
+        $totalFixedReimbSst = 0;
+        
+        foreach ($transferFeeDetails as $detail) {
+            // Get ledger entries for this detail record
+            $ledgerEntries = DB::table('ledger_entries_v2')
+                ->where('key_id_2', '=', $detail->id)
+                ->where('transaction_id', '=', $TransferFeeMain->transaction_id)
+                ->where('status', '<>', 99)
+                ->get();
+            
+            $ledgerPfee = 0;
+            $ledgerSst = 0;
+            $ledgerReimb = 0;
+            $ledgerReimbSst = 0;
+            
+            foreach ($ledgerEntries as $entry) {
+                if ($entry->type == 'TRANSFER_IN') {
+                    $ledgerPfee += $entry->amount;
+                } elseif ($entry->type == 'SST_IN') {
+                    $ledgerSst += $entry->amount;
+                } elseif ($entry->type == 'REIMB_IN') {
+                    $ledgerReimb += $entry->amount;
+                } elseif ($entry->type == 'REIMB_SST_IN') {
+                    $ledgerReimbSst += $entry->amount;
+                }
+            }
+            
+            $detailPfee = $detail->transfer_amount ?? 0;
+            $detailSst = $detail->sst_amount ?? 0;
+            $detailReimb = $detail->reimbursement_amount ?? 0;
+            $detailReimbSst = $detail->reimbursement_sst_amount ?? 0;
+            
+            $needsUpdate = false;
+            $updateInfo = [
+                'transfer_fee_detail_id' => $detail->id,
+                'invoice_id' => $detail->loan_case_invoice_main_id,
+            ];
+            
+            // Check and fix reimbursement amounts
+            if (abs($ledgerReimb - $detailReimb) > 0.01) {
+                $oldReimb = $detailReimb;
+                $detail->reimbursement_amount = round($ledgerReimb, 2);
+                $needsUpdate = true;
+                $updateInfo['reimbursement'] = [
+                    'old' => round($oldReimb, 2),
+                    'new' => round($ledgerReimb, 2),
+                    'diff' => round($ledgerReimb - $oldReimb, 2)
+                ];
+                $totalFixedReimb += ($ledgerReimb - $oldReimb);
+            }
+            
+            if (abs($ledgerReimbSst - $detailReimbSst) > 0.01) {
+                $oldReimbSst = $detailReimbSst;
+                $detail->reimbursement_sst_amount = round($ledgerReimbSst, 2);
+                $needsUpdate = true;
+                $updateInfo['reimbursement_sst'] = [
+                    'old' => round($oldReimbSst, 2),
+                    'new' => round($ledgerReimbSst, 2),
+                    'diff' => round($ledgerReimbSst - $oldReimbSst, 2)
+                ];
+                $totalFixedReimbSst += ($ledgerReimbSst - $oldReimbSst);
+            }
+            
+            if ($needsUpdate) {
+                $detail->save();
+                $fixedCount++;
+                
+                // Get invoice number
+                $invoice = DB::table('loan_case_invoice_main')
+                    ->where('id', '=', $detail->loan_case_invoice_main_id)
+                    ->first();
+                $updateInfo['invoice_no'] = $invoice->invoice_no ?? 'N/A';
+                
+                $fixedDetails[] = $updateInfo;
+            }
+        }
+        
+        // Update transfer_fee_main amount after fixing details
+        $this->updateTransferFeeMainAmt($id);
+        
+        // Get updated total
+        $TransferFeeMain->refresh();
+        
+        return response()->json([
+            'success' => true,
+            'transfer_fee_main_id' => $id,
+            'transaction_id' => $TransferFeeMain->transaction_id,
+            'fixed_details_count' => $fixedCount,
+            'total_fixed_reimbursement' => round($totalFixedReimb, 2),
+            'total_fixed_reimbursement_sst' => round($totalFixedReimbSst, 2),
+            'updated_transfer_amount' => round($TransferFeeMain->transfer_amount, 2),
+            'fixed_details' => $fixedDetails
+        ]);
+    }
+
+    /**
+     * Recalculate and update transfer_fee_main amount from transfer_fee_details
+     * This recalculates the total from the details table (source of truth)
+     */
+    public function recalculateTransferFeeTotal($id)
+    {
+        $TransferFeeMain = TransferFeeMain::where('id', '=', $id)->first();
+        
+        if (!$TransferFeeMain) {
+            return response()->json(['error' => 'Transfer fee not found'], 404);
+        }
+        
+        // Recalculate from transfer_fee_details (source of truth)
+        $total = TransferFeeDetails::where('transfer_fee_main_id', '=', $id)
+            ->where('status', '<>', 99)
+            ->selectRaw('SUM(COALESCE(transfer_amount, 0) + COALESCE(sst_amount, 0) + COALESCE(reimbursement_amount, 0) + COALESCE(reimbursement_sst_amount, 0)) as total')
+            ->value('total');
+        
+        $oldAmount = $TransferFeeMain->transfer_amount;
+        $newAmount = round($total ?? 0, 2);
+        
+        $TransferFeeMain->transfer_amount = $newAmount;
+        $TransferFeeMain->save();
+        
+        return response()->json([
+            'success' => true,
+            'transfer_fee_main_id' => $id,
+            'transaction_id' => $TransferFeeMain->transaction_id,
+            'old_amount' => round($oldAmount, 2),
+            'new_amount' => $newAmount,
+            'difference' => round($newAmount - $oldAmount, 2),
+            'calculated_from' => 'transfer_fee_details'
+        ]);
+    }
+
+    /**
+     * Update transfer_fee_main amount from ledger entries (for fixing discrepancies)
+     * This ensures the total matches what's in the ledger_entries_v2 table
+     */
+    public function updateTransferFeeMainFromLedger($id)
+    {
+        $TransferFeeMain = TransferFeeMain::where('id', '=', $id)->first();
+        
+        if (!$TransferFeeMain) {
+            return response()->json(['error' => 'Transfer fee not found'], 404);
+        }
+        
+        // Get total from ledger entries
+        $ledgerTotal = DB::table('ledger_entries_v2')
+            ->where('transaction_id', '=', $TransferFeeMain->transaction_id)
+            ->where('status', '<>', 99)
+            ->whereIn('type', ['TRANSFER_IN', 'SST_IN', 'REIMB_IN', 'REIMB_SST_IN'])
+            ->sum('amount');
+        
+        $oldAmount = $TransferFeeMain->transfer_amount;
+        $TransferFeeMain->transfer_amount = round($ledgerTotal, 2);
+        $TransferFeeMain->save();
+        
+        return response()->json([
+            'success' => true,
+            'transfer_fee_main_id' => $id,
+            'transaction_id' => $TransferFeeMain->transaction_id,
+            'old_amount' => round($oldAmount, 2),
+            'new_amount' => round($ledgerTotal, 2),
+            'difference' => round($ledgerTotal - $oldAmount, 2)
+        ]);
     }
 
     public function reconTransferFee($id)
@@ -2986,7 +3507,17 @@ class AccountController extends Controller
             //     }
             // }
 
-            if ($request->input("no_date_range_filter") == 0) {
+            // If transaction_id is provided, ignore date range filter to include all entries for that transaction
+            // This is because ledger entries use invoice payment dates, which may differ from transfer date
+            $hasTransactionIdFilter = $request->input("trx_id") && trim($request->input("trx_id")) != '';
+            
+            if ($hasTransactionIdFilter) {
+                // Use exact match instead of LIKE to match the SQL query and avoid unintended matches
+                $safe_keeping->where('m.transaction_id', '=', $request->input("trx_id"));
+                // Don't apply date range filter when filtering by transaction_id
+                // This ensures all entries for the same transaction batch are included
+            } else if ($request->input("no_date_range_filter") == 0) {
+                // Apply date range filter only when NOT filtering by transaction_id
                 if ($request->input("date_from") <> null && $request->input("date_to") <> null) {
                     $safe_keeping = $safe_keeping->whereBetween('m.date', [$request->input("date_from"), $request->input("date_to")]);
                 } else {
@@ -2998,10 +3529,6 @@ class AccountController extends Controller
                         $safe_keeping = $safe_keeping->where('m.date', '<=', $request->input("date_to"));
                     }
                 }
-            }
-
-            if ($request->input("trx_id")) {
-                $safe_keeping->where('m.transaction_id', 'like', '%' . $request->input("trx_id") . '%');
             }
 
             if ($request->input("trx_amt")) {
@@ -3040,10 +3567,12 @@ class AccountController extends Controller
 
                 $safe_keeping = $safe_keeping->where(function ($q) use ($accessInfo) {
                     $q->whereIn('l.branch_id',  $accessInfo['brancAccessList'])
-                        ->orWhereIn('sales_user_id', $accessInfo['user_list'])
-                        ->orWhereIn('clerk_id', $accessInfo['user_list'])
+                        ->orWhereIn('l.sales_user_id', $accessInfo['user_list'])
+                        ->orWhereIn('l.clerk_id', $accessInfo['user_list'])
                         ->orWhereIn('l.id', $accessInfo['case_list'])
-                        ->orWhereIn('lawyer_id', $accessInfo['user_list']);
+                        ->orWhereIn('l.lawyer_id', $accessInfo['user_list'])
+                        // Include entries where case_id is null (system entries like transfer fees)
+                        ->orWhereNull('m.case_id');
                 });
             }
 
@@ -3145,6 +3674,8 @@ class AccountController extends Controller
                 ->rawColumns(['action', 'cheque_no', 'voucher_type', 'transaction_type', 'is_recon', 'case_ref_no'])
                 ->make(true);
         }
+        
+        return response()->json(['error' => 'Invalid request'], 400);
     }
 
     public function getBankReconTotal(Request $request)
@@ -3176,7 +3707,17 @@ class AccountController extends Controller
             //     }
             // }
 
-            if ($request->input("no_date_range_filter") == 0) {
+            // If transaction_id is provided, ignore date range filter to include all entries for that transaction
+            // This is because ledger entries use invoice payment dates, which may differ from transfer date
+            $hasTransactionIdFilter = $request->input("trx_id") && trim($request->input("trx_id")) != '';
+            
+            if ($hasTransactionIdFilter) {
+                // Use exact match instead of LIKE to match the SQL query and avoid unintended matches
+                $safe_keeping->where('m.transaction_id', '=', $request->input("trx_id"));
+                // Don't apply date range filter when filtering by transaction_id
+                // This ensures all entries for the same transaction batch are included
+            } else if ($request->input("no_date_range_filter") == 0) {
+                // Apply date range filter only when NOT filtering by transaction_id
                 if ($request->input("date_from") <> null && $request->input("date_to") <> null) {
                     $safe_keeping = $safe_keeping->whereBetween('m.date', [$request->input("date_from"), $request->input("date_to")]);
                 } else {
@@ -3188,10 +3729,6 @@ class AccountController extends Controller
                         $safe_keeping = $safe_keeping->where('m.date', '<=', $request->input("date_to"));
                     }
                 }
-            }
-
-            if ($request->input("trx_id")) {
-                $safe_keeping->where('m.transaction_id', 'like', '%' . $request->input("trx_id") . '%');
             }
 
             if ($request->input("trx_amt")) {
@@ -3230,10 +3767,12 @@ class AccountController extends Controller
 
                 $safe_keeping = $safe_keeping->where(function ($q) use ($accessInfo) {
                     $q->whereIn('l.branch_id',  $accessInfo['brancAccessList'])
-                        ->orWhereIn('sales_user_id', $accessInfo['user_list'])
-                        ->orWhereIn('clerk_id', $accessInfo['user_list'])
+                        ->orWhereIn('l.sales_user_id', $accessInfo['user_list'])
+                        ->orWhereIn('l.clerk_id', $accessInfo['user_list'])
                         ->orWhereIn('l.id', $accessInfo['case_list'])
-                        ->orWhereIn('lawyer_id', $accessInfo['user_list']);
+                        ->orWhereIn('l.lawyer_id', $accessInfo['user_list'])
+                        // Include entries where case_id is null (system entries like transfer fees)
+                        ->orWhereNull('m.case_id');
                 });
             }
 
@@ -3241,6 +3780,114 @@ class AccountController extends Controller
 
             return $safe_keeping;
         }
+        
+        return 0;
+    }
+
+    public function diagnoseBankReconDiscrepancy(Request $request)
+    {
+        if ($request->ajax()) {
+            $transactionId = $request->input("trx_id");
+            $bankId = $request->input("bank_id", 15);
+            
+            if (!$transactionId) {
+                return response()->json(['error' => 'Transaction ID required'], 400);
+            }
+            
+            // Get totals from ledger_entries_v2 (what bank reconciliation shows)
+            $ledgerTotals = DB::table('ledger_entries_v2 as m')
+                ->leftJoin('loan_case as l', 'l.id', '=', 'm.case_id')
+                ->leftJoin('office_bank_account as b', 'b.id', '=', 'm.bank_id')
+                ->where('m.transaction_id', '=', $transactionId)
+                ->where('m.status', '<>', 99)
+                ->where('m.bank_id', '=', $bankId)
+                ->whereIn('m.type', ['TRANSFER_IN', 'SST_IN', 'REIMB_IN', 'REIMB_SST_IN'])
+                ->selectRaw('m.type, SUM(m.amount) as total, COUNT(*) as count')
+                ->groupBy('m.type')
+                ->get();
+            
+            // Get totals from transfer_fee_details (what transfer fee page shows)
+            $transferFeeMain = DB::table('transfer_fee_main')
+                ->where('transaction_id', '=', $transactionId)
+                ->where('status', '<>', 99)
+                ->first();
+            
+            $transferFeeDetails = null;
+            if ($transferFeeMain) {
+                $transferFeeDetails = DB::table('transfer_fee_details')
+                    ->where('transfer_fee_main_id', '=', $transferFeeMain->id)
+                    ->where('status', '<>', 99)
+                    ->selectRaw('
+                        SUM(transfer_amount) as total_pfee,
+                        SUM(sst_amount) as total_sst,
+                        SUM(reimbursement_amount) as total_reimb,
+                        SUM(reimbursement_sst_amount) as total_reimb_sst,
+                        COUNT(*) as count
+                    ')
+                    ->first();
+            }
+            
+            // Calculate totals
+            $ledgerTotal = 0;
+            $ledgerBreakdown = [];
+            foreach ($ledgerTotals as $row) {
+                $ledgerTotal += $row->total;
+                $ledgerBreakdown[$row->type] = [
+                    'total' => $row->total,
+                    'count' => $row->count
+                ];
+            }
+            
+            $transferFeeTotal = 0;
+            if ($transferFeeDetails) {
+                $transferFeeTotal = ($transferFeeDetails->total_pfee ?? 0) + 
+                                  ($transferFeeDetails->total_sst ?? 0) + 
+                                  ($transferFeeDetails->total_reimb ?? 0) + 
+                                  ($transferFeeDetails->total_reimb_sst ?? 0);
+            }
+            
+            // Check for extra entries in ledger that don't match transfer_fee_details
+            $extraEntries = DB::table('ledger_entries_v2 as m')
+                ->leftJoin('transfer_fee_details as tfd', function($join) {
+                    $join->on('m.key_id_2', '=', 'tfd.id')
+                         ->orOn('m.key_id', '=', DB::raw('(SELECT transfer_fee_main_id FROM transfer_fee_details WHERE id = m.key_id_2)'));
+                })
+                ->where('m.transaction_id', '=', $transactionId)
+                ->where('m.status', '<>', 99)
+                ->where('m.bank_id', '=', $bankId)
+                ->whereIn('m.type', ['TRANSFER_IN', 'SST_IN', 'REIMB_IN', 'REIMB_SST_IN'])
+                ->whereNull('tfd.id')
+                ->select('m.*')
+                ->get();
+            
+            return response()->json([
+                'transaction_id' => $transactionId,
+                'bank_id' => $bankId,
+                'ledger_total' => round($ledgerTotal, 2),
+                'transfer_fee_total' => round($transferFeeTotal, 2),
+                'difference' => round($ledgerTotal - $transferFeeTotal, 2),
+                'ledger_breakdown' => $ledgerBreakdown,
+                'transfer_fee_breakdown' => $transferFeeDetails ? [
+                    'TRANSFER_IN' => round($transferFeeDetails->total_pfee ?? 0, 2),
+                    'SST_IN' => round($transferFeeDetails->total_sst ?? 0, 2),
+                    'REIMB_IN' => round($transferFeeDetails->total_reimb ?? 0, 2),
+                    'REIMB_SST_IN' => round($transferFeeDetails->total_reimb_sst ?? 0, 2),
+                ] : null,
+                'extra_entries_count' => $extraEntries->count(),
+                'extra_entries' => $extraEntries->map(function($entry) {
+                    return [
+                        'id' => $entry->id,
+                        'type' => $entry->type,
+                        'amount' => $entry->amount,
+                        'date' => $entry->date,
+                        'key_id' => $entry->key_id,
+                        'key_id_2' => $entry->key_id_2,
+                    ];
+                })
+            ]);
+        }
+        
+        return response()->json(['error' => 'Invalid request'], 400);
     }
 
     public function getBankReconTotalBak2(Request $request)
