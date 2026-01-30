@@ -4845,26 +4845,71 @@ class AccountController extends Controller
         // $rows = $rows->where('a.id', 1146);    
         $rows = $rows->orderBy('a.created_at', 'asc')->get();
 
+        // Get CA (Client Account) bank account IDs, exclude OA (Office Account) - match case details ledger
+        $clientBankAccountIds = DB::table('office_bank_account')
+            ->where('status', '=', 1)
+            ->where(function($query) {
+                $query->where('account_type', '=', 'CA')
+                      ->orWhereNull('account_type'); // Include entries with no account type or null
+            })
+            ->pluck('id')
+            ->toArray();
+
         $total_credit = 0;
         $total_debit = 0;
 
         for ($i = 0; $i < count($rows); $i++)
         {
+            // DEBUG: Log query for case 41201
+            $is_debug_case = (isset($rows[$i]->case_ref_no) && $rows[$i]->case_ref_no == 'DP/JAN/NRN/OCBCi/41201/MAHBA/MUS') || (isset($rows[$i]->id) && $rows[$i]->id == 7298);
+            
             $credit = DB::table('ledger_entries_v2 as a')
             ->where('a.case_id', '=',  $rows[$i]->id)
             // ->whereNotIn('a.type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'SST_IN', 'TRANSFER_IN', '',''])
             ->whereNotIn('a.type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'SST_IN', 'TRANSFER_IN', 'CLOSEFILE_IN'])
             // ->whereIn('a.type', ['BILL_RECV', 'TRANSFER_OUT', 'SST_OUT', 'BILL_DISB', 'TRUST_DISB', '', 'JOURNAL_OUT','JOURNAL_IN', 'SST_IN'])
             // ->whereIn('a.type', ['TRANSFER_OUT', 'SST_OUT', 'BILL_DISB', 'TRUST_DISB', 'TRUST_DISB', 'JOURNAL_OUT'])
+            ->where(function($query) use ($clientBankAccountIds) {
+                // Exclude OA accounts - only include CA accounts or entries with no bank_id (match case details ledger)
+                if (!empty($clientBankAccountIds)) {
+                    $query->whereIn('a.bank_id', $clientBankAccountIds)
+                          ->orWhereNull('a.bank_id');
+                } else {
+                    // If no CA accounts exist, exclude entries linked to OA accounts
+                    $query->whereNull('a.bank_id')
+                          ->orWhere(function($q) {
+                              $q->whereNotNull('a.bank_id')
+                                ->whereNotExists(function($subQuery) {
+                                    $subQuery->select(DB::raw(1))
+                                             ->from('office_bank_account as oba')
+                                             ->whereColumn('oba.id', 'a.bank_id')
+                                             ->where('oba.account_type', '=', 'OA');
+                                });
+                          });
+                }
+            })
             ->where('a.transaction_type', 'C')
             ->where('a.status', '<>',  99)
-            ->where('a.date','<=',$last_day)
+            // Date filter removed to match case details ledger - both should show all transactions for comparison
+            // ->where('a.date','<=',$last_day)
             ->orderBy('a.date', 'ASC');
 
-            if ($request->input("bank_id")) {
-                $credit = $credit->where('a.bank_id', '=',  $request->input("bank_id"));
-            }
+            // REMOVED: Bank filter should not affect balance calculation - balance should always show ALL CA banks to match case details ledger
+            // if ($request->input("bank_id")) {
+            //     $credit = $credit->where('a.bank_id', '=',  $request->input("bank_id"));
+            // }
 
+            if ($is_debug_case) {
+                $credit_query = clone $credit;
+                $credit_debug = $credit_query->get();
+                Log::info('DEBUG Client Ledger Credit Query', [
+                    'case_id' => $rows[$i]->id,
+                    'case_ref_no' => $rows[$i]->case_ref_no,
+                    'query_count' => count($credit_debug),
+                    'sample_ids' => $credit_debug->take(5)->pluck('id')->toArray()
+                ]);
+            }
+            
             $credit = $credit->sum('amount');
             // $credit = $credit->get();
             // $total_credit += $credit;
@@ -4877,19 +4922,63 @@ class AccountController extends Controller
             // ->whereNotIn('a.type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'SST_IN', 'TRANSFER_IN', 'CLOSEFILE_IN','CLOSEFILE_OUT'])
             // ->whereIn('a.type', ['BILL_RECV', 'TRANSFER_OUT', 'SST_OUT', 'BILL_DISB', 'TRUST_DISB', '', 'JOURNAL_OUT','JOURNAL_IN', ''])
             ->whereNotIn('a.type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'SST_IN', 'TRANSFER_IN', 'CLOSEFILE_IN'])
+            ->where(function($query) use ($clientBankAccountIds) {
+                // Exclude OA accounts - only include CA accounts or entries with no bank_id (match case details ledger)
+                if (!empty($clientBankAccountIds)) {
+                    $query->whereIn('a.bank_id', $clientBankAccountIds)
+                          ->orWhereNull('a.bank_id');
+                } else {
+                    // If no CA accounts exist, exclude entries linked to OA accounts
+                    $query->whereNull('a.bank_id')
+                          ->orWhere(function($q) {
+                              $q->whereNotNull('a.bank_id')
+                                ->whereNotExists(function($subQuery) {
+                                    $subQuery->select(DB::raw(1))
+                                             ->from('office_bank_account as oba')
+                                             ->whereColumn('oba.id', 'a.bank_id')
+                                             ->where('oba.account_type', '=', 'OA');
+                                });
+                          });
+                }
+            })
             ->where('a.transaction_type', 'D')
             ->where('a.status', '<>',  99)
-            ->where('a.date','<=',$last_day)
+            // Date filter removed to match case details ledger - both should show all transactions for comparison
+            // ->where('a.date','<=',$last_day)
             ->orderBy('a.date', 'ASC');
 
-            if ($request->input("bank_id")) {
-                $debit = $debit->where('a.bank_id', '=',  $request->input("bank_id"));
-            }
+            // REMOVED: Bank filter should not affect balance calculation - balance should always show ALL CA banks to match case details ledger
+            // if ($request->input("bank_id")) {
+            //     $debit = $debit->where('a.bank_id', '=',  $request->input("bank_id"));
+            // }
 
+            if ($is_debug_case) {
+                $debit_query = clone $debit;
+                $debit_debug = $debit_query->get();
+                Log::info('DEBUG Client Ledger Debit Query', [
+                    'case_id' => $rows[$i]->id,
+                    'case_ref_no' => $rows[$i]->case_ref_no,
+                    'query_count' => count($debit_debug),
+                    'sample_ids' => $debit_debug->take(5)->pluck('id')->toArray()
+                ]);
+            }
+            
             $debit = $debit->sum('amount');
 
             // $total_debit += $debit;
             $rows[$i]->amount_ledger =  $credit - $debit;
+            
+            // DEBUG: Log calculation for case 41201 or case ID 7298
+            if ($is_debug_case) {
+                Log::info('DEBUG Client Ledger Final Calculation', [
+                    'case_id' => $rows[$i]->id,
+                    'case_ref_no' => $rows[$i]->case_ref_no,
+                    'credit' => $credit,
+                    'debit' => $debit,
+                    'amount_ledger' => $rows[$i]->amount_ledger,
+                    'calculation' => "$credit - $debit = " . ($credit - $debit)
+                ]);
+            }
         }
 
         // return $total_credit;

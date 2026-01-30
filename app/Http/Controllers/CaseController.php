@@ -2981,11 +2981,33 @@ class CaseController extends Controller
                               });
                     }
                 })
-                ->whereNotIn('a.type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'SST_IN', 'TRANSFER_IN', 'CLOSEFILE_IN', 'ABORTFILE_IN', 'REIMB_IN', 'REIMB_SST_IN']) 
+                // Match client ledger excluded types exactly
+                ->whereNotIn('a.type', ['RECONADD', 'RECONLESS', 'SSTIN', 'TRANSFERIN', 'SST_IN', 'TRANSFER_IN', 'CLOSEFILE_IN']) 
                 ->where('a.status', '<>',  99)
                 ->orderBy('a.date', 'ASC')
                 ->orderBy('a.last_row_entry', 'asc')
                 ->get();
+
+            // DEBUG: Calculate totals for case 41201
+            if ($id == 7298) {
+                $debug_credit = 0;
+                $debug_debit = 0;
+                foreach ($ledgers as $ledger) {
+                    if ($ledger->transaction_type == 'C') {
+                        $debug_credit += $ledger->amount;
+                    } else if ($ledger->transaction_type == 'D') {
+                        $debug_debit += $ledger->amount;
+                    }
+                }
+                Log::info('DEBUG Case Details Ledger Calculation', [
+                    'case_id' => $id,
+                    'total_ledgers' => count($ledgers),
+                    'total_credit' => $debug_credit,
+                    'total_debit' => $debug_debit,
+                    'balance' => $debug_credit - $debug_debit,
+                    'calculation' => "$debug_credit - $debug_debit = " . ($debug_credit - $debug_debit)
+                ]);
+            }
 
             for ($i = 0; $i < count($ledgers); $i++) {
                 if (in_array($ledgers[$i]->type, ['BILL_DISB',])) {
