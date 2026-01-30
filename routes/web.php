@@ -1297,6 +1297,8 @@ Route::get('transfer-fee-create', [AccountController::class, 'transferFeeCreate'
     Route::post('/fix-discrepancies/{id}', [AccountController::class, 'fixTransferFeeDiscrepancies'])->name('transferfee.fix-discrepancies');
     Route::post('/remove-duplicate-entries/{id}', [AccountController::class, 'removeDuplicateLedgerEntries'])->name('transferfee.remove-duplicates');
     Route::post('/recalculate-total/{id}', [AccountController::class, 'recalculateTransferFeeTotal'])->name('transferfee.recalculate-total');
+    Route::post('/create-missing-entries/{id}', [AccountController::class, 'createMissingLedgerEntries'])->name('transferfee.create-missing-entries');
+    Route::post('/fix-all-discrepancies/{id}', [AccountController::class, 'fixAllTransferFeeDiscrepancies'])->name('transferfee.fix-all-discrepancies');
             
                             // AJAX endpoints
                 // Route::get('/getTransferInvoiceListV3', [TransferFeeV3Controller::class, 'getTransferInvoiceListV3'])->name('transferfee.invoice-list');

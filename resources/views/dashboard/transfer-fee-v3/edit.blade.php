@@ -14,20 +14,46 @@
 
                     <div class="card">
                         <div class="card-header">
-                            <h4><i class="fa fa-edit"></i> Edit Transfer Fee
-                                @if ($TransferFeeMain->is_recon == '1')
-                                    <span class="badge badge-warning ml-2">RECONCILED - READ ONLY</span>
-                                @endif
-                            </h4>
-                            <small class="text-muted">
-                                @if ($TransferFeeMain->is_recon == '1')
-                                    View transfer fee information (modifications disabled)
-                                @else
-                                    Invoice-based transfer fee editing
-                                @endif
-                            </small>
+                            <div class="row align-items-center">
+                                <div class="col-md-8">
+                                    <h4><i class="fa fa-edit"></i> Edit Transfer Fee
+                                        @if ($TransferFeeMain->is_recon == '1')
+                                            <span class="badge badge-warning ml-2">RECONCILED - READ ONLY</span>
+                                        @endif
+                                    </h4>
+                                    <small class="text-muted">
+                                        @if ($TransferFeeMain->is_recon == '1')
+                                            View transfer fee information (modifications disabled)
+                                        @else
+                                            Invoice-based transfer fee editing
+                                        @endif
+                                    </small>
+                                </div>
+                                <div class="col-md-4 text-right">
+                                    <button type="button" class="btn btn-primary btn-lg" id="scanAndFixDiscrepanciesBtn" 
+                                        title="Scan for discrepancies and automatically fix them">
+                                        <i class="fa fa-search"></i> Scan & Fix Discrepancies
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                         <div class="card-body">
+                            <!-- Discrepancy Status Alert Banner -->
+                            <div id="discrepancyStatusAlert" class="alert alert-info" style="display: none;">
+                                <div class="row align-items-center">
+                                    <div class="col-md-10">
+                                        <h5 class="mb-1">
+                                            <i class="fa fa-info-circle"></i> <span id="discrepancyStatusText">Checking for discrepancies...</span>
+                                        </h5>
+                                        <p class="mb-0" id="discrepancyStatusDescription">Please wait while we scan the transfer records.</p>
+                                    </div>
+                                    <div class="col-md-2 text-right">
+                                        <button type="button" class="btn btn-primary" id="fixAllDiscrepanciesTopBtn" style="display: none;">
+                                            <i class="fa fa-magic"></i> Fix All
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
 
                             <form id="transferFeeForm" method="POST"
                                 action="{{ route('transferfee.update', $TransferFeeMain->id) }}">
@@ -73,26 +99,23 @@
 
                                     <div class="col-md-6">
                                         <div class="form-group">
-                                            <label>Transfer Total Amount</label>
+                                            <label>Transfer Total Amount 
+                                                <span id="discrepancyBadge" style="display: none;">
+                                                    <span class="badge badge-danger ml-2" id="discrepancyBadgeText">
+                                                        <i class="fa fa-exclamation-triangle"></i> Discrepancies Detected
+                                                    </span>
+                                                </span>
+                                            </label>
                                             <div class="input-group">
                                                 <input type="text" class="form-control" name="transfer_total_amount"
                                                     id="transferTotalAmount"
                                                     value="{{ number_format($TransferFeeMain->transfer_amount ?? 0, 2) }}"
                                                     readonly
                                                     style="background-color: #f8f9fa; font-weight: bold; color: #495057;">
-                                                <div class="input-group-append">
-                                                    <button type="button" class="btn btn-info btn-sm" id="checkDiscrepanciesBtn" 
-                                                        title="Check for discrepancies between transfer details and ledger entries">
-                                                        <i class="fa fa-search"></i> Check
-                                                    </button>
-                                                    <button type="button" class="btn btn-warning btn-sm" id="fixDiscrepanciesBtn" 
-                                                        title="Fix discrepancies by updating transfer details to match ledger entries"
-                                                        style="display: none;">
-                                                        <i class="fa fa-wrench"></i> Fix
-                                                    </button>
-                                                </div>
                                             </div>
-                                            <small class="text-muted" id="discrepancyMessage"></small>
+                                            <small class="text-muted" id="discrepancyMessage">
+                                                <i class="fa fa-info-circle"></i> Click "Scan & Fix Discrepancies" above to check for data inconsistencies
+                                            </small>
                                         </div>
                                     </div>
                                 </div>
@@ -121,14 +144,48 @@
                                             </div>
                                             <div class="modal-footer">
                                                 <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
-                                                <button type="button" class="btn btn-danger" id="removeDuplicatesModalBtn" style="display: none;">
-                                                    <i class="fa fa-trash"></i> Remove Duplicates
+                                                <button type="button" class="btn btn-primary" id="fixAllDiscrepanciesBtn" style="display: none;">
+                                                    <i class="fa fa-magic"></i> Fix All Discrepancies
                                                 </button>
-                                                <button type="button" class="btn btn-warning" id="fixDiscrepanciesModalBtn" style="display: none;">
-                                                    <i class="fa fa-wrench"></i> Fix Discrepancies
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Fix All Confirmation Modal -->
+                                <div class="modal fade" id="fixAllConfirmationModal" tabindex="-1" role="dialog" aria-labelledby="fixAllConfirmationModalLabel" aria-hidden="true">
+                                    <div class="modal-dialog modal-xl" role="document">
+                                        <div class="modal-content">
+                                            <div class="modal-header bg-warning">
+                                                <h5 class="modal-title" id="fixAllConfirmationModalLabel">
+                                                    <i class="fa fa-exclamation-triangle"></i> Confirm Fix All Discrepancies
+                                                </h5>
+                                                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                                    <span aria-hidden="true">&times;</span>
                                                 </button>
-                                                <button type="button" class="btn btn-primary" id="recalculateTotalBtn" style="display: none;">
-                                                    <i class="fa fa-calculator"></i> Recalculate & Update Total
+                                            </div>
+                                            <div class="modal-body">
+                                                <div class="alert alert-info">
+                                                    <strong><i class="fa fa-info-circle"></i> This will automatically fix all discrepancies:</strong>
+                                                    <ul class="mb-0 mt-2">
+                                                        <li>Remove duplicate ledger entries</li>
+                                                        <li>Create missing ledger entries</li>
+                                                        <li>Fix amount mismatches</li>
+                                                    </ul>
+                                                </div>
+                                                <div id="fixAllConfirmationContent">
+                                                    <div class="text-center">
+                                                        <div class="spinner-border text-primary" role="status">
+                                                            <span class="sr-only">Loading...</span>
+                                                        </div>
+                                                        <p class="mt-2">Analyzing discrepancies...</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="modal-footer">
+                                                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                                                <button type="button" class="btn btn-primary" id="confirmFixAllBtn">
+                                                    <i class="fa fa-check"></i> Confirm & Fix All
                                                 </button>
                                             </div>
                                         </div>
@@ -3971,154 +4028,478 @@
     </script>
 
     <script>
-        // Check for discrepancies
+        // Auto-check for discrepancies on page load (silent, no modal)
+        $(document).ready(function() {
+            // Show loading state
+            $('#discrepancyStatusAlert').show();
+            $('#discrepancyStatusText').html('<i class="fa fa-spinner fa-spin"></i> Scanning for discrepancies...');
+            $('#discrepancyStatusDescription').text('Please wait while we check the transfer records.');
+            
+            // Auto-check on page load (silent, no modal popup)
+            checkDiscrepancies(false);
+        });
+
+        // Scan and Fix button (prominent button in header) - shows modal
+        $('#scanAndFixDiscrepanciesBtn').on('click', function() {
+            checkDiscrepancies(true); // Show modal when user clicks button
+        });
+
+        // Fix All button in top alert banner
+        $('#fixAllDiscrepanciesTopBtn').on('click', function() {
+            $('#fixAllDiscrepanciesBtn').click();
+        });
+
+        // Check for discrepancies function
+        function checkDiscrepancies(showModal = false) {
+            const btn = $('#scanAndFixDiscrepanciesBtn');
+            const originalText = btn.html();
+            btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Scanning...');
+            
+            // Show loading state in alert
+            $('#discrepancyStatusAlert').removeClass('alert-danger alert-success alert-warning').addClass('alert-info');
+            $('#discrepancyStatusAlert').show();
+            $('#discrepancyStatusText').html('<i class="fa fa-spinner fa-spin"></i> Scanning for discrepancies...');
+            $('#discrepancyStatusDescription').text('Checking transfer details against ledger entries...');
+            $('#fixAllDiscrepanciesTopBtn').hide();
+            
+            // Only show modal if explicitly requested
+            if (showModal) {
+                $('#discrepancyModal').modal('show');
+                $('#discrepancyModalContent').html(`
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="sr-only">Loading...</span>
+                        </div>
+                        <p class="mt-2">Checking for discrepancies...</p>
+                    </div>
+                `);
+            }
+            
+            $.ajax({
+                url: '/transferfee/find-discrepancies/{{ $TransferFeeMain->id }}',
+                method: 'GET',
+                success: function(response) {
+                    btn.prop('disabled', false).html(originalText);
+                    
+                    let modalContent = '';
+                    let hasDuplicates = false;
+                    let reimbTotal = 0;
+                    let reimbSstTotal = 0;
+                    
+                    if (response.total_discrepancies > 0) {
+                        // Show discrepancies found in status alert
+                        $('#discrepancyStatusAlert').removeClass('alert-info alert-success').addClass('alert-danger');
+                        $('#discrepancyStatusText').html(`<i class="fa fa-exclamation-triangle"></i> Found ${response.total_discrepancies} Discrepancy/Discrepancies!`);
+                        $('#discrepancyStatusDescription').html(`<strong>Action Required:</strong> Click "Fix All" to automatically resolve all issues (removes duplicates, creates missing entries, fixes mismatches).`);
+                        $('#fixAllDiscrepanciesTopBtn').show();
+                        $('#discrepancyBadge').show();
+                        $('#discrepancyBadgeText').html(`<i class="fa fa-exclamation-triangle"></i> ${response.total_discrepancies} Issue(s) Found`);
+                        $('#discrepancyMessage').html(`<span class="text-danger"><i class="fa fa-exclamation-triangle"></i> ${response.total_discrepancies} discrepancy/discrepancies detected. Click "Fix All" above to resolve.</span>`);
+                        
+                        // Only build modal content if modal is being shown
+                        if (showModal) {
+                            modalContent += `<div class="alert alert-warning">
+                                <strong><i class="fa fa-exclamation-triangle"></i> Found ${response.total_discrepancies} invoice(s) with discrepancies</strong>
+                            </div>`;
+                        }
+                        
+                        // Only build modal content if modal is being shown
+                        if (showModal) {
+                            modalContent += `<div class="table-responsive">
+                                <table class="table table-sm table-bordered">
+                                    <thead class="thead-light">
+                                        <tr>
+                                            <th>Invoice No</th>
+                                            <th>Type</th>
+                                            <th>Detail Amount</th>
+                                            <th>Ledger Amount</th>
+                                            <th>Difference</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>`;
+                        }
+                        
+                        response.discrepancies.forEach(function(discrepancy) {
+                            hasDuplicates = hasDuplicates || (discrepancy.has_duplicate_entries === true);
+                            
+                            // Only build modal rows if modal is being shown
+                            if (showModal) {
+                                // Show duplicate entry warning first
+                                if (discrepancy.has_duplicate_entries && discrepancy.duplicate_info) {
+                                    modalContent += `<tr class="table-danger">
+                                        <td><strong>${discrepancy.invoice_no}</strong></td>
+                                        <td colspan="5">
+                                            <strong class="text-danger">⚠️ DUPLICATE LEDGER ENTRIES DETECTED:</strong><br>`;
+                                    discrepancy.duplicate_info.forEach(function(dup) {
+                                        modalContent += `<small class="text-danger">${dup}</small><br>`;
+                                    });
+                                    modalContent += `</td></tr>`;
+                                }
+                                
+                                // Show all types of mismatches
+                                if (!discrepancy.pfee_match) {
+                                    modalContent += `<tr>
+                                        <td>${discrepancy.invoice_no}</td>
+                                        <td>Pfee</td>
+                                        <td class="text-right">${discrepancy.pfee_detail.toFixed(2)}</td>
+                                        <td class="text-right">${discrepancy.pfee_ledger.toFixed(2)}</td>
+                                        <td class="text-right text-danger"><strong>${discrepancy.pfee_diff.toFixed(2)}</strong></td>
+                                        <td><span class="badge badge-danger">Mismatch</span></td>
+                                    </tr>`;
+                                }
+                                
+                                if (!discrepancy.sst_match) {
+                                    modalContent += `<tr>
+                                        <td>${discrepancy.invoice_no}</td>
+                                        <td>SST</td>
+                                        <td class="text-right">${discrepancy.sst_detail.toFixed(2)}</td>
+                                        <td class="text-right">${discrepancy.sst_ledger.toFixed(2)}</td>
+                                        <td class="text-right text-danger"><strong>${discrepancy.sst_diff.toFixed(2)}</strong></td>
+                                        <td><span class="badge badge-danger">Mismatch</span></td>
+                                    </tr>`;
+                                }
+                                
+                                if (!discrepancy.reimb_match) {
+                                    modalContent += `<tr>
+                                        <td>${discrepancy.invoice_no}</td>
+                                        <td>Reimbursement</td>
+                                        <td class="text-right">${discrepancy.reimb_detail.toFixed(2)}</td>
+                                        <td class="text-right">${discrepancy.reimb_ledger.toFixed(2)}</td>
+                                        <td class="text-right text-danger"><strong>${discrepancy.reimb_diff.toFixed(2)}</strong></td>
+                                        <td><span class="badge badge-danger">Mismatch</span></td>
+                                    </tr>`;
+                                }
+                                
+                                if (!discrepancy.reimb_sst_match) {
+                                    modalContent += `<tr>
+                                        <td>${discrepancy.invoice_no}</td>
+                                        <td>Reimb SST</td>
+                                        <td class="text-right">${discrepancy.reimb_sst_detail.toFixed(2)}</td>
+                                        <td class="text-right">${discrepancy.reimb_sst_ledger.toFixed(2)}</td>
+                                        <td class="text-right text-danger"><strong>${discrepancy.reimb_sst_diff.toFixed(2)}</strong></td>
+                                        <td><span class="badge badge-danger">Mismatch</span></td>
+                                    </tr>`;
+                                }
+                                
+                                // Show split invoice note if present
+                                if (discrepancy.split_note && discrepancy.split_note.trim() !== '') {
+                                    modalContent += `<tr>
+                                        <td colspan="6"><small class="text-warning">${discrepancy.split_note}</small></td>
+                                    </tr>`;
+                                }
+                                
+                                // If no specific mismatches but still flagged, show info
+                                if (discrepancy.pfee_match && discrepancy.sst_match && discrepancy.reimb_match && discrepancy.reimb_sst_match && 
+                                    !discrepancy.has_duplicate_entries && (!discrepancy.split_note || discrepancy.split_note.trim() === '')) {
+                                    modalContent += `<tr>
+                                        <td>${discrepancy.invoice_no}</td>
+                                        <td colspan="5"><small class="text-info">No amount mismatches detected, but flagged for review</small></td>
+                                    </tr>`;
+                                }
+                            }
+                            
+                            // Always calculate totals for status display
+                            if (!discrepancy.reimb_match) {
+                                reimbTotal += discrepancy.reimb_diff;
+                            }
+                            if (!discrepancy.reimb_sst_match) {
+                                reimbSstTotal += discrepancy.reimb_sst_diff;
+                            }
+                        });
+                        
+                        // Only build modal footer if modal is being shown
+                        if (showModal) {
+                            modalContent += `</tbody>
+                                </table>
+                            </div>`;
+                            
+                            const currentTotal = parseFloat('{{ $TransferFeeMain->transfer_amount ?? 0 }}');
+                            const expectedTotal = currentTotal - (reimbTotal + reimbSstTotal);
+                            modalContent += `<div class="alert alert-info mt-3">
+                                <strong>Total Difference: RM ${(reimbTotal + reimbSstTotal).toFixed(2)}</strong><br>
+                                <small>Current Total: RM ${currentTotal.toFixed(2)}</small><br>
+                                <small>Expected Total: RM ${expectedTotal.toFixed(2)}</small>
+                            </div>`;
+                        }
+                        
+                        // Show single "Fix All" button if there are discrepancies (only in modal)
+                        if (showModal) {
+                            $('#fixAllDiscrepanciesBtn').show();
+                        }
+                    } else {
+                        // No discrepancies - hide the alert banner (no action needed)
+                        $('#discrepancyStatusAlert').hide();
+                        $('#fixAllDiscrepanciesTopBtn').hide();
+                        $('#discrepancyBadge').hide();
+                        $('#discrepancyMessage').html('<span class="text-success"><i class="fa fa-check"></i> No discrepancies found. All data is consistent.</span>');
+                        
+                        // Only build modal content if modal is being shown
+                        if (showModal) {
+                            modalContent = `<div class="alert alert-success">
+                                <i class="fa fa-check-circle"></i> <strong>No discrepancies found!</strong><br>
+                                All transfer fee details match the ledger entries perfectly.
+                            </div>`;
+                            $('#discrepancyModalContent').html(modalContent);
+                            $('#fixAllDiscrepanciesBtn').hide();
+                        }
+                    }
+                    
+                    // Only update modal content if modal is being shown
+                    if (showModal && modalContent) {
+                        $('#discrepancyModalContent').html(modalContent);
+                    }
+                },
+                error: function(xhr) {
+                    btn.prop('disabled', false).html(originalText);
+                    $('#discrepancyStatusAlert').removeClass('alert-success alert-info').addClass('alert-danger');
+                    $('#discrepancyStatusText').html('<i class="fa fa-times-circle"></i> Error Checking Discrepancies');
+                    $('#discrepancyStatusDescription').text('An error occurred while checking. Please try again.');
+                    $('#fixAllDiscrepanciesTopBtn').hide();
+                    $('#discrepancyModalContent').html(`
+                        <div class="alert alert-danger">
+                            <strong>Error:</strong> ${xhr.responseJSON?.error || 'Unknown error occurred while checking discrepancies.'}
+                        </div>
+                    `);
+                    $('#discrepancyMessage').html('<span class="text-danger">Error: ' + (xhr.responseJSON?.error || 'Unknown error') + '</span>');
+                }
+            });
+        }
+
+        // Old check button handler (kept for backward compatibility)
         $('#checkDiscrepanciesBtn').on('click', function() {
+            checkDiscrepancies();
+        });
+
+        // Fix All Discrepancies - show confirmation modal with details
+        $('#fixAllDiscrepanciesBtn').on('click', function() {
+            // Show confirmation modal
+            $('#fixAllConfirmationModal').modal('show');
+            $('#fixAllConfirmationContent').html(`
+                <div class="text-center">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="sr-only">Loading...</span>
+                    </div>
+                    <p class="mt-2">Analyzing discrepancies...</p>
+                </div>
+            `);
+            
+            // Fetch discrepancy details to show what will be fixed
+            $.ajax({
+                url: '/transferfee/find-discrepancies/{{ $TransferFeeMain->id }}',
+                method: 'GET',
+                success: function(response) {
+                    let content = '';
+                    
+                    if (response.total_discrepancies > 0) {
+                        // Group discrepancies by type
+                        let duplicates = [];
+                        let missingEntries = [];
+                        let mismatches = [];
+                        
+                        response.discrepancies.forEach(function(discrepancy) {
+                            // Check for duplicates
+                            if (discrepancy.has_duplicate_entries) {
+                                duplicates.push({
+                                    invoice_no: discrepancy.invoice_no,
+                                    duplicate_info: discrepancy.duplicate_info || []
+                                });
+                            }
+                            
+                            // Check for missing entries (detail has amount but ledger is 0)
+                            let missingTypes = [];
+                            if (discrepancy.pfee_detail > 0.01 && discrepancy.pfee_ledger < 0.01) {
+                                missingTypes.push(`TRANSFER_IN (${discrepancy.pfee_detail.toFixed(2)})`);
+                            }
+                            if (discrepancy.sst_detail > 0.01 && discrepancy.sst_ledger < 0.01) {
+                                missingTypes.push(`SST_IN (${discrepancy.sst_detail.toFixed(2)})`);
+                            }
+                            if (discrepancy.reimb_detail > 0.01 && discrepancy.reimb_ledger < 0.01) {
+                                missingTypes.push(`REIMB_IN (${discrepancy.reimb_detail.toFixed(2)})`);
+                            }
+                            if (discrepancy.reimb_sst_detail > 0.01 && discrepancy.reimb_sst_ledger < 0.01) {
+                                missingTypes.push(`REIMB_SST_IN (${discrepancy.reimb_sst_detail.toFixed(2)})`);
+                            }
+                            if (missingTypes.length > 0) {
+                                missingEntries.push({
+                                    invoice_no: discrepancy.invoice_no,
+                                    types: missingTypes
+                                });
+                            }
+                            
+                            // Check for mismatches (ledger has amount but doesn't match detail)
+                            let mismatchTypes = [];
+                            if (Math.abs(discrepancy.pfee_diff) > 0.01 && discrepancy.pfee_ledger > 0.01) {
+                                mismatchTypes.push(`Pfee: ${discrepancy.pfee_detail.toFixed(2)} → ${discrepancy.pfee_ledger.toFixed(2)}`);
+                            }
+                            if (Math.abs(discrepancy.sst_diff) > 0.01 && discrepancy.sst_ledger > 0.01) {
+                                mismatchTypes.push(`SST: ${discrepancy.sst_detail.toFixed(2)} → ${discrepancy.sst_ledger.toFixed(2)}`);
+                            }
+                            if (Math.abs(discrepancy.reimb_diff) > 0.01 && discrepancy.reimb_ledger > 0.01) {
+                                mismatchTypes.push(`Reimb: ${discrepancy.reimb_detail.toFixed(2)} → ${discrepancy.reimb_ledger.toFixed(2)}`);
+                            }
+                            if (Math.abs(discrepancy.reimb_sst_diff) > 0.01 && discrepancy.reimb_sst_ledger > 0.01) {
+                                mismatchTypes.push(`Reimb SST: ${discrepancy.reimb_sst_detail.toFixed(2)} → ${discrepancy.reimb_sst_ledger.toFixed(2)}`);
+                            }
+                            if (mismatchTypes.length > 0) {
+                                mismatches.push({
+                                    invoice_no: discrepancy.invoice_no,
+                                    types: mismatchTypes
+                                });
+                            }
+                        });
+                        
+                        content = '<div class="table-responsive">';
+                        content += '<table class="table table-sm table-bordered">';
+                        content += '<thead class="thead-light"><tr><th>Invoice No</th><th>Action Type</th><th>Details</th></tr></thead>';
+                        content += '<tbody>';
+                        
+                        // Show duplicates
+                        duplicates.forEach(function(item) {
+                            content += `<tr class="table-warning">
+                                <td><strong>${item.invoice_no}</strong></td>
+                                <td><span class="badge badge-warning">Remove Duplicates</span></td>
+                                <td>`;
+                            item.duplicate_info.forEach(function(info) {
+                                content += `<small>${info}</small><br>`;
+                            });
+                            content += `</td></tr>`;
+                        });
+                        
+                        // Show missing entries
+                        missingEntries.forEach(function(item) {
+                            content += `<tr class="table-info">
+                                <td><strong>${item.invoice_no}</strong></td>
+                                <td><span class="badge badge-info">Create Missing Entries</span></td>
+                                <td>`;
+                            item.types.forEach(function(type) {
+                                content += `<small>Will create: ${type}</small><br>`;
+                            });
+                            content += `</td></tr>`;
+                        });
+                        
+                        // Show mismatches
+                        mismatches.forEach(function(item) {
+                            content += `<tr class="table-danger">
+                                <td><strong>${item.invoice_no}</strong></td>
+                                <td><span class="badge badge-danger">Fix Amount Mismatch</span></td>
+                                <td>`;
+                            item.types.forEach(function(type) {
+                                content += `<small>Will update: ${type}</small><br>`;
+                            });
+                            content += `</td></tr>`;
+                        });
+                        
+                        content += '</tbody></table></div>';
+                        
+                        content += `<div class="alert alert-warning mt-3">
+                            <strong>Summary:</strong><br>
+                            ${duplicates.length > 0 ? `• ${duplicates.length} invoice(s) with duplicate entries to remove<br>` : ''}
+                            ${missingEntries.length > 0 ? `• ${missingEntries.length} invoice(s) with missing entries to create<br>` : ''}
+                            ${mismatches.length > 0 ? `• ${mismatches.length} invoice(s) with amount mismatches to fix<br>` : ''}
+                        </div>`;
+                    } else {
+                        content = '<div class="alert alert-success">No discrepancies found. Nothing to fix.</div>';
+                        $('#confirmFixAllBtn').prop('disabled', true);
+                    }
+                    
+                    $('#fixAllConfirmationContent').html(content);
+                },
+                error: function(xhr) {
+                    $('#fixAllConfirmationContent').html(`
+                        <div class="alert alert-danger">
+                            <strong>Error:</strong> ${xhr.responseJSON?.error || 'Unknown error occurred while analyzing discrepancies.'}
+                        </div>
+                    `);
+                    $('#confirmFixAllBtn').prop('disabled', true);
+                }
+            });
+        });
+
+        // Confirm Fix All button - actually perform the fix
+        $('#confirmFixAllBtn').on('click', function() {
             const btn = $(this);
             const originalText = btn.html();
-            btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Checking...');
+            btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Fixing...');
             
-            // Show modal
+            // Close confirmation modal
+            $('#fixAllConfirmationModal').modal('hide');
+            
+            // Show loading in main modal
             $('#discrepancyModal').modal('show');
             $('#discrepancyModalContent').html(`
                 <div class="text-center">
                     <div class="spinner-border text-primary" role="status">
                         <span class="sr-only">Loading...</span>
                     </div>
-                    <p class="mt-2">Checking for discrepancies...</p>
+                    <p class="mt-2">Fixing all discrepancies...</p>
                 </div>
             `);
             
             $.ajax({
-                url: '/transferfee/find-discrepancies/{{ $TransferFeeMain->id }}',
-                method: 'GET',
+                url: '/transferfee/fix-all-discrepancies/{{ $TransferFeeMain->id }}',
+                method: 'POST',
                 headers: {
                     'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
                 },
                 success: function(response) {
                     btn.prop('disabled', false).html(originalText);
                     
-                    let modalContent = '';
-                    let hasDuplicates = false;
-                    let hasDiscrepancies = false;
-                    let reimbTotal = 0;
-                    let reimbSstTotal = 0;
-                    
-                    if (response.total_discrepancies > 0) {
-                        hasDiscrepancies = true;
-                        modalContent += `<div class="alert alert-warning">
-                            <strong><i class="fa fa-exclamation-triangle"></i> Found ${response.total_discrepancies} invoice(s) with discrepancies</strong>
-                        </div>`;
+                    if (response.success) {
+                        let message = `<div class="alert alert-success">
+                            <strong><i class="fa fa-check-circle"></i> All Discrepancies Fixed!</strong><br>`;
                         
-                        modalContent += `<div class="table-responsive">
-                            <table class="table table-sm table-bordered">
-                                <thead class="thead-light">
-                                    <tr>
-                                        <th>Invoice No</th>
-                                        <th>Type</th>
-                                        <th>Detail Amount</th>
-                                        <th>Ledger Amount</th>
-                                        <th>Difference</th>
-                                        <th>Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody>`;
-                        
-                        response.discrepancies.forEach(function(discrepancy) {
-                            hasDuplicates = hasDuplicates || (discrepancy.has_duplicate_entries === true);
-                            
-                            if (discrepancy.has_duplicate_entries && discrepancy.duplicate_info) {
-                                modalContent += `<tr class="table-danger">
-                                    <td><strong>${discrepancy.invoice_no}</strong></td>
-                                    <td colspan="5">
-                                        <strong class="text-danger">⚠️ DUPLICATE LEDGER ENTRIES DETECTED:</strong><br>`;
-                                discrepancy.duplicate_info.forEach(function(dup) {
-                                    modalContent += `<small class="text-danger">${dup}</small><br>`;
-                                });
-                                modalContent += `</td></tr>`;
-                            }
-                            
-                            if (!discrepancy.reimb_match) {
-                                modalContent += `<tr>
-                                    <td>${discrepancy.invoice_no}</td>
-                                    <td>Reimbursement</td>
-                                    <td class="text-right">${discrepancy.reimb_detail.toFixed(2)}</td>
-                                    <td class="text-right">${discrepancy.reimb_ledger.toFixed(2)}</td>
-                                    <td class="text-right text-danger"><strong>${discrepancy.reimb_diff.toFixed(2)}</strong></td>
-                                    <td><span class="badge badge-danger">Mismatch</span></td>
-                                </tr>`;
-                                reimbTotal += discrepancy.reimb_diff;
-                            }
-                            
-                            if (!discrepancy.reimb_sst_match) {
-                                modalContent += `<tr>
-                                    <td>${discrepancy.invoice_no}</td>
-                                    <td>Reimb SST</td>
-                                    <td class="text-right">${discrepancy.reimb_sst_detail.toFixed(2)}</td>
-                                    <td class="text-right">${discrepancy.reimb_sst_ledger.toFixed(2)}</td>
-                                    <td class="text-right text-danger"><strong>${discrepancy.reimb_sst_diff.toFixed(2)}</strong></td>
-                                    <td><span class="badge badge-danger">Mismatch</span></td>
-                                </tr>`;
-                                reimbSstTotal += discrepancy.reimb_sst_diff;
-                            }
-                            
-                            if (discrepancy.split_note) {
-                                modalContent += `<tr>
-                                    <td colspan="6"><small class="text-warning">${discrepancy.split_note}</small></td>
-                                </tr>`;
-                            }
-                        });
-                        
-                        modalContent += `</tbody>
-                            </table>
-                        </div>`;
-                        
-                        const currentTotal = parseFloat('{{ $TransferFeeMain->transfer_amount ?? 0 }}');
-                        const expectedTotal = currentTotal - (reimbTotal + reimbSstTotal);
-                        modalContent += `<div class="alert alert-info mt-3">
-                            <strong>Total Difference: RM ${(reimbTotal + reimbSstTotal).toFixed(2)}</strong><br>
-                            <small>Current Total: RM ${currentTotal.toFixed(2)}</small><br>
-                            <small>Expected Total: RM ${expectedTotal.toFixed(2)}</small>
-                        </div>`;
-                        
-                        // Show appropriate buttons
-                        if (hasDuplicates) {
-                            $('#removeDuplicatesModalBtn').show();
-                            $('#fixDiscrepanciesModalBtn').hide();
-                            $('#recalculateTotalBtn').hide();
-                        } else {
-                            $('#removeDuplicatesModalBtn').hide();
-                            $('#fixDiscrepanciesModalBtn').show();
-                            $('#recalculateTotalBtn').show();
+                        if (response.actions.duplicates_removed > 0) {
+                            message += `✓ Removed ${response.actions.duplicates_removed} duplicate ledger entry/entries<br>`;
+                        }
+                        if (response.actions.missing_entries_created > 0) {
+                            message += `✓ Created ${response.actions.missing_entries_created} missing ledger entry/entries<br>`;
+                        }
+                        if (response.actions.amounts_fixed > 0) {
+                            message += `✓ Fixed ${response.actions.amounts_fixed} amount mismatch(es)<br>`;
                         }
                         
-                        // Update small message below input
-                        $('#discrepancyMessage').html(`<span class="text-warning"><i class="fa fa-exclamation-triangle"></i> ${response.total_discrepancies} discrepancy/discrepancies found. Click "Check" to view details.</span>`);
+                        if (response.actions.details && response.actions.details.length > 0) {
+                            message += `<br><strong>Details:</strong><br>`;
+                            response.actions.details.forEach(function(detail) {
+                                message += `Invoice ${detail.invoice_no}: ${detail.actions.join(', ')}<br>`;
+                            });
+                        }
+                        
+                        message += `<br><strong>Updated Total: RM ${response.updated_transfer_amount.toFixed(2)}</strong></div>`;
+                        $('#discrepancyModalContent').prepend(message);
+                        
+                        // Update the transfer total amount field
+                        $('#transferTotalAmount').val(response.updated_transfer_amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ","));
+                        
+                        // Update status alert
+                        $('#discrepancyStatusAlert').removeClass('alert-danger alert-info').addClass('alert-success');
+                        $('#discrepancyStatusText').html('<i class="fa fa-check-circle"></i> All Discrepancies Fixed!');
+                        let summary = [];
+                        if (response.actions.duplicates_removed > 0) summary.push(`${response.actions.duplicates_removed} duplicate(s) removed`);
+                        if (response.actions.missing_entries_created > 0) summary.push(`${response.actions.missing_entries_created} entry/entries created`);
+                        if (response.actions.amounts_fixed > 0) summary.push(`${response.actions.amounts_fixed} amount(s) fixed`);
+                        $('#discrepancyStatusDescription').html(`<strong>Fixed:</strong> ${summary.join(', ')}. Total updated to RM ${response.updated_transfer_amount.toFixed(2)}`);
+                        $('#fixAllDiscrepanciesTopBtn').hide();
+                        $('#discrepancyBadge').hide();
+                        $('#discrepancyMessage').html(`<span class="text-success"><i class="fa fa-check"></i> Fixed: ${summary.join(', ')}. Total updated to RM ${response.updated_transfer_amount.toFixed(2)}</span>`);
+                        
+                        // Reload the page after a short delay
+                        setTimeout(function() {
+                            location.reload();
+                        }, 2000);
                     } else {
-                        modalContent = `<div class="alert alert-success">
-                            <i class="fa fa-check-circle"></i> <strong>No discrepancies found!</strong><br>
-                            All transfer fee details match the ledger entries perfectly.
-                        </div>`;
-                        $('#removeDuplicatesModalBtn').hide();
-                        $('#fixDiscrepanciesModalBtn').hide();
-                        $('#recalculateTotalBtn').hide();
-                        $('#discrepancyMessage').html('<span class="text-success"><i class="fa fa-check"></i> No discrepancies found.</span>');
+                        $('#discrepancyModalContent').prepend(`<div class="alert alert-danger">Failed to fix discrepancies</div>`);
                     }
-                    
-                    $('#discrepancyModalContent').html(modalContent);
                 },
                 error: function(xhr) {
                     btn.prop('disabled', false).html(originalText);
-                    $('#discrepancyModalContent').html(`
-                        <div class="alert alert-danger">
-                            <strong>Error:</strong> ${xhr.responseJSON?.error || 'Unknown error occurred while checking discrepancies.'}
-                        </div>
-                    `);
-                    $('#discrepancyMessage').html('<span class="text-danger">Error checking discrepancies</span>');
+                    $('#discrepancyModalContent').prepend(`<div class="alert alert-danger">Error: ${xhr.responseJSON?.error || 'Unknown error'}</div>`);
                 }
             });
         });
 
-        // Fix discrepancies (for non-duplicate cases)
+        // Old fix discrepancies handler (deprecated - keeping for backward compatibility)
         $('#fixDiscrepanciesBtn').on('click', function() {
             // Check if there are duplicate entries
             const hasDuplicates = $('#discrepancyMessage').text().includes('DUPLICATE LEDGER ENTRIES');
@@ -4340,9 +4721,26 @@
                     
                     if (response.success) {
                         let message = `<div class="alert alert-success">
-                            <strong><i class="fa fa-check-circle"></i> Fixed ${response.fixed_details_count} invoice(s):</strong><br>
-                            Updated Total: RM ${response.updated_transfer_amount.toFixed(2)}
-                        </div>`;
+                            <strong><i class="fa fa-check-circle"></i> Fixed ${response.fixed_details_count} invoice(s):</strong><br>`;
+                        
+                        if (response.fixed_details && response.fixed_details.length > 0) {
+                            response.fixed_details.forEach(function(detail) {
+                                if (detail.pfee) {
+                                    message += `Invoice ${detail.invoice_no}: Pfee ${detail.pfee.old} → ${detail.pfee.new}<br>`;
+                                }
+                                if (detail.sst) {
+                                    message += `Invoice ${detail.invoice_no}: SST ${detail.sst.old} → ${detail.sst.new}<br>`;
+                                }
+                                if (detail.reimbursement) {
+                                    message += `Invoice ${detail.invoice_no}: Reimb ${detail.reimbursement.old} → ${detail.reimbursement.new}<br>`;
+                                }
+                                if (detail.reimbursement_sst) {
+                                    message += `Invoice ${detail.invoice_no}: Reimb SST ${detail.reimbursement_sst.old} → ${detail.reimbursement_sst.new}<br>`;
+                                }
+                            });
+                        }
+                        
+                        message += `Updated Total: RM ${response.updated_transfer_amount.toFixed(2)}</div>`;
                         $('#discrepancyModalContent').prepend(message);
                         
                         // Update the transfer total amount field
@@ -4354,6 +4752,59 @@
                         }, 2000);
                     } else {
                         $('#discrepancyModalContent').prepend(`<div class="alert alert-danger">Failed to fix discrepancies</div>`);
+                    }
+                },
+                error: function(xhr) {
+                    btn.prop('disabled', false).html(originalText);
+                    $('#discrepancyModalContent').prepend(`<div class="alert alert-danger">Error: ${xhr.responseJSON?.error || 'Unknown error'}</div>`);
+                }
+            });
+        });
+
+        // Create Missing Ledger Entries button in modal
+        $('#createMissingEntriesBtn').on('click', function() {
+            if (!confirm('This will create missing ledger entries (SST_IN, TRANSFER_IN, etc.) based on transfer_fee_details amounts. Continue?')) {
+                return;
+            }
+            
+            const btn = $(this);
+            const originalText = btn.html();
+            btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Creating...');
+            
+            $.ajax({
+                url: '/transferfee/create-missing-entries/{{ $TransferFeeMain->id }}',
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                },
+                success: function(response) {
+                    btn.prop('disabled', false).html(originalText);
+                    
+                    if (response.success) {
+                        let message = `<div class="alert alert-success">
+                            <strong><i class="fa fa-check-circle"></i> Created ${response.created_entries_count} missing ledger entry/entries:</strong><br>`;
+                        
+                        if (response.created_entries && response.created_entries.length > 0) {
+                            response.created_entries.forEach(function(entry) {
+                                message += `Invoice ${entry.invoice_no}: Created ${entry.type} entry for ${entry.amount.toFixed(2)}<br>`;
+                            });
+                        }
+                        
+                        message += `Updated Total: RM ${response.updated_transfer_amount.toFixed(2)}</div>`;
+                        $('#discrepancyModalContent').prepend(message);
+                        
+                        // Update the transfer total amount field
+                        $('#transferTotalAmount').val(response.updated_transfer_amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ","));
+                        
+                        // Update small message
+                        $('#discrepancyMessage').html(`<span class="text-success"><i class="fa fa-check"></i> Created ${response.created_entries_count} missing ledger entry/entries. Total updated.</span>`);
+                        
+                        // Reload the page after a short delay
+                        setTimeout(function() {
+                            location.reload();
+                        }, 2000);
+                    } else {
+                        $('#discrepancyModalContent').prepend(`<div class="alert alert-danger">Failed to create missing entries</div>`);
                     }
                 },
                 error: function(xhr) {

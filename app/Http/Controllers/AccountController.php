@@ -1199,12 +1199,25 @@ class AccountController extends Controller
                 'split_note' => $splitNote,
             ];
             
-            if (!$discrepancy['pfee_match'] || !$discrepancy['sst_match'] || !$discrepancy['reimb_match'] || !$discrepancy['reimb_sst_match']) {
+            // Only flag as discrepancy if there's an actual amount difference OR duplicate entries
+            // Don't flag if all amounts match but there's just a split note
+            if (!$discrepancy['pfee_match'] || !$discrepancy['sst_match'] || !$discrepancy['reimb_match'] || !$discrepancy['reimb_sst_match'] || $hasDuplicates) {
                 $hasDiscrepancy = true;
             }
             
+            // Only add to discrepancies if there's a real issue (amount mismatch or duplicates)
+            // Skip if only split note exists but amounts match
             if ($hasDiscrepancy) {
-                $discrepancies[] = $discrepancy;
+                // Check if there's any actual difference
+                $hasActualDifference = abs($discrepancy['pfee_diff']) > 0.01 || 
+                                       abs($discrepancy['sst_diff']) > 0.01 || 
+                                       abs($discrepancy['reimb_diff']) > 0.01 || 
+                                       abs($discrepancy['reimb_sst_diff']) > 0.01 ||
+                                       $hasDuplicates;
+                
+                if ($hasActualDifference) {
+                    $discrepancies[] = $discrepancy;
+                }
             }
         }
         
@@ -1293,9 +1306,622 @@ class AccountController extends Controller
     }
 
     /**
+     * Create missing ledger entries for transfer fee details
+     * This creates missing SST_IN, TRANSFER_IN, REIMB_IN, or REIMB_SST_IN entries
+     */
+    public function createMissingLedgerEntries($id)
+    {
+        $TransferFeeMain = TransferFeeMain::where('id', '=', $id)->first();
+        
+        if (!$TransferFeeMain) {
+            return response()->json(['error' => 'Transfer fee not found'], 404);
+        }
+        
+        // Get all transfer fee details
+        $transferFeeDetails = TransferFeeDetails::where('transfer_fee_main_id', '=', $id)
+            ->where('status', '<>', 99)
+            ->get();
+        
+        $createdCount = 0;
+        $createdEntries = [];
+        
+        foreach ($transferFeeDetails as $detail) {
+            // Get invoice and bill info
+            $invoice = DB::table('loan_case_invoice_main')
+                ->where('id', '=', $detail->loan_case_invoice_main_id)
+                ->first();
+            
+            if (!$invoice) {
+                continue;
+            }
+            
+            $bill = DB::table('loan_case_bill_main')
+                ->where('id', '=', $invoice->loan_case_main_bill_id ?? $detail->loan_case_main_bill_id)
+                ->first();
+            
+            if (!$bill) {
+                continue;
+            }
+            
+            // Get existing ledger entries for this detail
+            $existingEntries = DB::table('ledger_entries_v2')
+                ->where('key_id_2', '=', $detail->id)
+                ->where('transaction_id', '=', $TransferFeeMain->transaction_id)
+                ->where('status', '<>', 99)
+                ->get();
+            
+            $existingTypes = [];
+            foreach ($existingEntries as $entry) {
+                $existingTypes[$entry->type] = ($existingTypes[$entry->type] ?? 0) + $entry->amount;
+            }
+            
+            // Check what's missing and create entries
+            $detailPfee = $detail->transfer_amount ?? 0;
+            $detailSst = $detail->sst_amount ?? 0;
+            $detailReimb = $detail->reimbursement_amount ?? 0;
+            $detailReimbSst = $detail->reimbursement_sst_amount ?? 0;
+            
+            // Create TRANSFER_IN if missing
+            if ($detailPfee > 0.01 && ($existingTypes['TRANSFER_IN'] ?? 0) < $detailPfee - 0.01) {
+                $missingAmount = $detailPfee - ($existingTypes['TRANSFER_IN'] ?? 0);
+                
+                // TRANSFER_OUT
+                DB::table('ledger_entries_v2')->insert([
+                    'transaction_id' => $TransferFeeMain->transaction_id,
+                    'case_id' => $bill->case_id,
+                    'loan_case_main_bill_id' => $bill->id,
+                    'loan_case_invoice_main_id' => $invoice->id,
+                    'user_id' => $TransferFeeMain->transfer_by ?? auth()->id(),
+                    'key_id' => $TransferFeeMain->id,
+                    'key_id_2' => $detail->id,
+                    'transaction_type' => 'C',
+                    'amount' => $missingAmount,
+                    'bank_id' => $TransferFeeMain->transfer_from,
+                    'remark' => $TransferFeeMain->purpose ?? '',
+                    'status' => 1,
+                    'is_recon' => 0,
+                    'created_at' => $TransferFeeMain->transfer_date ?? now(),
+                    'date' => $TransferFeeMain->transfer_date ?? now(),
+                    'type' => 'TRANSFER_OUT'
+                ]);
+                
+                // TRANSFER_IN
+                DB::table('ledger_entries_v2')->insert([
+                    'transaction_id' => $TransferFeeMain->transaction_id,
+                    'case_id' => $bill->case_id,
+                    'loan_case_main_bill_id' => $bill->id,
+                    'loan_case_invoice_main_id' => $invoice->id,
+                    'user_id' => $TransferFeeMain->transfer_by ?? auth()->id(),
+                    'key_id' => $TransferFeeMain->id,
+                    'key_id_2' => $detail->id,
+                    'transaction_type' => 'D',
+                    'amount' => $missingAmount,
+                    'bank_id' => $TransferFeeMain->transfer_to,
+                    'remark' => $TransferFeeMain->purpose ?? '',
+                    'status' => 1,
+                    'is_recon' => 0,
+                    'created_at' => $TransferFeeMain->transfer_date ?? now(),
+                    'date' => $TransferFeeMain->transfer_date ?? now(),
+                    'type' => 'TRANSFER_IN'
+                ]);
+                
+                $createdCount += 2;
+                $createdEntries[] = ['type' => 'TRANSFER_IN', 'amount' => $missingAmount, 'invoice_no' => $invoice->invoice_no ?? 'N/A'];
+            }
+            
+            // Create SST_IN if missing
+            if ($detailSst > 0.01 && ($existingTypes['SST_IN'] ?? 0) < $detailSst - 0.01) {
+                $missingAmount = $detailSst - ($existingTypes['SST_IN'] ?? 0);
+                
+                // SST_OUT
+                DB::table('ledger_entries_v2')->insert([
+                    'transaction_id' => $TransferFeeMain->transaction_id,
+                    'case_id' => $bill->case_id,
+                    'loan_case_main_bill_id' => $bill->id,
+                    'loan_case_invoice_main_id' => $invoice->id,
+                    'user_id' => $TransferFeeMain->transfer_by ?? auth()->id(),
+                    'key_id' => $TransferFeeMain->id,
+                    'key_id_2' => $detail->id,
+                    'transaction_type' => 'C',
+                    'amount' => $missingAmount,
+                    'bank_id' => $TransferFeeMain->transfer_from,
+                    'remark' => $TransferFeeMain->purpose ?? '',
+                    'status' => 1,
+                    'is_recon' => 0,
+                    'created_at' => $TransferFeeMain->transfer_date ?? now(),
+                    'date' => $TransferFeeMain->transfer_date ?? now(),
+                    'type' => 'SST_OUT'
+                ]);
+                
+                // SST_IN
+                DB::table('ledger_entries_v2')->insert([
+                    'transaction_id' => $TransferFeeMain->transaction_id,
+                    'case_id' => $bill->case_id,
+                    'loan_case_main_bill_id' => $bill->id,
+                    'loan_case_invoice_main_id' => $invoice->id,
+                    'user_id' => $TransferFeeMain->transfer_by ?? auth()->id(),
+                    'key_id' => $TransferFeeMain->id,
+                    'key_id_2' => $detail->id,
+                    'transaction_type' => 'D',
+                    'amount' => $missingAmount,
+                    'bank_id' => $TransferFeeMain->transfer_to,
+                    'remark' => $TransferFeeMain->purpose ?? '',
+                    'status' => 1,
+                    'is_recon' => 0,
+                    'created_at' => $TransferFeeMain->transfer_date ?? now(),
+                    'date' => $TransferFeeMain->transfer_date ?? now(),
+                    'type' => 'SST_IN'
+                ]);
+                
+                $createdCount += 2;
+                $createdEntries[] = ['type' => 'SST_IN', 'amount' => $missingAmount, 'invoice_no' => $invoice->invoice_no ?? 'N/A'];
+            }
+            
+            // Create REIMB_IN if missing
+            if ($detailReimb > 0.01 && ($existingTypes['REIMB_IN'] ?? 0) < $detailReimb - 0.01) {
+                $missingAmount = $detailReimb - ($existingTypes['REIMB_IN'] ?? 0);
+                
+                // REIMB_OUT
+                DB::table('ledger_entries_v2')->insert([
+                    'transaction_id' => $TransferFeeMain->transaction_id,
+                    'case_id' => $bill->case_id,
+                    'loan_case_main_bill_id' => $bill->id,
+                    'loan_case_invoice_main_id' => $invoice->id,
+                    'user_id' => $TransferFeeMain->transfer_by ?? auth()->id(),
+                    'key_id' => $TransferFeeMain->id,
+                    'key_id_2' => $detail->id,
+                    'transaction_type' => 'C',
+                    'amount' => $missingAmount,
+                    'bank_id' => $TransferFeeMain->transfer_from,
+                    'remark' => $TransferFeeMain->purpose ?? '',
+                    'status' => 1,
+                    'is_recon' => 0,
+                    'created_at' => $TransferFeeMain->transfer_date ?? now(),
+                    'date' => $TransferFeeMain->transfer_date ?? now(),
+                    'type' => 'REIMB_OUT'
+                ]);
+                
+                // REIMB_IN
+                DB::table('ledger_entries_v2')->insert([
+                    'transaction_id' => $TransferFeeMain->transaction_id,
+                    'case_id' => $bill->case_id,
+                    'loan_case_main_bill_id' => $bill->id,
+                    'loan_case_invoice_main_id' => $invoice->id,
+                    'user_id' => $TransferFeeMain->transfer_by ?? auth()->id(),
+                    'key_id' => $TransferFeeMain->id,
+                    'key_id_2' => $detail->id,
+                    'transaction_type' => 'D',
+                    'amount' => $missingAmount,
+                    'bank_id' => $TransferFeeMain->transfer_to,
+                    'remark' => $TransferFeeMain->purpose ?? '',
+                    'status' => 1,
+                    'is_recon' => 0,
+                    'created_at' => $TransferFeeMain->transfer_date ?? now(),
+                    'date' => $TransferFeeMain->transfer_date ?? now(),
+                    'type' => 'REIMB_IN'
+                ]);
+                
+                $createdCount += 2;
+                $createdEntries[] = ['type' => 'REIMB_IN', 'amount' => $missingAmount, 'invoice_no' => $invoice->invoice_no ?? 'N/A'];
+            }
+            
+            // Create REIMB_SST_IN if missing
+            if ($detailReimbSst > 0.01 && ($existingTypes['REIMB_SST_IN'] ?? 0) < $detailReimbSst - 0.01) {
+                $missingAmount = $detailReimbSst - ($existingTypes['REIMB_SST_IN'] ?? 0);
+                
+                // REIMB_SST_OUT
+                DB::table('ledger_entries_v2')->insert([
+                    'transaction_id' => $TransferFeeMain->transaction_id,
+                    'case_id' => $bill->case_id,
+                    'loan_case_main_bill_id' => $bill->id,
+                    'loan_case_invoice_main_id' => $invoice->id,
+                    'user_id' => $TransferFeeMain->transfer_by ?? auth()->id(),
+                    'key_id' => $TransferFeeMain->id,
+                    'key_id_2' => $detail->id,
+                    'transaction_type' => 'C',
+                    'amount' => $missingAmount,
+                    'bank_id' => $TransferFeeMain->transfer_from,
+                    'remark' => $TransferFeeMain->purpose ?? '',
+                    'status' => 1,
+                    'is_recon' => 0,
+                    'created_at' => $TransferFeeMain->transfer_date ?? now(),
+                    'date' => $TransferFeeMain->transfer_date ?? now(),
+                    'type' => 'REIMB_SST_OUT'
+                ]);
+                
+                // REIMB_SST_IN
+                DB::table('ledger_entries_v2')->insert([
+                    'transaction_id' => $TransferFeeMain->transaction_id,
+                    'case_id' => $bill->case_id,
+                    'loan_case_main_bill_id' => $bill->id,
+                    'loan_case_invoice_main_id' => $invoice->id,
+                    'user_id' => $TransferFeeMain->transfer_by ?? auth()->id(),
+                    'key_id' => $TransferFeeMain->id,
+                    'key_id_2' => $detail->id,
+                    'transaction_type' => 'D',
+                    'amount' => $missingAmount,
+                    'bank_id' => $TransferFeeMain->transfer_to,
+                    'remark' => $TransferFeeMain->purpose ?? '',
+                    'status' => 1,
+                    'is_recon' => 0,
+                    'created_at' => $TransferFeeMain->transfer_date ?? now(),
+                    'date' => $TransferFeeMain->transfer_date ?? now(),
+                    'type' => 'REIMB_SST_IN'
+                ]);
+                
+                $createdCount += 2;
+                $createdEntries[] = ['type' => 'REIMB_SST_IN', 'amount' => $missingAmount, 'invoice_no' => $invoice->invoice_no ?? 'N/A'];
+            }
+        }
+        
+        // Update transfer_fee_main amount after creating entries
+        $this->updateTransferFeeMainAmt($id);
+        
+        // Get updated total
+        $TransferFeeMain->refresh();
+        
+        return response()->json([
+            'success' => true,
+            'transfer_fee_main_id' => $id,
+            'transaction_id' => $TransferFeeMain->transaction_id,
+            'created_entries_count' => $createdCount,
+            'updated_transfer_amount' => round($TransferFeeMain->transfer_amount, 2),
+            'created_entries' => $createdEntries
+        ]);
+    }
+
+    /**
+     * Intelligently fix all transfer fee discrepancies
+     * This method automatically detects and fixes:
+     * 1. Missing ledger entries → creates them
+     * 2. Duplicate ledger entries → removes duplicates
+     * 3. Amount mismatches → fixes transfer_fee_details to match ledger
+     */
+    public function fixAllTransferFeeDiscrepancies($id)
+    {
+        $TransferFeeMain = TransferFeeMain::where('id', '=', $id)->first();
+        
+        if (!$TransferFeeMain) {
+            return response()->json(['error' => 'Transfer fee not found'], 404);
+        }
+        
+        // Get all transfer fee details
+        $transferFeeDetails = TransferFeeDetails::where('transfer_fee_main_id', '=', $id)
+            ->where('status', '<>', 99)
+            ->get();
+        
+        $actions = [
+            'duplicates_removed' => 0,
+            'missing_entries_created' => 0,
+            'amounts_fixed' => 0,
+            'details' => []
+        ];
+        
+        foreach ($transferFeeDetails as $detail) {
+            // Get invoice and bill info
+            $invoice = DB::table('loan_case_invoice_main')
+                ->where('id', '=', $detail->loan_case_invoice_main_id)
+                ->first();
+            
+            if (!$invoice) {
+                continue;
+            }
+            
+            $bill = DB::table('loan_case_bill_main')
+                ->where('id', '=', $invoice->loan_case_main_bill_id ?? $detail->loan_case_main_bill_id)
+                ->first();
+            
+            if (!$bill) {
+                continue;
+            }
+            
+            // Get existing ledger entries
+            $ledgerEntries = DB::table('ledger_entries_v2')
+                ->where('key_id_2', '=', $detail->id)
+                ->where('transaction_id', '=', $TransferFeeMain->transaction_id)
+                ->where('status', '<>', 99)
+                ->orderBy('id', 'asc')
+                ->get();
+            
+            // Step 1: Remove duplicates (keep first entry, delete rest)
+            $entryGroups = [];
+            foreach ($ledgerEntries as $entry) {
+                $key = $entry->type . '_' . $entry->amount;
+                if (!isset($entryGroups[$key])) {
+                    $entryGroups[$key] = [];
+                }
+                $entryGroups[$key][] = $entry;
+            }
+            
+            foreach ($entryGroups as $key => $entries) {
+                if (count($entries) > 1) {
+                    $firstEntry = array_shift($entries);
+                    foreach ($entries as $duplicate) {
+                        DB::table('ledger_entries_v2')->where('id', '=', $duplicate->id)->delete();
+                        $actions['duplicates_removed']++;
+                    }
+                }
+            }
+            
+            // Re-fetch ledger entries after removing duplicates
+            $ledgerEntries = DB::table('ledger_entries_v2')
+                ->where('key_id_2', '=', $detail->id)
+                ->where('transaction_id', '=', $TransferFeeMain->transaction_id)
+                ->where('status', '<>', 99)
+                ->get();
+            
+            // Calculate ledger totals
+            $ledgerPfee = 0;
+            $ledgerSst = 0;
+            $ledgerReimb = 0;
+            $ledgerReimbSst = 0;
+            $existingTypes = [];
+            
+            foreach ($ledgerEntries as $entry) {
+                if ($entry->type == 'TRANSFER_IN') {
+                    $ledgerPfee += $entry->amount;
+                } elseif ($entry->type == 'SST_IN') {
+                    $ledgerSst += $entry->amount;
+                } elseif ($entry->type == 'REIMB_IN') {
+                    $ledgerReimb += $entry->amount;
+                } elseif ($entry->type == 'REIMB_SST_IN') {
+                    $ledgerReimbSst += $entry->amount;
+                }
+                $existingTypes[$entry->type] = ($existingTypes[$entry->type] ?? 0) + $entry->amount;
+            }
+            
+            // Get detail amounts
+            $detailPfee = $detail->transfer_amount ?? 0;
+            $detailSst = $detail->sst_amount ?? 0;
+            $detailReimb = $detail->reimbursement_amount ?? 0;
+            $detailReimbSst = $detail->reimbursement_sst_amount ?? 0;
+            
+            $invoiceNo = $invoice->invoice_no ?? 'N/A';
+            $detailActions = [];
+            
+            // Step 2: Create missing ledger entries (if detail has amount but ledger is 0 or missing)
+            // Only create if ledger is essentially 0, not if it's just a different amount (that's a mismatch handled in Step 3)
+            if ($detailPfee > 0.01 && ($existingTypes['TRANSFER_IN'] ?? 0) < 0.01) {
+                $missingAmount = $detailPfee;
+                
+                DB::table('ledger_entries_v2')->insert([
+                    'transaction_id' => $TransferFeeMain->transaction_id,
+                    'case_id' => $bill->case_id,
+                    'loan_case_main_bill_id' => $bill->id,
+                    'loan_case_invoice_main_id' => $invoice->id,
+                    'user_id' => $TransferFeeMain->transfer_by ?? auth()->id(),
+                    'key_id' => $TransferFeeMain->id,
+                    'key_id_2' => $detail->id,
+                    'transaction_type' => 'C',
+                    'amount' => $missingAmount,
+                    'bank_id' => $TransferFeeMain->transfer_from,
+                    'remark' => $TransferFeeMain->purpose ?? '',
+                    'status' => 1,
+                    'is_recon' => 0,
+                    'created_at' => $TransferFeeMain->transfer_date ?? now(),
+                    'date' => $TransferFeeMain->transfer_date ?? now(),
+                    'type' => 'TRANSFER_OUT'
+                ]);
+                
+                DB::table('ledger_entries_v2')->insert([
+                    'transaction_id' => $TransferFeeMain->transaction_id,
+                    'case_id' => $bill->case_id,
+                    'loan_case_main_bill_id' => $bill->id,
+                    'loan_case_invoice_main_id' => $invoice->id,
+                    'user_id' => $TransferFeeMain->transfer_by ?? auth()->id(),
+                    'key_id' => $TransferFeeMain->id,
+                    'key_id_2' => $detail->id,
+                    'transaction_type' => 'D',
+                    'amount' => $missingAmount,
+                    'bank_id' => $TransferFeeMain->transfer_to,
+                    'remark' => $TransferFeeMain->purpose ?? '',
+                    'status' => 1,
+                    'is_recon' => 0,
+                    'created_at' => $TransferFeeMain->transfer_date ?? now(),
+                    'date' => $TransferFeeMain->transfer_date ?? now(),
+                    'type' => 'TRANSFER_IN'
+                ]);
+                
+                $actions['missing_entries_created'] += 2;
+                $detailActions[] = "Created TRANSFER_IN for {$missingAmount}";
+                $ledgerPfee = $detailPfee; // Update ledger total
+            }
+            
+            if ($detailSst > 0.01 && ($existingTypes['SST_IN'] ?? 0) < 0.01) {
+                $missingAmount = $detailSst;
+                
+                DB::table('ledger_entries_v2')->insert([
+                    'transaction_id' => $TransferFeeMain->transaction_id,
+                    'case_id' => $bill->case_id,
+                    'loan_case_main_bill_id' => $bill->id,
+                    'loan_case_invoice_main_id' => $invoice->id,
+                    'user_id' => $TransferFeeMain->transfer_by ?? auth()->id(),
+                    'key_id' => $TransferFeeMain->id,
+                    'key_id_2' => $detail->id,
+                    'transaction_type' => 'C',
+                    'amount' => $missingAmount,
+                    'bank_id' => $TransferFeeMain->transfer_from,
+                    'remark' => $TransferFeeMain->purpose ?? '',
+                    'status' => 1,
+                    'is_recon' => 0,
+                    'created_at' => $TransferFeeMain->transfer_date ?? now(),
+                    'date' => $TransferFeeMain->transfer_date ?? now(),
+                    'type' => 'SST_OUT'
+                ]);
+                
+                DB::table('ledger_entries_v2')->insert([
+                    'transaction_id' => $TransferFeeMain->transaction_id,
+                    'case_id' => $bill->case_id,
+                    'loan_case_main_bill_id' => $bill->id,
+                    'loan_case_invoice_main_id' => $invoice->id,
+                    'user_id' => $TransferFeeMain->transfer_by ?? auth()->id(),
+                    'key_id' => $TransferFeeMain->id,
+                    'key_id_2' => $detail->id,
+                    'transaction_type' => 'D',
+                    'amount' => $missingAmount,
+                    'bank_id' => $TransferFeeMain->transfer_to,
+                    'remark' => $TransferFeeMain->purpose ?? '',
+                    'status' => 1,
+                    'is_recon' => 0,
+                    'created_at' => $TransferFeeMain->transfer_date ?? now(),
+                    'date' => $TransferFeeMain->transfer_date ?? now(),
+                    'type' => 'SST_IN'
+                ]);
+                
+                $actions['missing_entries_created'] += 2;
+                $detailActions[] = "Created SST_IN for {$missingAmount}";
+                $ledgerSst = $detailSst; // Update ledger total
+            }
+            
+            if ($detailReimb > 0.01 && ($existingTypes['REIMB_IN'] ?? 0) < 0.01) {
+                $missingAmount = $detailReimb;
+                
+                DB::table('ledger_entries_v2')->insert([
+                    'transaction_id' => $TransferFeeMain->transaction_id,
+                    'case_id' => $bill->case_id,
+                    'loan_case_main_bill_id' => $bill->id,
+                    'loan_case_invoice_main_id' => $invoice->id,
+                    'user_id' => $TransferFeeMain->transfer_by ?? auth()->id(),
+                    'key_id' => $TransferFeeMain->id,
+                    'key_id_2' => $detail->id,
+                    'transaction_type' => 'C',
+                    'amount' => $missingAmount,
+                    'bank_id' => $TransferFeeMain->transfer_from,
+                    'remark' => $TransferFeeMain->purpose ?? '',
+                    'status' => 1,
+                    'is_recon' => 0,
+                    'created_at' => $TransferFeeMain->transfer_date ?? now(),
+                    'date' => $TransferFeeMain->transfer_date ?? now(),
+                    'type' => 'REIMB_OUT'
+                ]);
+                
+                DB::table('ledger_entries_v2')->insert([
+                    'transaction_id' => $TransferFeeMain->transaction_id,
+                    'case_id' => $bill->case_id,
+                    'loan_case_main_bill_id' => $bill->id,
+                    'loan_case_invoice_main_id' => $invoice->id,
+                    'user_id' => $TransferFeeMain->transfer_by ?? auth()->id(),
+                    'key_id' => $TransferFeeMain->id,
+                    'key_id_2' => $detail->id,
+                    'transaction_type' => 'D',
+                    'amount' => $missingAmount,
+                    'bank_id' => $TransferFeeMain->transfer_to,
+                    'remark' => $TransferFeeMain->purpose ?? '',
+                    'status' => 1,
+                    'is_recon' => 0,
+                    'created_at' => $TransferFeeMain->transfer_date ?? now(),
+                    'date' => $TransferFeeMain->transfer_date ?? now(),
+                    'type' => 'REIMB_IN'
+                ]);
+                
+                $actions['missing_entries_created'] += 2;
+                $detailActions[] = "Created REIMB_IN for {$missingAmount}";
+                $ledgerReimb = $detailReimb; // Update ledger total
+            }
+            
+            if ($detailReimbSst > 0.01 && ($existingTypes['REIMB_SST_IN'] ?? 0) < 0.01) {
+                $missingAmount = $detailReimbSst;
+                
+                DB::table('ledger_entries_v2')->insert([
+                    'transaction_id' => $TransferFeeMain->transaction_id,
+                    'case_id' => $bill->case_id,
+                    'loan_case_main_bill_id' => $bill->id,
+                    'loan_case_invoice_main_id' => $invoice->id,
+                    'user_id' => $TransferFeeMain->transfer_by ?? auth()->id(),
+                    'key_id' => $TransferFeeMain->id,
+                    'key_id_2' => $detail->id,
+                    'transaction_type' => 'C',
+                    'amount' => $missingAmount,
+                    'bank_id' => $TransferFeeMain->transfer_from,
+                    'remark' => $TransferFeeMain->purpose ?? '',
+                    'status' => 1,
+                    'is_recon' => 0,
+                    'created_at' => $TransferFeeMain->transfer_date ?? now(),
+                    'date' => $TransferFeeMain->transfer_date ?? now(),
+                    'type' => 'REIMB_SST_OUT'
+                ]);
+                
+                DB::table('ledger_entries_v2')->insert([
+                    'transaction_id' => $TransferFeeMain->transaction_id,
+                    'case_id' => $bill->case_id,
+                    'loan_case_main_bill_id' => $bill->id,
+                    'loan_case_invoice_main_id' => $invoice->id,
+                    'user_id' => $TransferFeeMain->transfer_by ?? auth()->id(),
+                    'key_id' => $TransferFeeMain->id,
+                    'key_id_2' => $detail->id,
+                    'transaction_type' => 'D',
+                    'amount' => $missingAmount,
+                    'bank_id' => $TransferFeeMain->transfer_to,
+                    'remark' => $TransferFeeMain->purpose ?? '',
+                    'status' => 1,
+                    'is_recon' => 0,
+                    'created_at' => $TransferFeeMain->transfer_date ?? now(),
+                    'date' => $TransferFeeMain->transfer_date ?? now(),
+                    'type' => 'REIMB_SST_IN'
+                ]);
+                
+                $actions['missing_entries_created'] += 2;
+                $detailActions[] = "Created REIMB_SST_IN for {$missingAmount}";
+                $ledgerReimbSst = $detailReimbSst; // Update ledger total
+            }
+            
+            // Step 3: Fix amount mismatches (if ledger has amount but detail doesn't match)
+            $needsUpdate = false;
+            if (abs($ledgerPfee - $detailPfee) > 0.01 && $ledgerPfee > 0.01) {
+                $detail->transfer_amount = round($ledgerPfee, 2);
+                $needsUpdate = true;
+                $detailActions[] = "Fixed Pfee: {$detailPfee} → {$ledgerPfee}";
+            }
+            
+            if (abs($ledgerSst - $detailSst) > 0.01 && $ledgerSst > 0.01) {
+                $detail->sst_amount = round($ledgerSst, 2);
+                $needsUpdate = true;
+                $detailActions[] = "Fixed SST: {$detailSst} → {$ledgerSst}";
+            }
+            
+            if (abs($ledgerReimb - $detailReimb) > 0.01 && $ledgerReimb > 0.01) {
+                $detail->reimbursement_amount = round($ledgerReimb, 2);
+                $needsUpdate = true;
+                $detailActions[] = "Fixed Reimb: {$detailReimb} → {$ledgerReimb}";
+            }
+            
+            if (abs($ledgerReimbSst - $detailReimbSst) > 0.01 && $ledgerReimbSst > 0.01) {
+                $detail->reimbursement_sst_amount = round($ledgerReimbSst, 2);
+                $needsUpdate = true;
+                $detailActions[] = "Fixed Reimb SST: {$detailReimbSst} → {$ledgerReimbSst}";
+            }
+            
+            if ($needsUpdate) {
+                $detail->save();
+                $actions['amounts_fixed']++;
+            }
+            
+            if (count($detailActions) > 0) {
+                $actions['details'][] = [
+                    'invoice_no' => $invoiceNo,
+                    'actions' => $detailActions
+                ];
+            }
+        }
+        
+        // Update transfer_fee_main amount
+        $this->updateTransferFeeMainAmt($id);
+        $TransferFeeMain->refresh();
+        
+        return response()->json([
+            'success' => true,
+            'transfer_fee_main_id' => $id,
+            'transaction_id' => $TransferFeeMain->transaction_id,
+            'actions' => $actions,
+            'updated_transfer_amount' => round($TransferFeeMain->transfer_amount, 2)
+        ]);
+    }
+
+    /**
      * Fix transfer fee discrepancies by updating transfer_fee_details to match ledger entries
-     * NOTE: This should NOT be used if discrepancies are caused by duplicate ledger entries
-     * Use removeDuplicateLedgerEntries() instead
+     * NOTE: This should NOT be used if discrepancies are caused by duplicate ledger entries or missing entries
+     * Use removeDuplicateLedgerEntries() for duplicates or createMissingLedgerEntries() for missing entries
+     * @deprecated Use fixAllTransferFeeDiscrepancies() instead
      */
     public function fixTransferFeeDiscrepancies($id)
     {
@@ -1350,6 +1976,30 @@ class AccountController extends Controller
                 'transfer_fee_detail_id' => $detail->id,
                 'invoice_id' => $detail->loan_case_invoice_main_id,
             ];
+            
+            // Check and fix pfee amounts
+            if (abs($ledgerPfee - $detailPfee) > 0.01) {
+                $oldPfee = $detailPfee;
+                $detail->transfer_amount = round($ledgerPfee, 2);
+                $needsUpdate = true;
+                $updateInfo['pfee'] = [
+                    'old' => round($oldPfee, 2),
+                    'new' => round($ledgerPfee, 2),
+                    'diff' => round($ledgerPfee - $oldPfee, 2)
+                ];
+            }
+            
+            // Check and fix SST amounts
+            if (abs($ledgerSst - $detailSst) > 0.01) {
+                $oldSst = $detailSst;
+                $detail->sst_amount = round($ledgerSst, 2);
+                $needsUpdate = true;
+                $updateInfo['sst'] = [
+                    'old' => round($oldSst, 2),
+                    'new' => round($ledgerSst, 2),
+                    'diff' => round($ledgerSst - $oldSst, 2)
+                ];
+            }
             
             // Check and fix reimbursement amounts
             if (abs($ledgerReimb - $detailReimb) > 0.01) {
