@@ -46,17 +46,19 @@
             text-align: center;
         }
         /* Column width adjustments */
-        th:nth-child(1), td:nth-child(1) { width: 5%; }  /* No */
-        th:nth-child(2), td:nth-child(2) { width: 12%; } /* Case Ref No */
-        th:nth-child(3), td:nth-child(3) { width: 15%; } /* Client Name */
-        th:nth-child(4), td:nth-child(4) { width: 10%; } /* Invoice No */
-        th:nth-child(5), td:nth-child(5) { width: 8%; }  /* Invoice Date */
-        th:nth-child(6), td:nth-child(6) { width: 10%; } /* Total Amount */
-        th:nth-child(7), td:nth-child(7) { width: 8%; }  /* Pfee1 */
-        th:nth-child(8), td:nth-child(8) { width: 8%; }  /* Pfee2 */
-        th:nth-child(9), td:nth-child(9) { width: 10%; } /* Collected Amount */
-        th:nth-child(10), td:nth-child(10) { width: 8%; } /* SST Amount */
-        th:nth-child(11), td:nth-child(11) { width: 8%; } /* Payment Date */
+        th:nth-child(1), td:nth-child(1) { width: 4%; }  /* No */
+        th:nth-child(2), td:nth-child(2) { width: 10%; } /* Ref No */
+        th:nth-child(3), td:nth-child(3) { width: 12%; } /* Client Name */
+        th:nth-child(4), td:nth-child(4) { width: 8%; }  /* Invoice No */
+        th:nth-child(5), td:nth-child(5) { width: 7%; }  /* Invoice Date */
+        th:nth-child(6), td:nth-child(6) { width: 8%; }  /* Total amt */
+        th:nth-child(7), td:nth-child(7) { width: 8%; }  /* P1+P2 (excl SST) */
+        th:nth-child(8), td:nth-child(8) { width: 8%; }  /* Reimbursement (excl SST) */
+        th:nth-child(9), td:nth-child(9) { width: 8%; }  /* Collected amt */
+        th:nth-child(10), td:nth-child(10) { width: 6%; } /* SST */
+        th:nth-child(11), td:nth-child(11) { width: 7%; } /* Reimb SST */
+        th:nth-child(12), td:nth-child(12) { width: 7%; } /* Total SST */
+        th:nth-child(13), td:nth-child(13) { width: 7%; } /* Payment Date */
         .text-right {
             text-align: right;
         }
@@ -90,15 +92,17 @@
         <thead>
             <tr>
                 <th>No</th>
-                <th>Case Ref No</th>
+                <th>Ref No</th>
                 <th>Client Name</th>
                 <th>Invoice No</th>
                 <th>Invoice Date</th>
-                <th>Total Amount</th>
-                <th>Pfee1</th>
-                <th>Pfee2</th>
-                <th>Collected Amount</th>
-                <th>SST Amount</th>
+                <th>Total amt</th>
+                <th>P1+P2 (excl SST)</th>
+                <th>Reimbursement (excl SST)</th>
+                <th>Collected amt</th>
+                <th>SST</th>
+                <th>Reimb SST</th>
+                <th>Total SST</th>
                 <th>Payment Date</th>
             </tr>
         </thead>
@@ -106,15 +110,17 @@
             @foreach($data as $row)
                 <tr class="{{ $row['No'] === 'TOTAL' ? 'totals-row' : '' }}">
                     <td class="text-center">{{ $row['No'] }}</td>
-                    <td>{{ $row['Case Ref No'] }}</td>
+                    <td>{{ $row['Ref No'] }}</td>
                     <td>{{ $row['Client Name'] }}</td>
                     <td>{{ $row['Invoice No'] }}</td>
                     <td>{{ $row['Invoice Date'] }}</td>
-                    <td class="text-right">{{ is_numeric($row['Total Amount']) ? number_format($row['Total Amount'], 2) : $row['Total Amount'] }}</td>
-                    <td class="text-right">{{ is_numeric($row['Pfee1']) ? number_format($row['Pfee1'], 2) : $row['Pfee1'] }}</td>
-                    <td class="text-right">{{ is_numeric($row['Pfee2']) ? number_format($row['Pfee2'], 2) : $row['Pfee2'] }}</td>
-                    <td class="text-right">{{ is_numeric($row['Collected Amount']) ? number_format($row['Collected Amount'], 2) : $row['Collected Amount'] }}</td>
-                    <td class="text-right">{{ is_numeric($row['SST Amount']) ? number_format($row['SST Amount'], 2) : $row['SST Amount'] }}</td>
+                    <td class="text-right">{{ is_numeric($row['Total amt']) ? number_format($row['Total amt'], 2) : $row['Total amt'] }}</td>
+                    <td class="text-right">{{ is_numeric($row['P1+P2 (excl SST)']) ? number_format($row['P1+P2 (excl SST)'], 2) : $row['P1+P2 (excl SST)'] }}</td>
+                    <td class="text-right">{{ is_numeric($row['Reimbursement (excl SST)']) ? number_format($row['Reimbursement (excl SST)'], 2) : $row['Reimbursement (excl SST)'] }}</td>
+                    <td class="text-right">{{ is_numeric($row['Collected amt']) ? number_format($row['Collected amt'], 2) : $row['Collected amt'] }}</td>
+                    <td class="text-right">{{ is_numeric($row['SST']) ? number_format($row['SST'], 2) : $row['SST'] }}</td>
+                    <td class="text-right">{{ is_numeric($row['Reimb SST']) ? number_format($row['Reimb SST'], 2) : $row['Reimb SST'] }}</td>
+                    <td class="text-right">{{ is_numeric($row['Total SST']) ? number_format($row['Total SST'], 2) : $row['Total SST'] }}</td>
                     <td>{{ $row['Payment Date'] }}</td>
                 </tr>
             @endforeach

@@ -1105,6 +1105,8 @@ class SSTV2Controller extends Controller
                     'im.amount as total_amount',
                     'im.pfee1_inv as pfee1',
                     'im.pfee2_inv as pfee2',
+                    'im.reimbursement_amount',
+                    'im.reimbursement_sst',
                     'b.collected_amt as collected_amount',
                     'b.payment_receipt_date as payment_date',
                     'l.case_ref_no',
@@ -1119,17 +1121,27 @@ class SSTV2Controller extends Controller
             $rowNumber = 1;
             
             foreach ($SSTDetails as $detail) {
+                $pfee1 = (float)($detail->pfee1 ?? 0);
+                $pfee2 = (float)($detail->pfee2 ?? 0);
+                $totalPfee = $pfee1 + $pfee2;
+                $reimbursementAmount = (float)($detail->reimbursement_amount ?? 0);
+                $sstAmount = (float)($detail->amount ?? 0);
+                $reimbSst = (float)($detail->reimbursement_sst ?? 0);
+                $totalSst = $sstAmount + $reimbSst;
+                
                 $exportData[] = [
                     'No' => $rowNumber++,
-                    'Case Ref No' => $detail->case_ref_no ?? 'N/A',
+                    'Ref No' => $detail->case_ref_no ?? 'N/A',
                     'Client Name' => $detail->client_name ?? 'N/A',
                     'Invoice No' => $detail->invoice_no ?? 'N/A',
                     'Invoice Date' => $detail->invoice_date ?? 'N/A',
-                    'Total Amount' => (float)($detail->total_amount ?? 0),
-                    'Pfee1' => (float)($detail->pfee1 ?? 0),
-                    'Pfee2' => (float)($detail->pfee2 ?? 0),
-                    'Collected Amount' => (float)($detail->collected_amount ?? 0),
-                    'SST Amount' => (float)($detail->amount ?? 0),
+                    'Total amt' => (float)($detail->total_amount ?? 0),
+                    'P1+P2 (excl SST)' => $totalPfee,
+                    'Reimbursement (excl SST)' => $reimbursementAmount,
+                    'Collected amt' => (float)($detail->collected_amount ?? 0),
+                    'SST' => $sstAmount,
+                    'Reimb SST' => $reimbSst,
+                    'Total SST' => $totalSst,
                     'Payment Date' => $detail->payment_date ?? 'N/A'
                 ];
             }
@@ -1137,15 +1149,17 @@ class SSTV2Controller extends Controller
             // Add totals row
             $totals = [
                 'No' => 'TOTAL',
-                'Case Ref No' => '',
+                'Ref No' => '',
                 'Client Name' => '',
                 'Invoice No' => '',
                 'Invoice Date' => '',
-                'Total Amount' => array_sum(array_column($exportData, 'Total Amount')),
-                'Pfee1' => array_sum(array_column($exportData, 'Pfee1')),
-                'Pfee2' => array_sum(array_column($exportData, 'Pfee2')),
-                'Collected Amount' => array_sum(array_column($exportData, 'Collected Amount')),
-                'SST Amount' => array_sum(array_column($exportData, 'SST Amount')),
+                'Total amt' => array_sum(array_column($exportData, 'Total amt')),
+                'P1+P2 (excl SST)' => array_sum(array_column($exportData, 'P1+P2 (excl SST)')),
+                'Reimbursement (excl SST)' => array_sum(array_column($exportData, 'Reimbursement (excl SST)')),
+                'Collected amt' => array_sum(array_column($exportData, 'Collected amt')),
+                'SST' => array_sum(array_column($exportData, 'SST')),
+                'Reimb SST' => array_sum(array_column($exportData, 'Reimb SST')),
+                'Total SST' => array_sum(array_column($exportData, 'Total SST')),
                 'Payment Date' => ''
             ];
             $exportData[] = $totals;
@@ -1184,6 +1198,8 @@ class SSTV2Controller extends Controller
                     'im.amount as total_amount',
                     'im.pfee1_inv as pfee1',
                     'im.pfee2_inv as pfee2',
+                    'im.reimbursement_amount',
+                    'im.reimbursement_sst',
                     'b.collected_amt as collected_amount',
                     'b.payment_receipt_date as payment_date',
                     'l.case_ref_no',
@@ -1198,17 +1214,27 @@ class SSTV2Controller extends Controller
             $rowNumber = 1;
             
             foreach ($SSTDetails as $detail) {
+                $pfee1 = (float)($detail->pfee1 ?? 0);
+                $pfee2 = (float)($detail->pfee2 ?? 0);
+                $totalPfee = $pfee1 + $pfee2;
+                $reimbursementAmount = (float)($detail->reimbursement_amount ?? 0);
+                $sstAmount = (float)($detail->amount ?? 0);
+                $reimbSst = (float)($detail->reimbursement_sst ?? 0);
+                $totalSst = $sstAmount + $reimbSst;
+                
                 $exportData[] = [
                     'No' => $rowNumber++,
-                    'Case Ref No' => $detail->case_ref_no ?? 'N/A',
+                    'Ref No' => $detail->case_ref_no ?? 'N/A',
                     'Client Name' => $detail->client_name ?? 'N/A',
                     'Invoice No' => $detail->invoice_no ?? 'N/A',
                     'Invoice Date' => $detail->invoice_date ?? 'N/A',
-                    'Total Amount' => (float)($detail->total_amount ?? 0),
-                    'Pfee1' => (float)($detail->pfee1 ?? 0),
-                    'Pfee2' => (float)($detail->pfee2 ?? 0),
-                    'Collected Amount' => (float)($detail->collected_amount ?? 0),
-                    'SST Amount' => (float)($detail->amount ?? 0),
+                    'Total amt' => (float)($detail->total_amount ?? 0),
+                    'P1+P2 (excl SST)' => $totalPfee,
+                    'Reimbursement (excl SST)' => $reimbursementAmount,
+                    'Collected amt' => (float)($detail->collected_amount ?? 0),
+                    'SST' => $sstAmount,
+                    'Reimb SST' => $reimbSst,
+                    'Total SST' => $totalSst,
                     'Payment Date' => $detail->payment_date ?? 'N/A'
                 ];
             }
@@ -1216,15 +1242,17 @@ class SSTV2Controller extends Controller
             // Add totals row
             $totals = [
                 'No' => 'TOTAL',
-                'Case Ref No' => '',
+                'Ref No' => '',
                 'Client Name' => '',
                 'Invoice No' => '',
                 'Invoice Date' => '',
-                'Total Amount' => array_sum(array_column($exportData, 'Total Amount')),
-                'Pfee1' => array_sum(array_column($exportData, 'Pfee1')),
-                'Pfee2' => array_sum(array_column($exportData, 'Pfee2')),
-                'Collected Amount' => array_sum(array_column($exportData, 'Collected Amount')),
-                'SST Amount' => array_sum(array_column($exportData, 'SST Amount')),
+                'Total amt' => array_sum(array_column($exportData, 'Total amt')),
+                'P1+P2 (excl SST)' => array_sum(array_column($exportData, 'P1+P2 (excl SST)')),
+                'Reimbursement (excl SST)' => array_sum(array_column($exportData, 'Reimbursement (excl SST)')),
+                'Collected amt' => array_sum(array_column($exportData, 'Collected amt')),
+                'SST' => array_sum(array_column($exportData, 'SST')),
+                'Reimb SST' => array_sum(array_column($exportData, 'Reimb SST')),
+                'Total SST' => array_sum(array_column($exportData, 'Total SST')),
                 'Payment Date' => ''
             ];
             $exportData[] = $totals;
@@ -1277,7 +1305,7 @@ class SSTV2Controller extends Controller
         $sheet->getStyle('A4')->getAlignment()->setHorizontal('center');
         
         // Set headers
-        $headers = ['No', 'Case Ref No', 'Client Name', 'Invoice No', 'Invoice Date', 'Total Amount', 'Pfee1', 'Pfee2', 'Collected Amount', 'SST Amount', 'Payment Date'];
+        $headers = ['No', 'Ref No', 'Client Name', 'Invoice No', 'Invoice Date', 'Total amt', 'P1+P2 (excl SST)', 'Reimbursement (excl SST)', 'Collected amt', 'SST', 'Reimb SST', 'Total SST', 'Payment Date'];
         $col = 'A';
         foreach ($headers as $header) {
             $sheet->setCellValue($col . '6', $header);
@@ -1285,8 +1313,8 @@ class SSTV2Controller extends Controller
         }
         
         // Style headers
-        $sheet->getStyle('A6:K6')->getFont()->setBold(true);
-        $sheet->getStyle('A6:K6')->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setRGB('E0E0E0');
+        $sheet->getStyle('A6:M6')->getFont()->setBold(true);
+        $sheet->getStyle('A6:M6')->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setRGB('E0E0E0');
         
         // Add data
         $row = 7;
@@ -1294,7 +1322,7 @@ class SSTV2Controller extends Controller
             $col = 'A';
                 foreach ($item as $key => $value) {
                 // Format numeric columns with proper number formatting
-                if (in_array($key, ['Total Amount', 'Pfee1', 'Pfee2', 'Collected Amount', 'SST Amount']) && is_numeric($value)) {
+                if (in_array($key, ['Total amt', 'P1+P2 (excl SST)', 'Reimbursement (excl SST)', 'Collected amt', 'SST', 'Reimb SST', 'Total SST']) && is_numeric($value)) {
                     $sheet->setCellValue($col . $row, (float)$value);
                     $sheet->getStyle($col . $row)->getNumberFormat()->setFormatCode('#,##0.00');
                 } else {
@@ -1308,12 +1336,12 @@ class SSTV2Controller extends Controller
         // Style the totals row
         if (!empty($data) && end($data)['No'] === 'TOTAL') {
             $lastRow = $row - 1;
-            $sheet->getStyle('A' . $lastRow . ':K' . $lastRow)->getFont()->setBold(true);
-            $sheet->getStyle('A' . $lastRow . ':K' . $lastRow)->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setRGB('F0F0F0');
+            $sheet->getStyle('A' . $lastRow . ':M' . $lastRow)->getFont()->setBold(true);
+            $sheet->getStyle('A' . $lastRow . ':M' . $lastRow)->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setRGB('F0F0F0');
         }
         
         // Auto-size columns
-        foreach (range('A', 'K') as $column) {
+        foreach (range('A', 'M') as $column) {
             $sheet->getColumnDimension($column)->setAutoSize(true);
         }
         
@@ -1357,28 +1385,28 @@ class SSTV2Controller extends Controller
             
             // Set title
             $sheet->setCellValue('A1', 'SST Payment Record');
-            $sheet->mergeCells('A1:K1');
+            $sheet->mergeCells('A1:M1');
             $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
             $sheet->getStyle('A1')->getAlignment()->setHorizontal('center');
             
             // Set subtitle
             $sheet->setCellValue('A2', 'SST ID: ' . $SSTMain->id);
-            $sheet->mergeCells('A2:K2');
+            $sheet->mergeCells('A2:M2');
             $sheet->getStyle('A2')->getFont()->setSize(12);
             $sheet->getStyle('A2')->getAlignment()->setHorizontal('center');
             
             $sheet->setCellValue('A3', 'Payment Date: ' . ($SSTMain->payment_date ?? 'N/A'));
-            $sheet->mergeCells('A3:K3');
+            $sheet->mergeCells('A3:M3');
             $sheet->getStyle('A3')->getFont()->setSize(12);
             $sheet->getStyle('A3')->getAlignment()->setHorizontal('center');
             
             $sheet->setCellValue('A4', 'Transaction ID: ' . ($SSTMain->transaction_id ?? 'N/A'));
-            $sheet->mergeCells('A4:K4');
+            $sheet->mergeCells('A4:M4');
             $sheet->getStyle('A4')->getFont()->setSize(12);
             $sheet->getStyle('A4')->getAlignment()->setHorizontal('center');
             
             // Set headers
-            $headers = ['No', 'Case Ref No', 'Client Name', 'Invoice No', 'Invoice Date', 'Total Amount', 'Pfee1', 'Pfee2', 'Collected Amount', 'SST Amount', 'Payment Date'];
+            $headers = ['No', 'Ref No', 'Client Name', 'Invoice No', 'Invoice Date', 'Total amt', 'P1+P2 (excl SST)', 'Reimbursement (excl SST)', 'Collected amt', 'SST', 'Reimb SST', 'Total SST', 'Payment Date'];
             $col = 'A';
             foreach ($headers as $header) {
                 $sheet->setCellValue($col . '6', $header);
@@ -1386,8 +1414,8 @@ class SSTV2Controller extends Controller
             }
             
             // Style headers
-            $sheet->getStyle('A6:K6')->getFont()->setBold(true);
-            $sheet->getStyle('A6:K6')->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setRGB('E0E0E0');
+            $sheet->getStyle('A6:M6')->getFont()->setBold(true);
+            $sheet->getStyle('A6:M6')->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setRGB('E0E0E0');
             
             // Add data
             $row = 7;
@@ -1395,7 +1423,7 @@ class SSTV2Controller extends Controller
                 $col = 'A';
                 foreach ($item as $key => $value) {
                 // Format numeric columns with proper number formatting
-                if (in_array($key, ['Total Amount', 'Pfee1', 'Pfee2', 'Collected Amount', 'SST Amount']) && is_numeric($value)) {
+                if (in_array($key, ['Total amt', 'P1+P2 (excl SST)', 'Reimbursement (excl SST)', 'Collected amt', 'SST', 'Reimb SST', 'Total SST']) && is_numeric($value)) {
                     $sheet->setCellValue($col . $row, (float)$value);
                     $sheet->getStyle($col . $row)->getNumberFormat()->setFormatCode('#,##0.00');
                 } else {
@@ -1409,12 +1437,12 @@ class SSTV2Controller extends Controller
             // Style the totals row
             if (!empty($data) && end($data)['No'] === 'TOTAL') {
                 $lastRow = $row - 1;
-                $sheet->getStyle('A' . $lastRow . ':K' . $lastRow)->getFont()->setBold(true);
-                $sheet->getStyle('A' . $lastRow . ':K' . $lastRow)->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setRGB('F0F0F0');
+                $sheet->getStyle('A' . $lastRow . ':M' . $lastRow)->getFont()->setBold(true);
+                $sheet->getStyle('A' . $lastRow . ':M' . $lastRow)->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setRGB('F0F0F0');
             }
             
             // Auto-size columns
-            foreach (range('A', 'K') as $column) {
+            foreach (range('A', 'M') as $column) {
                 $sheet->getColumnDimension($column)->setAutoSize(true);
             }
             
@@ -1483,6 +1511,8 @@ class SSTV2Controller extends Controller
                     'im.amount as total_amount',
                     'im.pfee1_inv as pfee1',
                     'im.pfee2_inv as pfee2',
+                    'im.reimbursement_amount',
+                    'im.reimbursement_sst',
                     'b.collected_amt as collected_amount',
                     'b.payment_receipt_date as payment_date',
                     'l.case_ref_no',
@@ -1497,17 +1527,27 @@ class SSTV2Controller extends Controller
             $rowNumber = 1;
             
             foreach ($SSTDetails as $detail) {
+                $pfee1 = (float)($detail->pfee1 ?? 0);
+                $pfee2 = (float)($detail->pfee2 ?? 0);
+                $totalPfee = $pfee1 + $pfee2;
+                $reimbursementAmount = (float)($detail->reimbursement_amount ?? 0);
+                $sstAmount = (float)($detail->amount ?? 0);
+                $reimbSst = (float)($detail->reimbursement_sst ?? 0);
+                $totalSst = $sstAmount + $reimbSst;
+                
                 $exportData[] = [
                     'No' => $rowNumber++,
-                    'Case Ref No' => $detail->case_ref_no ?? 'N/A',
+                    'Ref No' => $detail->case_ref_no ?? 'N/A',
                     'Client Name' => $detail->client_name ?? 'N/A',
                     'Invoice No' => $detail->invoice_no ?? 'N/A',
                     'Invoice Date' => $detail->invoice_date ?? 'N/A',
-                    'Total Amount' => (float)($detail->total_amount ?? 0),
-                    'Pfee1' => (float)($detail->pfee1 ?? 0),
-                    'Pfee2' => (float)($detail->pfee2 ?? 0),
-                    'Collected Amount' => (float)($detail->collected_amount ?? 0),
-                    'SST Amount' => (float)($detail->amount ?? 0),
+                    'Total amt' => (float)($detail->total_amount ?? 0),
+                    'P1+P2 (excl SST)' => $totalPfee,
+                    'Reimbursement (excl SST)' => $reimbursementAmount,
+                    'Collected amt' => (float)($detail->collected_amount ?? 0),
+                    'SST' => $sstAmount,
+                    'Reimb SST' => $reimbSst,
+                    'Total SST' => $totalSst,
                     'Payment Date' => $detail->payment_date ?? 'N/A'
                 ];
             }
@@ -1515,15 +1555,17 @@ class SSTV2Controller extends Controller
             // Add totals row
             $totals = [
                 'No' => 'TOTAL',
-                'Case Ref No' => '',
+                'Ref No' => '',
                 'Client Name' => '',
                 'Invoice No' => '',
                 'Invoice Date' => '',
-                'Total Amount' => array_sum(array_column($exportData, 'Total Amount')),
-                'Pfee1' => array_sum(array_column($exportData, 'Pfee1')),
-                'Pfee2' => array_sum(array_column($exportData, 'Pfee2')),
-                'Collected Amount' => array_sum(array_column($exportData, 'Collected Amount')),
-                'SST Amount' => array_sum(array_column($exportData, 'SST Amount')),
+                'Total amt' => array_sum(array_column($exportData, 'Total amt')),
+                'P1+P2 (excl SST)' => array_sum(array_column($exportData, 'P1+P2 (excl SST)')),
+                'Reimbursement (excl SST)' => array_sum(array_column($exportData, 'Reimbursement (excl SST)')),
+                'Collected amt' => array_sum(array_column($exportData, 'Collected amt')),
+                'SST' => array_sum(array_column($exportData, 'SST')),
+                'Reimb SST' => array_sum(array_column($exportData, 'Reimb SST')),
+                'Total SST' => array_sum(array_column($exportData, 'Total SST')),
                 'Payment Date' => ''
             ];
             $exportData[] = $totals;
@@ -1545,28 +1587,28 @@ class SSTV2Controller extends Controller
             
             // Set title
             $sheet->setCellValue('A1', 'SST Payment Record');
-            $sheet->mergeCells('A1:K1');
+            $sheet->mergeCells('A1:M1');
             $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
             $sheet->getStyle('A1')->getAlignment()->setHorizontal('center');
             
             // Set subtitle
             $sheet->setCellValue('A2', 'SST ID: ' . $SSTMain->id);
-            $sheet->mergeCells('A2:K2');
+            $sheet->mergeCells('A2:M2');
             $sheet->getStyle('A2')->getFont()->setSize(12);
             $sheet->getStyle('A2')->getAlignment()->setHorizontal('center');
             
             $sheet->setCellValue('A3', 'Payment Date: ' . ($SSTMain->payment_date ?? 'N/A'));
-            $sheet->mergeCells('A3:K3');
+            $sheet->mergeCells('A3:M3');
             $sheet->getStyle('A3')->getFont()->setSize(12);
             $sheet->getStyle('A3')->getAlignment()->setHorizontal('center');
             
             $sheet->setCellValue('A4', 'Transaction ID: ' . ($SSTMain->transaction_id ?? 'N/A'));
-            $sheet->mergeCells('A4:K4');
+            $sheet->mergeCells('A4:M4');
             $sheet->getStyle('A4')->getFont()->setSize(12);
             $sheet->getStyle('A4')->getAlignment()->setHorizontal('center');
             
             // Set headers
-            $headers = ['No', 'Case Ref No', 'Client Name', 'Invoice No', 'Invoice Date', 'Total Amount', 'Pfee1', 'Pfee2', 'Collected Amount', 'SST Amount', 'Payment Date'];
+            $headers = ['No', 'Ref No', 'Client Name', 'Invoice No', 'Invoice Date', 'Total amt', 'P1+P2 (excl SST)', 'Reimbursement (excl SST)', 'Collected amt', 'SST', 'Reimb SST', 'Total SST', 'Payment Date'];
             $col = 'A';
             foreach ($headers as $header) {
                 $sheet->setCellValue($col . '6', $header);
@@ -1574,8 +1616,8 @@ class SSTV2Controller extends Controller
             }
             
             // Style headers
-            $sheet->getStyle('A6:K6')->getFont()->setBold(true);
-            $sheet->getStyle('A6:K6')->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setRGB('E0E0E0');
+            $sheet->getStyle('A6:M6')->getFont()->setBold(true);
+            $sheet->getStyle('A6:M6')->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setRGB('E0E0E0');
             
             // Add data
             $row = 7;
@@ -1583,7 +1625,7 @@ class SSTV2Controller extends Controller
                 $col = 'A';
                 foreach ($item as $key => $value) {
                 // Format numeric columns with proper number formatting
-                if (in_array($key, ['Total Amount', 'Pfee1', 'Pfee2', 'Collected Amount', 'SST Amount']) && is_numeric($value)) {
+                if (in_array($key, ['Total amt', 'P1+P2 (excl SST)', 'Reimbursement (excl SST)', 'Collected amt', 'SST', 'Reimb SST', 'Total SST']) && is_numeric($value)) {
                     $sheet->setCellValue($col . $row, (float)$value);
                     $sheet->getStyle($col . $row)->getNumberFormat()->setFormatCode('#,##0.00');
                 } else {
@@ -1597,12 +1639,12 @@ class SSTV2Controller extends Controller
             // Style the totals row
             if (!empty($exportData) && end($exportData)['No'] === 'TOTAL') {
                 $lastRow = $row - 1;
-                $sheet->getStyle('A' . $lastRow . ':K' . $lastRow)->getFont()->setBold(true);
-                $sheet->getStyle('A' . $lastRow . ':K' . $lastRow)->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setRGB('F0F0F0');
+                $sheet->getStyle('A' . $lastRow . ':M' . $lastRow)->getFont()->setBold(true);
+                $sheet->getStyle('A' . $lastRow . ':M' . $lastRow)->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setRGB('F0F0F0');
             }
             
             // Auto-size columns
-            foreach (range('A', 'K') as $column) {
+            foreach (range('A', 'M') as $column) {
                 $sheet->getColumnDimension($column)->setAutoSize(true);
             }
             
