@@ -58,7 +58,7 @@
                                                                 <div class="form-group row">
                                                                     <div class="col">
                                                                         <label>Branch</label>
-                                                                        <select class="form-control" name="account_code">
+                                                                        <select class="form-control" name="branch_id">
                                                                             <option value="0">--Select Branch--</option>
                                                                             @foreach($branchs as $index => $branch)
                                                                             <option value="{{$branch->id}}" >{{$branch->name}}</option>

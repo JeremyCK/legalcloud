@@ -99,6 +99,11 @@ class OfficeBankAccountController extends Controller
         {
             $branch_id = 3;
         }
+        else
+        {
+            // Read branch_id from request if user is not branch 3
+            $branch_id = $request->input('branch_id', 0);
+        }
 
         $OfficeBankAccount = new OfficeBankAccount();
 
@@ -210,6 +215,7 @@ class OfficeBankAccountController extends Controller
         // return redirect()->route('todolist.edit', [$request->input('id')]); 
 
         $banks = OfficeBankAccount::where('id', '=', $id)->first();
+        $current_user = auth()->user();
 
         $banks->name = $request->input('name');
         $banks->short_code = $request->input('short_code');
@@ -220,6 +226,13 @@ class OfficeBankAccountController extends Controller
         $banks->account_no = $request->input('account_no');
         $banks->remark = $request->input('remark');
         $banks->status = $request->input('status');
+        
+        // Update branch_id if user is not branch 3
+        if($current_user->branch_id != 3)
+        {
+            $banks->branch_id = $request->input('branch_id', 0);
+        }
+        
         $banks->created_at = now();
 
         $banks->save();

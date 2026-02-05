@@ -892,7 +892,7 @@ Route::get('transfer-fee-create', [AccountController::class, 'transferFeeCreate'
             Route::post('setVoucherReceiptIssue/{parameter1}', [VoucherController::class, 'setVoucherReceiptIssue']);
 
             
-            Route::resource('account-code', AccountCodeController::class);
+            Route::resource('account-code', 'AccountCodeController');
             // Route::resource('bonus', BonusController::class);
 
             

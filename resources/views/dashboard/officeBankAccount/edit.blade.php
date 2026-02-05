@@ -59,7 +59,7 @@
                                                                 <div class="form-group row">
                                                                     <div class="col">
                                                                         <label>Branch</label>
-                                                                        <select class="form-control" name="account_code">
+                                                                        <select class="form-control" name="branch_id">
                                                                             <option value="0">--Select Branch--</option>
                                                                             @foreach($branchs as $index => $branch)
                                                                             <option value="{{$branch->id}}" @if($branch->id == $banks->branch_id) selected @endif >{{$branch->name}}</option>
@@ -73,8 +73,8 @@
                                                                     <div class="col">
                                                                         <label>{{ __('coreuiforms.notes.status') }}</label>
                                                                         <select class="form-control" name="status">
-                                                                            <option value="1">Active</option>
-                                                                            <option value="0">Inactive</option>
+                                                                            <option value="1" @if($banks->status == 1) selected @endif>Active</option>
+                                                                            <option value="0" @if($banks->status == 0) selected @endif>Inactive</option>
                                                                         </select>
                                                                     </div>
                                                                 </div> 

@@ -1158,6 +1158,26 @@ class TransferFeeV3Controller extends Controller
 
             $TransferFeeMain->save();
 
+            // Update existing ledger entries when transfer_to, transfer_from, transaction_id, date, or purpose changes
+            // This ensures OA ledger shows correctly when bank account is changed
+            LedgerEntriesV2::where('key_id', $TransferFeeMain->id)
+                ->whereIn('type', ['TRANSFER_IN', 'SST_IN', 'REIMB_IN', 'REIMB_SST_IN'])
+                ->update([
+                    'bank_id' => $request->input("transfer_to"),
+                    'transaction_id' => $TransferFeeMain->transaction_id,
+                    'remark' => $TransferFeeMain->purpose,
+                    'date' => $TransferFeeMain->transfer_date
+                ]);
+            
+            LedgerEntriesV2::where('key_id', $TransferFeeMain->id)
+                ->whereIn('type', ['TRANSFER_OUT', 'SST_OUT', 'REIMB_OUT', 'REIMB_SST_OUT'])
+                ->update([
+                    'bank_id' => $request->input("transfer_from"),
+                    'transaction_id' => $TransferFeeMain->transaction_id,
+                    'remark' => $TransferFeeMain->purpose,
+                    'date' => $TransferFeeMain->transfer_date
+                ]);
+
             // Process new invoices only (existing invoices remain untouched)
             if ($request->input('add_invoice')) {
                 $add_invoices = json_decode($request->input('add_invoice'), true);
