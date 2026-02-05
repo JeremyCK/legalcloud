@@ -107,12 +107,24 @@
                                                                 <div class="form-group row">
                                                                     <div class="col">
                                                                         <label>Account Code</label>
-                                                                        <select class="form-control" name="account_code">
+                                                                        <select class="form-control" name="account_code" id="account_code" onchange="updateAccountType();">
                                                                             <option value="0">--Select account code--</option>
                                                                             @foreach($AccountCode as $index => $row)
-                                                                            <option value="{{$row->id}}" >{{$row->name}}</option>
+                                                                            <option value="{{$row->id}}" data-group="{{$row->group}}" >{{$row->name}}</option>
                                                                             @endforeach
                                                                         </select>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div class="form-group row">
+                                                                    <div class="col">
+                                                                        <label>Account Type</label>
+                                                                        <select class="form-control" name="account_type" id="account_type">
+                                                                            <option value="">--Select account type--</option>
+                                                                            <option value="OA">Office Account (OA)</option>
+                                                                            <option value="CA">Client Account (CA)</option>
+                                                                        </select>
+                                                                        <small class="form-text text-muted">Auto-updated based on Account Code selection</small>
                                                                     </div>
                                                                 </div>
 
@@ -160,4 +172,35 @@
 @endsection
 
 @section('javascript')
+<script type="text/javascript">
+    // Store account code data for auto-updating account type
+    var accountCodeData = @json($AccountCode->pluck('group', 'id')->toArray());
+
+    window.updateAccountType = function() {
+        var accountCodeSelect = document.getElementById('account_code');
+        var accountTypeSelect = document.getElementById('account_type');
+        
+        if (!accountCodeSelect || !accountTypeSelect) {
+            return;
+        }
+        
+        var accountCodeId = accountCodeSelect.value;
+
+        if (accountCodeId && accountCodeId != '0') {
+            var group = accountCodeData[accountCodeId];
+            if (group !== undefined) {
+                // group = 1 means OA (Office Account), group = 2 means CA (Client Account)
+                if (group == 1) {
+                    accountTypeSelect.value = 'OA';
+                } else if (group == 2) {
+                    accountTypeSelect.value = 'CA';
+                } else {
+                    accountTypeSelect.value = '';
+                }
+            }
+        } else {
+            accountTypeSelect.value = '';
+        }
+    };
+</script>
 @endsection

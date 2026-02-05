@@ -107,12 +107,24 @@
                                                                 <div class="form-group row">
                                                                     <div class="col">
                                                                         <label>Account Code</label>
-                                                                        <select class="form-control" name="account_code">
+                                                                        <select class="form-control" name="account_code" id="account_code" onchange="updateAccountType();">
                                                                             <option value="0">--Select account code--</option>
                                                                             @foreach($AccountCode as $index => $row)
-                                                                            <option value="{{$row->id}}" @if($row->id == $banks->account_code) selected @endif >{{$row->name}}</option>
+                                                                            <option value="{{$row->id}}" data-group="{{$row->group}}" @if($row->id == $banks->account_code) selected @endif >{{$row->name}}</option>
                                                                             @endforeach
                                                                         </select>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div class="form-group row">
+                                                                    <div class="col">
+                                                                        <label>Account Type</label>
+                                                                        <select class="form-control" name="account_type" id="account_type">
+                                                                            <option value="">--Select account type--</option>
+                                                                            <option value="OA" @if($banks->account_type == 'OA') selected @endif>Office Account (OA)</option>
+                                                                            <option value="CA" @if($banks->account_type == 'CA') selected @endif>Client Account (CA)</option>
+                                                                        </select>
+                                                                        <small class="form-text text-muted">Auto-updated based on Account Code selection</small>
                                                                     </div>
                                                                 </div>
 
@@ -160,4 +172,48 @@
 @endsection
 
 @section('javascript')
+<script type="text/javascript">
+    // Store account code data for auto-updating account type
+    var accountCodeData = @json($AccountCode->pluck('group', 'id')->toArray());
+
+    window.updateAccountType = function() {
+        var accountCodeSelect = document.getElementById('account_code');
+        var accountTypeSelect = document.getElementById('account_type');
+        
+        if (!accountCodeSelect || !accountTypeSelect) {
+            return;
+        }
+        
+        var accountCodeId = accountCodeSelect.value;
+
+        if (accountCodeId && accountCodeId != '0') {
+            var group = accountCodeData[accountCodeId];
+            if (group !== undefined) {
+                // group = 1 means OA (Office Account), group = 2 means CA (Client Account)
+                if (group == 1) {
+                    accountTypeSelect.value = 'OA';
+                } else if (group == 2) {
+                    accountTypeSelect.value = 'CA';
+                } else {
+                    accountTypeSelect.value = '';
+                }
+            }
+        } else {
+            accountTypeSelect.value = '';
+        }
+    };
+
+    // Initialize account type on page load
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function() {
+            if (typeof updateAccountType === 'function') {
+                updateAccountType();
+            }
+        });
+    } else {
+        if (typeof updateAccountType === 'function') {
+            updateAccountType();
+        }
+    }
+</script>
 @endsection

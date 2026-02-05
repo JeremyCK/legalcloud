@@ -114,6 +114,18 @@ class OfficeBankAccountController extends Controller
         $OfficeBankAccount->opening_balance = $request->input('opening_balance');
         $OfficeBankAccount->opening_bal_date = $request->input('opening_bal_date');
         $OfficeBankAccount->account_code = $request->input('account_code');
+        
+        // Set account_type - use from request if provided, otherwise auto-detect from account_code
+        $account_type = $request->input('account_type');
+        if (empty($account_type) && $request->input('account_code')) {
+            // Auto-detect from account_code group field
+            $accountCode = AccountCode::where('id', $request->input('account_code'))->first();
+            if ($accountCode) {
+                $account_type = ($accountCode->group == 1) ? 'OA' : (($accountCode->group == 2) ? 'CA' : null);
+            }
+        }
+        $OfficeBankAccount->account_type = $account_type;
+        
         $OfficeBankAccount->branch_id = $branch_id;
         $OfficeBankAccount->remark = $request->input('remark');
         $OfficeBankAccount->status = $request->input('status');
@@ -226,6 +238,17 @@ class OfficeBankAccountController extends Controller
         $banks->account_no = $request->input('account_no');
         $banks->remark = $request->input('remark');
         $banks->status = $request->input('status');
+        
+        // Update account_type - use from request if provided, otherwise auto-detect from account_code
+        $account_type = $request->input('account_type');
+        if (empty($account_type) && $request->input('account_code')) {
+            // Auto-detect from account_code group field
+            $accountCode = AccountCode::where('id', $request->input('account_code'))->first();
+            if ($accountCode) {
+                $account_type = ($accountCode->group == 1) ? 'OA' : (($accountCode->group == 2) ? 'CA' : null);
+            }
+        }
+        $banks->account_type = $account_type;
         
         // Update branch_id if user is not branch 3
         if($current_user->branch_id != 3)
