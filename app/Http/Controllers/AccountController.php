@@ -4162,8 +4162,8 @@ class AccountController extends Controller
             $hasTransactionIdFilter = $request->input("trx_id") && trim($request->input("trx_id")) != '';
             
             if ($hasTransactionIdFilter) {
-                // Use exact match instead of LIKE to match the SQL query and avoid unintended matches
-                $safe_keeping->where('m.transaction_id', '=', $request->input("trx_id"));
+                // Use LIKE for partial match to allow searching by partial transaction ID
+                $safe_keeping->where('m.transaction_id', 'like', '%' . $request->input("trx_id") . '%');
                 // Don't apply date range filter when filtering by transaction_id
                 // This ensures all entries for the same transaction batch are included
             } else if ($request->input("no_date_range_filter") == 0) {
@@ -4362,8 +4362,8 @@ class AccountController extends Controller
             $hasTransactionIdFilter = $request->input("trx_id") && trim($request->input("trx_id")) != '';
             
             if ($hasTransactionIdFilter) {
-                // Use exact match instead of LIKE to match the SQL query and avoid unintended matches
-                $safe_keeping->where('m.transaction_id', '=', $request->input("trx_id"));
+                // Use LIKE for partial match to allow searching by partial transaction ID
+                $safe_keeping->where('m.transaction_id', 'like', '%' . $request->input("trx_id") . '%');
                 // Don't apply date range filter when filtering by transaction_id
                 // This ensures all entries for the same transaction batch are included
             } else if ($request->input("no_date_range_filter") == 0) {
