@@ -800,6 +800,7 @@ Route::get('transfer-fee-create', [AccountController::class, 'transferFeeCreate'
             Route::post('exportBankReportExcel', [ReportController::class, 'exportBankReportExcel']);
             Route::get('staff-detail-report', [ReportController::class, 'ReportStaffDetails']);
             Route::post('get-staff-details=report', [ReportController::class, 'getStaffDetailsReport']);
+            Route::post('export-staff-accepted-cases-excel', [ReportController::class, 'exportStaffAcceptedCasesExcel']);
             
             Route::get('download-advance', [ReportController::class, 'downloadAdvance'])->name('download-advance');
 

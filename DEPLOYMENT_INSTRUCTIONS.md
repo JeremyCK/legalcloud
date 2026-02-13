@@ -1,59 +1,62 @@
-# Deployment Instructions for FixInvoiceSST Command
+# Deployment Instructions for Transfer Fee Calculation Fix
 
-## Steps to Deploy on Server:
+## Files Modified
+1. `app/Http/Controllers/TransferFeeV3Controller.php`
+2. `resources/views/dashboard/transfer-fee-v3/edit.blade.php`
 
-1. **Upload the command file:**
-   ```bash
-   # Make sure this file exists on server:
-   app/Console/Commands/FixInvoiceSST.php
-   ```
+## What Was Fixed
+- Fixed footer totals calculation for "Transferred Bal" and "Transferred SST" to use original invoice amounts instead of transferred amounts
+- Added field aliases to prevent conflicts between invoice table and transfer_fee_details table fields
+- Ensured totals match: Transferred Bal + Transferred SST = pfee + sst + reib + reimb_sst
 
-2. **On the server, run these commands:**
-   ```bash
-   cd ~/htdocs/legal-cloud.co
-   
-   # Refresh Composer autoloader
-   composer dump-autoload
-   
-   # Clear Laravel cache
-   php artisan cache:clear
-   php artisan config:clear
-   php artisan route:clear
-   
-   # Verify the command is registered
-   php artisan list | grep invoice:fix-sst
-   ```
+## Deployment Steps
 
-3. **Test the command:**
-   ```bash
-   php artisan invoice:fix-sst DP20001295 --dry-run
-   ```
+### 1. Upload Files to Server
+Upload these two files to your server:
+- `app/Http/Controllers/TransferFeeV3Controller.php`
+- `resources/views/dashboard/transfer-fee-v3/edit.blade.php`
 
-## Note about PHP Deprecation Warnings:
-
-The PHP deprecation warnings you see are from PHP 8.1+ and Laravel framework code. They don't prevent the command from working. To suppress them, you can:
-
-1. **Temporarily suppress warnings** (not recommended for production):
-   ```bash
-   php -d error_reporting=E_ALL & ~E_DEPRECATED artisan invoice:fix-sst DP20001295
-   ```
-
-2. **Or update PHP error reporting in php.ini** (better for production):
-   ```ini
-   error_reporting = E_ALL & ~E_DEPRECATED & ~E_STRICT
-   ```
-
-## Files to Deploy:
-
-- `app/Console/Commands/FixInvoiceSST.php` (NEW - must be uploaded)
-- `app/Http/Controllers/InvoiceController.php` (UPDATED - has new recalculateSST methods)
-- `routes/web.php` (UPDATED - has new routes for recalculateSST)
-
-## Quick Deploy Script:
+### 2. Clear Laravel Cache (Recommended)
+Run these commands on your server via SSH or terminal:
 
 ```bash
-# On your local machine, create a deployment package:
-# 1. Copy the files to a temp directory
-# 2. Upload to server
-# 3. Run composer dump-autoload on server
+# Navigate to your project directory
+cd /path/to/your/project
+
+# Clear application cache
+php artisan cache:clear
+
+# Clear config cache (if you have config caching enabled)
+php artisan config:clear
+
+# Clear view cache (important for blade template changes)
+php artisan view:clear
+
+# Clear route cache (if you have route caching enabled)
+php artisan route:clear
 ```
+
+### 3. Verify the Fix
+1. Navigate to any transfer fee edit page (e.g., `http://127.0.0.1:8001/transferfee/484/edit`)
+2. Check the footer totals:
+   - **Transferred Bal** + **Transferred SST** should equal **pfee** + **sst** + **reimb** + **reimb sst**
+   - Example: If pfee=482,598.14, sst=38,607.78, reimb=88,280.83, reimb_sst=7,062.41
+   - Then Transferred Bal + Transferred SST should = 616,549.16
+
+## No Database Changes Required
+- This fix only involves code changes
+- No migrations needed
+- No database schema changes
+
+## Testing
+After deployment, test with:
+- Transfer fee ID 484 (the one mentioned in result.md)
+- Transfer fee ID 472 (verified working correctly)
+- Any other transfer fee records
+
+## Rollback (If Needed)
+If you need to rollback, restore the previous versions of:
+- `app/Http/Controllers/TransferFeeV3Controller.php`
+- `resources/views/dashboard/transfer-fee-v3/edit.blade.php`
+
+Then clear caches again.

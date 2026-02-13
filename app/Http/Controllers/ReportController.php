@@ -2601,14 +2601,50 @@ class ReportController extends Controller
           ->whereIn('branch_id', $accessInfo['brancAccessList'])
           ->get();
 
-        // Get accepted cases (created/assigned in selected year)
-        $CaseCountAccepted = LoanCase::where(function ($query) use($staff) {
-            $query->where('lawyer_id', $staff->id)
-                  ->orWhere('clerk_id', $staff->id);
-        })->where('status', '<>', 99)
-          ->whereYear('created_at', $year)
-          ->whereIn('branch_id', $accessInfo['brancAccessList'])
-          ->get();
+        // Get accepted cases (created/assigned in selected year) with bill and payment data
+        $acceptedCasesQuery = DB::table('loan_case as lc')
+            ->where(function ($query) use($staff) {
+                $query->where('lc.lawyer_id', $staff->id)
+                      ->orWhere('lc.clerk_id', $staff->id);
+            })
+            ->where('lc.status', '<>', 99)
+            ->whereYear('lc.created_at', $year)
+            ->whereIn('lc.branch_id', $accessInfo['brancAccessList'])
+            ->select('lc.id', 'lc.case_ref_no', 'lc.created_at');
+
+        $CaseCountAccepted = $acceptedCasesQuery->get()->map(function($case) {
+            // Get bill data for this case
+            $billData = DB::table('loan_case_bill_main')
+                ->where('case_id', $case->id)
+                ->where('status', '<>', 99)
+                ->select(
+                    DB::raw('COALESCE(SUM(pfee1), 0) as pfee1'),
+                    DB::raw('COALESCE(SUM(pfee2), 0) as pfee2'),
+                    DB::raw('COALESCE(SUM(disb), 0) as disb'),
+                    DB::raw('COALESCE(SUM(sst), 0) as sst'),
+                    DB::raw('COALESCE(SUM(collected_amt), 0) as collected_amount')
+                )
+                ->first();
+
+            // Get latest payment date for this case
+            $paymentData = DB::table('voucher_main')
+                ->where('case_id', $case->id)
+                ->where('voucher_type', 4)
+                ->where('status', '<>', 99)
+                ->where('account_approval', '<>', 2)
+                ->select(DB::raw('MAX(payment_date) as payment_date'))
+                ->first();
+
+            $case->pfee1 = $billData->pfee1 ?? 0;
+            $case->pfee2 = $billData->pfee2 ?? 0;
+            $case->disb = $billData->disb ?? 0;
+            $case->sst = $billData->sst ?? 0;
+            $case->collected_amount = $billData->collected_amount ?? 0;
+            $case->payment_date = $paymentData->payment_date ?? null;
+            $case->paid_status = $paymentData->payment_date ? 'Paid' : '-';
+
+            return $case;
+        });
 
         // Get closed cases in selected year (closed in that year, using close_date field)
         $CaseCountClosedInYear = LoanCase::where(function ($query) use($staff) {
@@ -2751,7 +2787,204 @@ class ReportController extends Controller
             'tblCaseReviewing' => view('dashboard.reports.staff-details.tbl-case', ['caseCount' => $CaseCountReviewing])->render(),
             'tblCasePendingClose' => view('dashboard.reports.staff-details.tbl-case', ['caseCount' => $CaseCountPendingClose])->render(),
             'tblCaseClose' => view('dashboard.reports.staff-details.tbl-case', ['caseCount' => $CaseCountClose])->render(),
+            'tblCaseAccepted' => view('dashboard.reports.staff-details.tbl-case-accepted', ['caseCount' => $CaseCountAccepted])->render(),
         ];
+    }
+
+    public function exportStaffAcceptedCasesExcel(Request $request)
+    {
+        try {
+            $staff = User::where('id', $request->input("staff"))->first();
+
+            if (!$staff) {
+                return response()->json([
+                    'status' => 0,
+                    'message' => 'Staff not found'
+                ], 404);
+            }
+
+            $accessInfo = AccessController::manageAccess();
+            $year = $request->input("year");
+            
+            // Get accepted cases with bill and payment data (same query as getStaffDetailsReport)
+            $acceptedCasesQuery = DB::table('loan_case as lc')
+                ->where(function ($query) use($staff) {
+                    $query->where('lc.lawyer_id', $staff->id)
+                          ->orWhere('lc.clerk_id', $staff->id);
+                })
+                ->where('lc.status', '<>', 99)
+                ->whereYear('lc.created_at', $year)
+                ->whereIn('lc.branch_id', $accessInfo['brancAccessList'])
+                ->select('lc.id', 'lc.case_ref_no', 'lc.created_at');
+
+            $CaseCountAccepted = $acceptedCasesQuery->get()->map(function($case) {
+                // Get bill data for this case
+                $billData = DB::table('loan_case_bill_main')
+                    ->where('case_id', $case->id)
+                    ->where('status', '<>', 99)
+                    ->select(
+                        DB::raw('COALESCE(SUM(pfee1), 0) as pfee1'),
+                        DB::raw('COALESCE(SUM(pfee2), 0) as pfee2'),
+                        DB::raw('COALESCE(SUM(disb), 0) as disb'),
+                        DB::raw('COALESCE(SUM(sst), 0) as sst'),
+                        DB::raw('COALESCE(SUM(collected_amt), 0) as collected_amount')
+                    )
+                    ->first();
+
+                // Get latest payment date for this case
+                $paymentData = DB::table('voucher_main')
+                    ->where('case_id', $case->id)
+                    ->where('voucher_type', 4)
+                    ->where('status', '<>', 99)
+                    ->where('account_approval', '<>', 2)
+                    ->select(DB::raw('MAX(payment_date) as payment_date'))
+                    ->first();
+
+                $case->pfee1 = $billData->pfee1 ?? 0;
+                $case->pfee2 = $billData->pfee2 ?? 0;
+                $case->disb = $billData->disb ?? 0;
+                $case->sst = $billData->sst ?? 0;
+                $case->collected_amount = $billData->collected_amount ?? 0;
+                $case->payment_date = $paymentData->payment_date ?? null;
+                $case->paid_status = $paymentData->payment_date ? 'Paid' : '-';
+
+                return $case;
+            });
+
+            // Calculate totals
+            $total_pfee1 = $CaseCountAccepted->sum('pfee1');
+            $total_pfee2 = $CaseCountAccepted->sum('pfee2');
+            $total_disb = $CaseCountAccepted->sum('disb');
+            $total_sst = $CaseCountAccepted->sum('sst');
+            $total_collected = $CaseCountAccepted->sum('collected_amount');
+
+            // Create new Spreadsheet
+            $spreadsheet = new Spreadsheet();
+            $sheet = $spreadsheet->getActiveSheet();
+            
+            // Set title
+            $sheet->setCellValue('A1', 'Accepted Cases Report - ' . $staff->name);
+            $sheet->mergeCells('A1:J1');
+            $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
+            $sheet->getStyle('A1')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+            
+            // Set year info
+            $sheet->setCellValue('A2', 'Year: ' . $year);
+            $sheet->mergeCells('A2:J2');
+            $sheet->getStyle('A2')->getFont()->setBold(true);
+            
+            // Set headers
+            $headers = ['No.', 'Ref No', 'pfee1', 'pfee2', 'Disb', 'sst', 'Collected Amount', 'Paid', 'Payment Date'];
+            $col = 'A';
+            $row = 3;
+            
+            foreach ($headers as $header) {
+                $sheet->setCellValue($col . $row, $header);
+                $sheet->getStyle($col . $row)->getFont()->setBold(true);
+                $sheet->getStyle($col . $row)->getFill()
+                    ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+                    ->getStartColor()->setRGB('E0E0E0');
+                $sheet->getStyle($col . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+                $col++;
+            }
+            
+            // Add data
+            $row = 4;
+            $index = 1;
+            foreach ($CaseCountAccepted as $record) {
+                $sheet->setCellValue('A' . $row, $index);
+                $sheet->setCellValue('B' . $row, $record->case_ref_no);
+                
+                // Format numeric columns
+                $sheet->setCellValue('C' . $row, (float)$record->pfee1);
+                $sheet->getStyle('C' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+                $sheet->getStyle('C' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+                
+                $sheet->setCellValue('D' . $row, (float)$record->pfee2);
+                $sheet->getStyle('D' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+                $sheet->getStyle('D' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+                
+                $sheet->setCellValue('E' . $row, (float)$record->disb);
+                $sheet->getStyle('E' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+                $sheet->getStyle('E' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+                
+                $sheet->setCellValue('F' . $row, (float)$record->sst);
+                $sheet->getStyle('F' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+                $sheet->getStyle('F' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+                
+                $sheet->setCellValue('G' . $row, (float)$record->collected_amount);
+                $sheet->getStyle('G' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+                $sheet->getStyle('G' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+                
+                $sheet->setCellValue('H' . $row, $record->paid_status);
+                $sheet->getStyle('H' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+                
+                if ($record->payment_date) {
+                    $sheet->setCellValue('I' . $row, date('Y-m-d', strtotime($record->payment_date)));
+                } else {
+                    $sheet->setCellValue('I' . $row, '-');
+                }
+                $sheet->getStyle('I' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+                
+                $row++;
+                $index++;
+            }
+            
+            // Add totals row
+            $sheet->setCellValue('A' . $row, 'Total:');
+            $sheet->mergeCells('A' . $row . ':B' . $row);
+            $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+            $sheet->getStyle('A' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+            
+            $sheet->setCellValue('C' . $row, (float)$total_pfee1);
+            $sheet->getStyle('C' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle('C' . $row)->getFont()->setBold(true);
+            $sheet->getStyle('C' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+            
+            $sheet->setCellValue('D' . $row, (float)$total_pfee2);
+            $sheet->getStyle('D' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle('D' . $row)->getFont()->setBold(true);
+            $sheet->getStyle('D' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+            
+            $sheet->setCellValue('E' . $row, (float)$total_disb);
+            $sheet->getStyle('E' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle('E' . $row)->getFont()->setBold(true);
+            $sheet->getStyle('E' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+            
+            $sheet->setCellValue('F' . $row, (float)$total_sst);
+            $sheet->getStyle('F' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle('F' . $row)->getFont()->setBold(true);
+            $sheet->getStyle('F' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+            
+            $sheet->setCellValue('G' . $row, (float)$total_collected);
+            $sheet->getStyle('G' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle('G' . $row)->getFont()->setBold(true);
+            $sheet->getStyle('G' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+            
+            // Auto-size columns
+            foreach (range('A', 'J') as $col) {
+                $sheet->getColumnDimension($col)->setAutoSize(true);
+            }
+            
+            // Create writer and return file
+            $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+            
+            $filename = 'accepted_cases_' . $year . '_' . date('YmdHis') . '.xlsx';
+            
+            header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            header('Content-Disposition: attachment;filename="' . $filename . '"');
+            header('Cache-Control: max-age=0');
+            
+            $writer->save('php://output');
+            exit;
+            
+        } catch (\Exception $e) {
+            Log::error('Export accepted cases Excel error: ' . $e->getMessage());
+            return response()->json([
+                'status' => 0,
+                'message' => 'Error generating Excel file: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     public function getStaffCaseReport(Request $request)

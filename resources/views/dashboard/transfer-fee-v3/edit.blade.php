@@ -499,8 +499,8 @@
                                                                                     <span class="reimb-display" 
                                                                                           data-detail-id="{{ $detail->id }}" 
                                                                                           data-invoice-id="{{ $detail->loan_case_invoice_main_id }}"
-                                                                                          data-original-value="{{ $detail->reimbursement_amount ?? 0 }}">
-                                                                                        {{ number_format($detail->reimbursement_amount ?? 0, 2) }}
+                                                                                          data-original-value="{{ $detail->invoice_reimbursement_amount ?? 0 }}">
+                                                                                        {{ number_format($detail->invoice_reimbursement_amount ?? 0, 2) }}
                                                                                     </span>
                                                                                     @if(in_array(auth()->user()->menuroles, ['admin', 'maker', 'account']) && $TransferFeeMain->is_recon != '1')
                                                                                         <i class="fa fa-pencil edit-reimb ml-1" 
@@ -518,8 +518,8 @@
                                                                                     <span class="reimb-sst-display" 
                                                                                           data-detail-id="{{ $detail->id }}" 
                                                                                           data-invoice-id="{{ $detail->loan_case_invoice_main_id }}"
-                                                                                          data-original-value="{{ $detail->reimbursement_sst ?? 0 }}">
-                                                                                        {{ number_format($detail->reimbursement_sst ?? 0, 2) }}
+                                                                                          data-original-value="{{ $detail->invoice_reimbursement_sst ?? 0 }}">
+                                                                                        {{ number_format($detail->invoice_reimbursement_sst ?? 0, 2) }}
                                                                                     </span>
                                                                                     @if(in_array(auth()->user()->menuroles, ['admin', 'maker', 'account']) && $TransferFeeMain->is_recon != '1')
                                                                                         <i class="fa fa-pencil edit-reimb-sst ml-1" 
@@ -567,7 +567,7 @@
                                                                             <td class="text-right"
                                                                                 style="font-size: 11px;">
                                                                                 @php
-                                                                                    $originalReimbursement = $detail->reimbursement_amount ?? 0;
+                                                                                    $originalReimbursement = $detail->invoice_reimbursement_amount ?? 0;
                                                                                     $availableReimbursement = max(0, $originalReimbursement - ($detail->transferred_reimbursement_amt ?? 0));
                                                                                 @endphp
                                                                                 {{ number_format($availableReimbursement, 2) }}
@@ -575,7 +575,7 @@
                                                                             <td class="text-right"
                                                                                 style="font-size: 11px;">
                                                                                 @php
-                                                                                    $originalReimbursementSst = $detail->reimbursement_sst ?? 0;
+                                                                                    $originalReimbursementSst = $detail->invoice_reimbursement_sst ?? 0;
                                                                                     $availableReimbursementSst = max(0, $originalReimbursementSst - ($detail->transferred_reimbursement_sst_amt ?? 0));
                                                                                 @endphp
                                                                                 {{ number_format($availableReimbursementSst, 2) }}
@@ -633,10 +633,10 @@
                                                                             {{ number_format($TransferFeeDetails->sum('sst_inv'), 2) }}
                                                                         </th>
                                                                         <th class="text-right" id="footerReimb">
-                                                                            {{ number_format($TransferFeeDetails->sum('reimbursement_amount'), 2) }}
+                                                                            {{ number_format($TransferFeeDetails->sum('invoice_reimbursement_amount'), 2) }}
                                                                         </th>
                                                                         <th class="text-right" id="footerReimbSst">
-                                                                            {{ number_format($TransferFeeDetails->sum('reimbursement_sst'), 2) }}
+                                                                            {{ number_format($TransferFeeDetails->sum('invoice_reimbursement_sst'), 2) }}
                                                                         </th>
                                                                         <th class="text-right" id="footerPfeeToTransfer">
                                                                             {{ number_format($TransferFeeDetails->sum(function ($detail) {return max(0, ($detail->pfee1_inv ?? 0) + ($detail->pfee2_inv ?? 0) - ($detail->transferred_pfee_amt ?? 0));}),2) }}
@@ -645,16 +645,28 @@
                                                                             {{ number_format($TransferFeeDetails->sum(function ($detail) {return max(0, ($detail->sst_inv ?? 0) - ($detail->transferred_sst_amt ?? 0));}),2) }}
                                                                         </th>
                                                                         <th class="text-right" id="footerReimbToTransfer">
-                                                                            {{ number_format($TransferFeeDetails->sum(function ($detail) {return max(0, ($detail->reimbursement_amount ?? 0) - ($detail->transferred_reimbursement_amt ?? 0));}),2) }}
+                                                                            {{ number_format($TransferFeeDetails->sum(function ($detail) {return max(0, ($detail->invoice_reimbursement_amount ?? 0) - ($detail->transferred_reimbursement_amt ?? 0));}),2) }}
                                                                         </th>
                                                                         <th class="text-right" id="footerReimbSstToTransfer">
-                                                                            {{ number_format($TransferFeeDetails->sum(function ($detail) {return max(0, ($detail->reimbursement_sst ?? 0) - ($detail->transferred_reimbursement_sst_amt ?? 0));}),2) }}
+                                                                            {{ number_format($TransferFeeDetails->sum(function ($detail) {return max(0, ($detail->invoice_reimbursement_sst ?? 0) - ($detail->transferred_reimbursement_sst_amt ?? 0));}),2) }}
                                                                         </th>
                                                                         <th class="text-right" id="footerTransferredBal">
-                                                                            {{ number_format($TransferFeeDetails->sum('transfer_amount') + $TransferFeeDetails->sum('reimbursement_amount'), 2) }}
+                                                                            {{ number_format($TransferFeeDetails->sum(function ($detail) {
+                                                                                // Sum of pfee + reimb from original invoice amounts (not transferred amounts)
+                                                                                // This should match the sum of footerPfee + footerReimb
+                                                                                $pfee = ($detail->pfee1_inv ?? 0) + ($detail->pfee2_inv ?? 0);
+                                                                                $reimb = $detail->invoice_reimbursement_amount ?? 0;
+                                                                                return $pfee + $reimb;
+                                                                            }), 2) }}
                                                                         </th>
                                                                         <th class="text-right" id="footerTransferredSst">
-                                                                            {{ number_format($TransferFeeDetails->sum('sst_amount') + $TransferFeeDetails->sum('reimbursement_sst_amount'), 2) }}
+                                                                            {{ number_format($TransferFeeDetails->sum(function ($detail) {
+                                                                                // Sum of sst + reimb_sst from original invoice amounts (not transferred amounts)
+                                                                                // This should match the sum of footerSst + footerReimbSst
+                                                                                $sst = $detail->sst_inv ?? 0;
+                                                                                $reimbSst = $detail->invoice_reimbursement_sst ?? 0;
+                                                                                return $sst + $reimbSst;
+                                                                            }), 2) }}
                                                                         </th>
                                                                         <th></th>
                                                                     </tr>
@@ -770,8 +782,8 @@
                                                     ($detail->pfee1_inv ?? 0) + ($detail->pfee2_inv ?? 0) - ($detail->transferred_pfee_amt ?? 0),
                                                 );
                                                 $availableSst = max(0, ($detail->sst_inv ?? 0) - ($detail->transferred_sst_amt ?? 0));
-                                                $availableReimbursement = max(0, ($detail->reimbursement_amount ?? 0) - ($detail->transferred_reimbursement_amt ?? 0));
-                                                $availableReimbursementSst = max(0, ($detail->reimbursement_sst ?? 0) - ($detail->transferred_reimbursement_sst_amt ?? 0));
+                                                $availableReimbursement = max(0, ($detail->invoice_reimbursement_amount ?? 0) - ($detail->transferred_reimbursement_amt ?? 0));
+                                                $availableReimbursementSst = max(0, ($detail->invoice_reimbursement_sst ?? 0) - ($detail->transferred_reimbursement_sst_amt ?? 0));
                                                 return [
                                                     'id' => $detail->loan_case_invoice_main_id,
                                                     'bill_id' => $detail->loan_case_main_bill_id,

@@ -106,31 +106,37 @@
                             <div class="nav-tabs-custom nav-tabs-custom-ctr">
                                 <ul class="nav nav-tabs" role="tablist">
 
+                                    <li class="nav-item">
+                                        <a class="nav-link active" data-toggle="tab" href="#tab_accepted"
+                                            role="tab" aria-controls="trust"
+                                            aria-selected="true">Accepted Cases
+                                        </a>
+                                    </li>
 
                                     <li class="nav-item">
-                                        <a class="nav-link  active " data-toggle="tab" href="#tab_running"
+                                        <a class="nav-link" data-toggle="tab" href="#tab_running"
                                             role="tab" aria-controls="trust"
-                                            aria-selected="true">Running
+                                            aria-selected="false">Running
                                         </a>
                                     </li>
 
                                     <li class="nav-item">
                                         <a class="nav-link " data-toggle="tab" href="#tab_reviewing"
                                             role="tab" aria-controls="trust"
-                                            aria-selected="true">Reviewing Case
+                                            aria-selected="false">Reviewing Case
                                         </a>
                                     </li>
 
                                     <li class="nav-item">
                                         <a class="nav-link " data-toggle="tab" href="#tab_pending_close"
                                             role="tab" aria-controls="trust"
-                                            aria-selected="true">Pending close case
+                                            aria-selected="false">Pending close case
                                         </a>
                                     </li>
 
                                     <li class="nav-item">
                                         <a class="nav-link " data-toggle="tab" href="#tab_close"
-                                            role="tab" aria-controls="trust" aria-selected="true">Close case
+                                            role="tab" aria-controls="trust" aria-selected="false">Close case
                                         </a>
                                     </li>
 
@@ -140,7 +146,33 @@
 
                             <div class="tab-content" style="max-height: 400px;overflow:scroll">
 
-                                <div class="tab-pane  active " id="tab_running" role="tabpanel">
+                                <div class="tab-pane active" id="tab_accepted" role="tabpanel">
+                                    <div id="tbl-accepted-content">
+                                        <table class="table table-striped table-bordered datatable">
+                                            <thead>
+                                                <tr class="text-center">
+                                                    <th>No.</th>
+                                                    <th>Action</th>
+                                                    <th>Ref No</th>
+                                                    <th>pfee1</th>
+                                                    <th>pfee2</th>
+                                                    <th>Disb</th>
+                                                    <th>sst</th>
+                                                    <th>Collected Amount</th>
+                                                    <th>Paid</th>
+                                                    <th>Payment Date</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr>
+                                                    <td class="text-center" colspan="10">No data</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <div class="tab-pane" id="tab_running" role="tabpanel">
                                     <table class="table table-striped table-bordered datatable">
                                         <thead>
                                             <tr class="text-center">
@@ -436,10 +468,17 @@
                     // $("#tbl-clerk-report").html(result.view_clerk);
 
                     $("#div-case-summary").html(result.divCaseSummary);
+                    $("#tbl-accepted-content").html(result.tblCaseAccepted);
                     $("#tab_running").html(result.tblCaseActive);
                     $("#tab_reviewing").html(result.tblCaseReviewing);
                     $("#tab_pending_close").html(result.tblCasePendingClose);
                     $("#tab_close").html(result.tblCaseClose);
+                    
+                    // Attach export button handler
+                    $(document).off('click', '#btn-export-accepted-excel');
+                    $(document).on('click', '#btn-export-accepted-excel', function() {
+                        exportAcceptedCasesToExcel();
+                    });
 
                     // Portfolio/Bank chart (existing)
                     chart.data.datasets[0].data = result.case_count;
@@ -667,6 +706,62 @@
         function filterDate(year) {
             $(".div_year ").hide();
             $(".div_" + year).show();
+        }
+
+        function exportAcceptedCasesToExcel() {
+            var $btn = $('#btn-export-accepted-excel');
+            var originalHtml = $btn.html();
+            $btn.prop('disabled', true);
+            $btn.html('<i class="fa fa-spinner fa-spin"></i> Exporting...');
+
+            $.ajaxSetup({
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                }
+            });
+
+            var form_data = new FormData();
+            form_data.append("month", $("#ddl_month").val());
+            form_data.append("year", $("#ddl_year").val());
+            form_data.append("staff", $("#dl_staff").val());
+
+            $.ajax({
+                type: 'POST',
+                url: 'export-staff-accepted-cases-excel',
+                data: form_data,
+                processData: false,
+                contentType: false,
+                xhrFields: {
+                    responseType: 'blob'
+                },
+                success: function(data) {
+                    var blob = new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                    var link = document.createElement('a');
+                    link.href = window.URL.createObjectURL(blob);
+                    link.download = 'accepted_cases_' + $("#ddl_year").val() + '_' + Date.now() + '.xlsx';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    window.URL.revokeObjectURL(link.href);
+                    
+                    $btn.prop('disabled', false);
+                    $btn.html(originalHtml);
+                    if (typeof toastController === 'function') {
+                        toastController('Excel file downloaded successfully');
+                    }
+                },
+                error: function(xhr, status, error) {
+                    var errorMessage = 'Error generating Excel file.';
+                    if (xhr.responseJSON && xhr.responseJSON.message) {
+                        errorMessage = xhr.responseJSON.message;
+                    }
+                    alert(errorMessage);
+                    console.error('Excel export error:', error);
+                    
+                    $btn.prop('disabled', false);
+                    $btn.html(originalHtml);
+                }
+            });
         }
 
         function exportTableToExcel() {

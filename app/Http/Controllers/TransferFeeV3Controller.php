@@ -335,8 +335,8 @@ class TransferFeeV3Controller extends Controller
                     'im.pfee1_inv', // Use invoice data directly
                     'im.pfee2_inv', // Use invoice data directly
                     'im.sst_inv',   // Use invoice data directly
-                    'im.reimbursement_amount', // Add reimbursement amount
-                    'im.reimbursement_sst', // Add reimbursement SST
+                    'im.reimbursement_amount as invoice_reimbursement_amount', // Add reimbursement amount
+                    'im.reimbursement_sst as invoice_reimbursement_sst', // Add reimbursement SST
                     'im.transferred_reimbursement_amt', // Add transferred reimbursement amount
                     'im.transferred_reimbursement_sst_amt', // Add transferred reimbursement SST amount
                     'b.payment_receipt_date',
@@ -892,8 +892,8 @@ class TransferFeeV3Controller extends Controller
                 'im.pfee1_inv',
                 'im.pfee2_inv',
                 'im.sst_inv',
-                'im.reimbursement_amount',
-                'im.reimbursement_sst',
+                'im.reimbursement_amount as invoice_reimbursement_amount',
+                'im.reimbursement_sst as invoice_reimbursement_sst',
                 'im.transferred_reimbursement_amt',
                 'im.transferred_reimbursement_sst_amt',
                 'b.invoice_no as bill_invoice_no',
@@ -947,8 +947,8 @@ class TransferFeeV3Controller extends Controller
                 'im.pfee1_inv',
                 'im.pfee2_inv',
                 'im.sst_inv',
-                'im.reimbursement_amount',
-                'im.reimbursement_sst',
+                'im.reimbursement_amount as invoice_reimbursement_amount',
+                'im.reimbursement_sst as invoice_reimbursement_sst',
                 'im.transferred_reimbursement_amt',
                 'im.transferred_reimbursement_sst_amt',
                 'b.invoice_no as bill_invoice_no',
