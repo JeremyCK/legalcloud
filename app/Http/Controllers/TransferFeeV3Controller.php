@@ -1060,9 +1060,17 @@ class TransferFeeV3Controller extends Controller
             // Note: bill_total_amt_divided is already set at line 984 if no custom value
             
             // Calculate Collected amt from bill collected amount (divided equally)
-            $totalAmount = $detail->bill_collected_amt ?? 0;
-            $calculatedCollectedAmount = round($totalAmount / $invoiceCount, 2);
-            $detail->bill_collected_amt_divided = $calculatedCollectedAmount;
+            // If invoice_count = 1, use invoice amount if available (more accurate)
+            // Otherwise divide bill collected amount equally among invoices
+            if ($invoiceCount == 1 && ($detail->invoice_amount ?? 0) > 0) {
+                // Single invoice: Use invoice amount for collected amt (matches total amt)
+                $detail->bill_collected_amt_divided = round($detail->invoice_amount, 2);
+            } else {
+                // Multiple invoices: Divide bill collected amount equally
+                $totalAmount = $detail->bill_collected_amt ?? 0;
+                $calculatedCollectedAmount = round($totalAmount / $invoiceCount, 2);
+                $detail->bill_collected_amt_divided = $calculatedCollectedAmount;
+            }
             
             // ====================================================================
             // OPTION 1 (REVERT CODE): Uncomment below to make both amounts match
@@ -3170,9 +3178,17 @@ class TransferFeeV3Controller extends Controller
                 // Note: bill_total_amt_divided is already set correctly at line 2447 using invoice_amount
                 
                 // Calculate Collected amt from bill collected amount (divided equally)
-                $totalAmount = $detail->bill_collected_amt ?? 0;
-                $calculatedCollectedAmount = round($totalAmount / $invoiceCount, 2);
-                $detail->bill_collected_amt_divided = $calculatedCollectedAmount;
+                // If invoice_count = 1, use invoice amount if available (more accurate)
+                // Otherwise divide bill collected amount equally among invoices
+                if ($invoiceCount == 1 && ($detail->invoice_amount ?? 0) > 0) {
+                    // Single invoice: Use invoice amount for collected amt (matches total amt)
+                    $detail->bill_collected_amt_divided = round($detail->invoice_amount, 2);
+                } else {
+                    // Multiple invoices: Divide bill collected amount equally
+                    $totalAmount = $detail->bill_collected_amt ?? 0;
+                    $calculatedCollectedAmount = round($totalAmount / $invoiceCount, 2);
+                    $detail->bill_collected_amt_divided = $calculatedCollectedAmount;
+                }
                 
                 // ====================================================================
                 // OPTION 1 (REVERT CODE): Uncomment below to make both amounts match

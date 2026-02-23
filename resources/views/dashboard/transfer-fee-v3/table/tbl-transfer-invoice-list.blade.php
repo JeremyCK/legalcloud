@@ -96,9 +96,9 @@
                                             $remainingPfee = max(0, $totalPfee - ($row->transferred_pfee_amt ?? 0));
                                             $totalSst = $row->sst_inv ?? 0;
                                             $remainingSst = max(0, $totalSst - ($row->transferred_sst_amt ?? 0));
-                                            $totalReimbursement = $row->reimbursement_amount ?? 0;
+                                            $totalReimbursement = $row->invoice_reimbursement_amount ?? 0;
                                             $remainingReimbursement = max(0, $totalReimbursement - ($row->transferred_reimbursement_amt ?? 0));
-                                            $totalReimbursementSst = $row->reimbursement_sst ?? 0;
+                                            $totalReimbursementSst = $row->invoice_reimbursement_sst ?? 0;
                                             $remainingReimbursementSst = max(0, $totalReimbursementSst - ($row->transferred_reimbursement_sst_amt ?? 0));
                                         @endphp
                                         <input type="checkbox" class="invoice-checkbox" name="invoice"
@@ -167,10 +167,10 @@
                                     @endif
                                 </td>
                                 <td class="text-right" style="font-size: 11px;">
-                                    {{ number_format(($row->pfee1_inv ?? 0) + ($row->pfee2_inv ?? 0) + ($row->sst_inv ?? 0), 2, '.', ',') }}
+                                    {{ number_format(($row->pfee1_inv ?? 0) + ($row->pfee2_inv ?? 0) + ($row->sst_inv ?? 0) + ($row->invoice_reimbursement_amount ?? 0) + ($row->invoice_reimbursement_sst ?? 0), 2, '.', ',') }}
                                 </td>
                                 <td class="text-right" style="font-size: 11px;">
-                                    {{ number_format(($row->pfee1_inv ?? 0) + ($row->pfee2_inv ?? 0) + ($row->sst_inv ?? 0), 2, '.', ',') }}
+                                    {{ number_format(($row->pfee1_inv ?? 0) + ($row->pfee2_inv ?? 0) + ($row->sst_inv ?? 0) + ($row->invoice_reimbursement_amount ?? 0) + ($row->invoice_reimbursement_sst ?? 0), 2, '.', ',') }}
                                 </td>
                                 <td class="text-right" style="font-size: 11px;">
                                     {{ number_format(($row->pfee1_inv ?? 0) + ($row->pfee2_inv ?? 0), 2, '.', ',') }}
@@ -179,10 +179,10 @@
                                     {{ number_format($row->sst_inv ?? 0, 2, '.', ',') }}
                                 </td>
                                 <td class="text-right" style="font-size: 11px;">
-                                    {{ number_format($row->reimbursement_amount ?? 0, 2, '.', ',') }}
+                                    {{ number_format($row->invoice_reimbursement_amount ?? 0, 2, '.', ',') }}
                                 </td>
                                 <td class="text-right" style="font-size: 11px;">
-                                    {{ number_format($row->reimbursement_sst ?? 0, 2, '.', ',') }}
+                                    {{ number_format($row->invoice_reimbursement_sst ?? 0, 2, '.', ',') }}
                                 </td>
 
                                 <td class="text-right" style="font-size: 11px;">
@@ -201,14 +201,14 @@
                                 </td>
                                 <td class="text-right" style="font-size: 11px;">
                                     @php
-                                        $totalReimbursement = $row->reimbursement_amount ?? 0;
+                                        $totalReimbursement = $row->invoice_reimbursement_amount ?? 0;
                                         $remainingReimbursement = max(0, $totalReimbursement - ($row->transferred_reimbursement_amt ?? 0));
                                     @endphp
                                     {{ number_format($remainingReimbursement, 2, '.', ',') }}
                                 </td>
                                 <td class="text-right" style="font-size: 11px;">
                                     @php
-                                        $totalReimbursementSst = $row->reimbursement_sst ?? 0;
+                                        $totalReimbursementSst = $row->invoice_reimbursement_sst ?? 0;
                                         $remainingReimbursementSst = max(0, $totalReimbursementSst - ($row->transferred_reimbursement_sst_amt ?? 0));
                                     @endphp
                                     {{ number_format($remainingReimbursementSst, 2, '.', ',') }}
