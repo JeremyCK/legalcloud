@@ -5407,10 +5407,9 @@ class AccountController extends Controller
         $Branchs = Branch::where('status', '=', 1)->get();
 
         $branchInfo = BranchController::manageBranchAccess();
+        $accessibleBranchIds = $branchInfo['brancAccessList'];
 
-        $AccountCode = AccountCode::where('status', '=', 1)->get();
-
-
+        // Get bank accounts based on user's accessible branches
         if (in_array($current_user->menuroles, ['maker'])) {
             if (in_array($current_user->branch_id, [5,6])) {
                 $OfficeBankAccount = OfficeBankAccount::where('status', '=', 1)->whereIn('branch_id', [5,6])->get();
@@ -5420,7 +5419,23 @@ class AccountController extends Controller
         } else if (in_array($current_user->menuroles, ['lawyer'])) {
             $OfficeBankAccount = OfficeBankAccount::where('status', '=', 1)->where('branch_id', '=', $current_user->branch_id)->get();
         } else {
-            $OfficeBankAccount = OfficeBankAccount::where('status', '=', 1)->get();
+            // Filter bank accounts by accessible branches
+            $OfficeBankAccount = OfficeBankAccount::where('status', '=', 1)
+                ->whereIn('branch_id', $accessibleBranchIds)
+                ->get();
+        }
+
+        // Get account codes that are used by the accessible bank accounts
+        $accessibleAccountCodeIds = $OfficeBankAccount->pluck('account_code')->filter()->unique()->toArray();
+        
+        // Filter account codes to only show those used by accessible bank accounts
+        if (!empty($accessibleAccountCodeIds)) {
+            $AccountCode = AccountCode::where('status', '=', 1)
+                ->whereIn('id', $accessibleAccountCodeIds)
+                ->get();
+        } else {
+            // If no bank accounts found, return empty collection
+            $AccountCode = collect();
         }
 
         $LoanCase = LoanCase::get();
