@@ -56,6 +56,7 @@ use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use App\Http\Controllers\AccessController;
 use App\Http\Controllers\PermissionController;
+use App\Http\Controllers\CaseController;
 
 class AccountController extends Controller
 {
@@ -5438,7 +5439,37 @@ class AccountController extends Controller
             $AccountCode = collect();
         }
 
-        $LoanCase = LoanCase::get();
+        // Filter cases based on user access
+        $accessInfo = AccessController::manageAccess();
+        
+        // Get accessible case IDs from case management engine
+        // This handles: branch_case, link_user_case, special_access_case, and user assignments (lawyer_id, clerk_id, sales_user_id)
+        $accessibleCaseIds = CaseController::caseManagementEngine();
+        
+        // Start building the case query
+        $LoanCaseQuery = LoanCase::query();
+        
+        // For admin, management, and account roles, they can see all cases (except PNC)
+        if (in_array($current_user->menuroles, ['admin', 'management', 'account'])) {
+            $LoanCaseQuery->where('pnc_case', '=', 0);
+        } else {
+            // For other users, filter based on accessible cases
+            // Combine case IDs from caseManagementEngine and accessInfo case_list
+            $allAccessibleCaseIds = array_unique(array_merge($accessibleCaseIds, $accessInfo['case_list'] ?? []));
+            
+            if (!empty($allAccessibleCaseIds)) {
+                $LoanCaseQuery->whereIn('id', $allAccessibleCaseIds);
+            } else {
+                // If no accessible cases found, return empty result
+                $LoanCaseQuery->where('id', '=', 0);
+            }
+            
+            // Exclude PNC cases
+            $LoanCaseQuery->where('pnc_case', '=', 0);
+        }
+        
+        // Get the filtered cases
+        $LoanCase = $LoanCaseQuery->get();
 
         return view('dashboard.journal-entry.create', [
             'OfficeBankAccount' => $OfficeBankAccount,

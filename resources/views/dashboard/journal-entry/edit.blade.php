@@ -212,7 +212,7 @@
                                             <tr style="background-color:grey;color:white">
                                                 {{-- <td>No</td> --}}
                                                 <td width="15%">Account Code</td>
-                                                <td width="20%">Description</td>
+                                                <td width="20%">Case Ref No</td>
                                                 <td width="30%">Description</td>
                                                 <td width="5%">SST</td>
                                                 <td width="10%">Debit</td>
@@ -252,66 +252,89 @@
 
 
     <div id="myModalInvoice" class="modal fade" role="dialog">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-lg">
 
             <!-- Modal content-->
             <div class="modal-content">
-                <div class="modal-header">
-                    <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <div class="modal-header" style="background-color: #3c4b64; color: white; border-bottom: 2px solid #2c3e50;">
+                    <h4 class="modal-title" style="font-weight: 600;">
+                        <i class="fa fa-search"></i> Search Case
+                    </h4>
+                    <button type="button" class="close" data-dismiss="modal" style="color: white; opacity: 0.8;">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
                 </div>
-                <div class="modal-body">
+                <div class="modal-body" style="padding: 20px;">
                     <form id="form_edit_quotation">
-                        <div class="form-group row ">
-
-                            <div class="col-sm-6 col-md-10 col-lg-8 col-xl-6 ">
-                                <div class="col">
-                                    <label>Search Case</label>
-                                    <input type="text" id="search_case" name="search_case"
-                                        class="form-control search_referral" placeholder="Search Case"
-                                        autocomplete="off" />
-                                </div>
+                        <div class="form-group">
+                            <label for="search_case" style="font-weight: 600; margin-bottom: 8px;">
+                                <i class="fa fa-filter"></i> Search by Case Reference Number
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-addon" style="background-color: #f8f9fa; border-right: none;">
+                                    <i class="fa fa-search"></i>
+                                </span>
+                                <input type="text" id="search_case" name="search_case"
+                                    class="form-control search_referral" placeholder="Type to search case reference number..."
+                                    autocomplete="off" style="border-left: none; padding-left: 10px;" />
                             </div>
-
-
-                            <div class="col-12" style="margin-top:10px">
-                                <table class="table  table-bordered datatable">
-                                    <thead>
-                                        <tr class="text-center">
-                                            <th>Case Ref No</th>
-                                            <th>Action</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="tbl-case">
-                                        @if (count($loan_case))
-                                            @foreach ($loan_case as $index => $case)
-                                                <tr id="case_{{ $case->id }}" style="display:none">
-                                                    <td>{{ $case->case_ref_no }}</td>
-                                                    <td style="display:none">{{ $case->id }}</td>
-                                                    <td class="text-center">
-                                                        <a href="javascript:void(0)"
-                                                            onclick="selectedCase('{{ $case->id }}');"
-                                                            class="btn btn-primary shadow btn-xs sharp mr-1"
-                                                            data-toggle="tooltip" data-placement="top"
-                                                            title="case">Select</a>
-                                                    </td>
-                                                </tr>
-                                            @endforeach
-                                        @else
-                                            <tr>
-                                                <td class="text-center" colspan="3">No data</td>
-                                            </tr>
-                                        @endif
-
-                                    </tbody>
-                                </table>
-                            </div>
+                            <small class="form-text text-muted" style="margin-top: 5px;">
+                                Start typing to filter cases. Results will appear below.
+                            </small>
                         </div>
 
-
+                        <div class="table-responsive" style="margin-top: 20px; max-height: 400px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px;">
+                            <table class="table table-hover table-bordered" style="margin-bottom: 0;">
+                                <thead style="background-color: #f8f9fa; position: sticky; top: 0; z-index: 10;">
+                                    <tr>
+                                        <th style="font-weight: 600; padding: 12px; border-bottom: 2px solid #dee2e6;">
+                                            <i class="fa fa-file-text-o"></i> Case Ref No
+                                        </th>
+                                        <th style="font-weight: 600; padding: 12px; text-align: center; border-bottom: 2px solid #dee2e6; width: 120px;">
+                                            <i class="fa fa-cog"></i> Action
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tbl-case">
+                                    @if (count($loan_case))
+                                        @foreach ($loan_case as $index => $case)
+                                            <tr id="case_{{ $case->id }}" style="display:none; cursor: pointer;" 
+                                                onmouseover="this.style.backgroundColor='#f1f3f5'" 
+                                                onmouseout="this.style.backgroundColor=''">
+                                                <td style="padding: 12px; font-weight: 500;">
+                                                    <i class="fa fa-folder-open-o" style="color: #5c90d2; margin-right: 8px;"></i>
+                                                    {{ $case->case_ref_no }}
+                                                </td>
+                                                <td style="display:none">{{ $case->id }}</td>
+                                                <td class="text-center" style="padding: 12px;">
+                                                    <a href="javascript:void(0)"
+                                                        onclick="selectedCase('{{ $case->id }}');"
+                                                        class="btn btn-primary btn-sm"
+                                                        style="padding: 6px 15px; font-weight: 500; border-radius: 4px;"
+                                                        data-toggle="tooltip" data-placement="top"
+                                                        title="Select this case">
+                                                        <i class="fa fa-check"></i> Select
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    @else
+                                        <tr>
+                                            <td class="text-center" colspan="2" style="padding: 30px; color: #6c757d;">
+                                                <i class="fa fa-info-circle" style="font-size: 24px; margin-bottom: 10px; display: block;"></i>
+                                                No cases available
+                                            </td>
+                                        </tr>
+                                    @endif
+                                </tbody>
+                            </table>
+                        </div>
                     </form>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" id="btnClose" class="btn btn-default" data-dismiss="modal">Close</button>
+                <div class="modal-footer" style="background-color: #f8f9fa; border-top: 1px solid #dee2e6; padding: 15px 20px;">
+                    <button type="button" id="btnClose" class="btn btn-secondary" data-dismiss="modal" style="padding: 8px 20px; font-weight: 500;">
+                        <i class="fa fa-times"></i> Close
+                    </button>
                 </div>
             </div>
 
@@ -324,10 +347,10 @@
     <script src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.min.js"></script>
     <script>
         $('#search_case').on('input', function() {
-            var input, filter, ul, li, a, i;
+            var input, filter;
             input = document.getElementById("search_case");
             filter = input.value.toUpperCase();
-            $("#search_client").val();
+            var visibleCount = 0;
 
             $("#tbl-case tr").each(function() {
                 var self = $(this);
@@ -335,16 +358,41 @@
 
                 if (txtValue.toUpperCase().indexOf(filter) > -1) {
                     $(this).show();
+                    visibleCount++;
                 } else {
                     $(this).hide();
                 }
-            })
+            });
+
+            // Show/hide no results message
+            var noResultsRow = $("#tbl-case tr.no-results");
+            if (filter !== "" && visibleCount === 0) {
+                if (noResultsRow.length === 0) {
+                    $("#tbl-case").append(
+                        '<tr class="no-results" style="display: table-row;">' +
+                        '<td class="text-center" colspan="2" style="padding: 30px; color: #6c757d;">' +
+                        '<i class="fa fa-search" style="font-size: 24px; margin-bottom: 10px; display: block;"></i>' +
+                        'No cases found matching "' + filter + '"' +
+                        '</td></tr>'
+                    );
+                } else {
+                    noResultsRow.find("td").html(
+                        '<i class="fa fa-search" style="font-size: 24px; margin-bottom: 10px; display: block;"></i>' +
+                        'No cases found matching "' + filter + '"'
+                    );
+                    noResultsRow.show();
+                }
+            } else {
+                noResultsRow.hide();
+            }
 
             if (filter == "") {
                 $("#tbl-case tr").each(function() {
-                    var self = $(this);
-                    $(this).hide();
-                })
+                    if (!$(this).hasClass('no-results')) {
+                        $(this).hide();
+                    }
+                });
+                $(".no-results").hide();
             }
         });
 
