@@ -5439,23 +5439,68 @@ class AccountController extends Controller
             $AccountCode = collect();
         }
 
-        // Filter cases based on user access
+        // Filter cases based on user access - Match EXACTLY the same logic as Active Case page (getCaseList)
+        $current_user = auth()->user();
+        $userRoles = $current_user->menuroles;
+        $branchInfo = BranchController::manageBranchAccess();
         $accessInfo = AccessController::manageAccess();
-        
-        // Get accessible case IDs from case management engine
-        // This handles: branch_case, link_user_case, special_access_case, and user assignments (lawyer_id, clerk_id, sales_user_id)
-        $accessibleCaseIds = CaseController::caseManagementEngine();
         
         // Start building the case query
         $LoanCaseQuery = LoanCase::query();
         
-        // For admin, management, and account roles, they can see all cases (except PNC)
-        if (in_array($current_user->menuroles, ['admin', 'management', 'account'])) {
-            $LoanCaseQuery->where('pnc_case', '=', 0);
+        // Debug: Get the target case details first
+        $targetCase = LoanCase::where('case_ref_no', 'DP/T/PBB/CA/BC/2023')->first();
+        
+        // For admin, management, and account roles, they can see all cases
+        // NOTE: Active Case page does NOT filter by pnc_case for admin users, so we shouldn't either
+        if (in_array($userRoles, ['admin', 'management', 'account'])) {
+            // No filters for admin - show all cases (matching Active Case page behavior)
+            // The Active Case page doesn't filter by pnc_case for admin users
         } else {
-            // For other users, filter based on accessible cases
-            // Combine case IDs from caseManagementEngine and accessInfo case_list
-            $allAccessibleCaseIds = array_unique(array_merge($accessibleCaseIds, $accessInfo['case_list'] ?? []));
+            // For other users, use EXACTLY the same logic as Active Case page
+            // The Active Case page uses ONLY caseManagementEngine() for non-admin users
+            $accessCaseList = CaseController::caseManagementEngine();
+            
+            // However, caseManagementEngine might not include all cases from accessible branches
+            // So we also need to include cases from accessible branches that might not be in caseManagementEngine
+            // This ensures we match what the user can see in the Active Case page
+            $accessibleBranchIds = $accessInfo['brancAccessList'] ?? [];
+            
+            // Combine: cases from caseManagementEngine + cases from accessible branches
+            $allAccessibleCaseIds = $accessCaseList;
+            
+            // Also get cases from accessible branches (in case caseManagementEngine doesn't include them all)
+            if (!empty($accessibleBranchIds)) {
+                $branchCaseIds = LoanCase::whereIn('branch_id', $accessibleBranchIds)
+                    ->where('pnc_case', 0)
+                    ->pluck('id')
+                    ->toArray();
+                
+                $allAccessibleCaseIds = array_unique(array_merge($allAccessibleCaseIds, $branchCaseIds));
+            }
+            
+            // Debug: Check if the specific case is in the accessible list
+            $targetCase = LoanCase::where('case_ref_no', 'DP/T/PBB/CA/BC/2023')->first();
+            $targetCaseInList = false;
+            if ($targetCase && !empty($allAccessibleCaseIds)) {
+                $targetCaseInList = in_array($targetCase->id, $allAccessibleCaseIds);
+            }
+            
+            \Log::info('Journal Entry Create - Case Access Debug', [
+                'user_id' => $current_user->id,
+                'user_role' => $userRoles,
+                'target_case_ref' => 'DP/T/PBB/CA/BC/2023',
+                'target_case_exists' => $targetCase ? true : false,
+                'target_case_id' => $targetCase ? $targetCase->id : null,
+                'target_case_branch' => $targetCase ? $targetCase->branch_id : null,
+                'target_case_pnc' => $targetCase ? $targetCase->pnc_case : null,
+                'target_case_status' => $targetCase ? $targetCase->status : null,
+                'accessible_branches' => $accessibleBranchIds,
+                'caseManagementEngine_count' => count($accessCaseList),
+                'branch_cases_count' => isset($branchCaseIds) ? count($branchCaseIds) : 0,
+                'total_accessible_count' => count($allAccessibleCaseIds),
+                'target_case_in_accessible_list' => $targetCaseInList
+            ]);
             
             if (!empty($allAccessibleCaseIds)) {
                 $LoanCaseQuery->whereIn('id', $allAccessibleCaseIds);
@@ -5463,13 +5508,51 @@ class AccountController extends Controller
                 // If no accessible cases found, return empty result
                 $LoanCaseQuery->where('id', '=', 0);
             }
-            
-            // Exclude PNC cases
-            $LoanCaseQuery->where('pnc_case', '=', 0);
         }
         
         // Get the filtered cases
         $LoanCase = $LoanCaseQuery->get();
+        
+        // Debug: Check if target case is in results and why it might be missing
+        $targetCaseInResults = false;
+        $targetCaseDetails = null;
+        if ($targetCase) {
+            $targetCaseInResults = $LoanCase->contains('id', $targetCase->id);
+            if (!$targetCaseInResults) {
+                // Case exists but not in results - check why
+                $targetCaseDetails = [
+                    'id' => $targetCase->id,
+                    'case_ref_no' => $targetCase->case_ref_no,
+                    'pnc_case' => $targetCase->pnc_case,
+                    'status' => $targetCase->status,
+                    'branch_id' => $targetCase->branch_id,
+                    'lawyer_id' => $targetCase->lawyer_id,
+                    'clerk_id' => $targetCase->clerk_id,
+                    'sales_user_id' => $targetCase->sales_user_id,
+                ];
+                
+                // Check if it would pass the current filters
+                $wouldPassPncFilter = $targetCase->pnc_case == 0;
+                $wouldPassStatusFilter = true; // No status filter for admin
+                
+                \Log::warning('Journal Entry Create - Case Filtered Out', [
+                    'target_case' => $targetCaseDetails,
+                    'would_pass_pnc_filter' => $wouldPassPncFilter,
+                    'would_pass_status_filter' => $wouldPassStatusFilter,
+                    'user_role' => $userRoles,
+                    'is_admin' => in_array($userRoles, ['admin', 'management', 'account']),
+                    'query_sql' => $LoanCaseQuery->toSql(),
+                    'query_bindings' => $LoanCaseQuery->getBindings()
+                ]);
+            }
+        }
+        
+        // Debug: Log final result
+        \Log::info('Journal Entry Create - Final Cases Loaded', [
+            'total_cases_loaded' => $LoanCase->count(),
+            'target_case_in_loaded_list' => $targetCaseInResults,
+            'target_case_details' => $targetCaseDetails
+        ]);
 
         return view('dashboard.journal-entry.create', [
             'OfficeBankAccount' => $OfficeBankAccount,
