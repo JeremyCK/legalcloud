@@ -50,6 +50,41 @@
                                 </div>
 
                                 <div class="col-sm-12">
+                                    <div class="form-group row">
+                                        <div class="col-12">
+                                            <label><strong>Select Portfolios:</strong></label>
+                                            <div class="mb-2">
+                                                <input type="text" class="form-control" id="portfolio-search" 
+                                                    placeholder="Search portfolios by name..." 
+                                                    onkeyup="filterPortfolios()"
+                                                    style="max-width: 400px;">
+                                            </div>
+                                            <div class="row" id="portfolio-list-container" style="max-height: 200px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 4px; margin: 0;">
+                                                @foreach ($Portfolio as $portfolio)
+                                                    <div class="col-md-3 col-sm-6 col-12 mb-3 portfolio-item portfolio-visible" 
+                                                        data-portfolio-name="{{ strtolower($portfolio->name) }}"
+                                                        style="padding-left: 15px; padding-right: 15px;">
+                                                        <div class="form-check" style="margin: 0;">
+                                                            <input class="form-check-input portfolio-checkbox" type="checkbox" 
+                                                                value="{{ $portfolio->id }}" id="portfolio_{{ $portfolio->id }}" checked
+                                                                style="margin-top: 0.25rem;">
+                                                            <label class="form-check-label" for="portfolio_{{ $portfolio->id }}" style="margin-left: 0.5rem; word-wrap: break-word;">
+                                                                {{ $portfolio->name }}
+                                                            </label>
+                                                        </div>
+                                                    </div>
+                                                @endforeach
+                                            </div>
+                                            <small class="form-text text-muted mt-2">
+                                                <button type="button" class="btn btn-sm btn-link p-0" onclick="selectAllPortfolios()">Select All</button> | 
+                                                <button type="button" class="btn btn-sm btn-link p-0" onclick="deselectAllPortfolios()">Deselect All</button> |
+                                                <span id="portfolio-count-text"></span>
+                                            </small>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="col-sm-12">
                                     <a class="btn btn-lg btn-info  float-right" href="javascript:void(0)"
                                         onclick="reloadTable2();">
                                         <i class="fa cil-search"> </i>Generate
@@ -436,6 +471,58 @@
 
         }
 
+        function filterPortfolios() {
+            var searchText = $('#portfolio-search').val().toLowerCase();
+            var visibleCount = 0;
+            var totalCount = 0;
+            
+            $('.portfolio-item').each(function() {
+                var portfolioName = $(this).data('portfolio-name');
+                totalCount++;
+                
+                if (portfolioName.indexOf(searchText) !== -1) {
+                    $(this).show();
+                    $(this).addClass('portfolio-visible');
+                    $(this).removeClass('portfolio-hidden');
+                    visibleCount++;
+                } else {
+                    $(this).hide();
+                    $(this).addClass('portfolio-hidden');
+                    $(this).removeClass('portfolio-visible');
+                    // Uncheck hidden portfolios to prevent them from being included in the report
+                    $(this).find('.portfolio-checkbox').prop('checked', false);
+                }
+            });
+            
+            // Update count text
+            if (searchText === '') {
+                $('#portfolio-count-text').text('');
+                // If no search, all portfolios are visible
+                $('.portfolio-item').addClass('portfolio-visible').removeClass('portfolio-hidden');
+            } else {
+                $('#portfolio-count-text').text('Showing ' + visibleCount + ' of ' + totalCount + ' portfolios');
+            }
+        }
+
+        function selectAllPortfolios() {
+            // Only select checkboxes in visible portfolio items
+            $('.portfolio-item.portfolio-visible .portfolio-checkbox').prop('checked', true);
+        }
+
+        function deselectAllPortfolios() {
+            // Only deselect checkboxes in visible portfolio items
+            $('.portfolio-item.portfolio-visible .portfolio-checkbox').prop('checked', false);
+        }
+
+        function getSelectedPortfolios() {
+            var selectedPortfolios = [];
+            // Only get checked checkboxes from visible portfolio items
+            $('.portfolio-item.portfolio-visible .portfolio-checkbox:checked').each(function() {
+                selectedPortfolios.push($(this).val());
+            });
+            return selectedPortfolios;
+        }
+
         function reloadTable2() {
 
             $.ajaxSetup({
@@ -444,11 +531,16 @@
                 }
             });
 
+            var selectedPortfolios = getSelectedPortfolios();
+            
+            console.log('Selected portfolios for report:', selectedPortfolios);
+
             var form_data = new FormData();
 
             form_data.append("month", $("#ddl_month").val());
             form_data.append("year", $("#ddl_year").val());
             form_data.append("staff", $("#dl_staff").val());
+            form_data.append("portfolios", JSON.stringify(selectedPortfolios));
 
             $.ajax({
                 type: 'POST',
@@ -720,10 +812,16 @@
                 }
             });
 
+            var selectedCaseTypes = getSelectedCaseTypes();
+
+            var selectedPortfolios = getSelectedPortfolios();
+
             var form_data = new FormData();
             form_data.append("month", $("#ddl_month").val());
             form_data.append("year", $("#ddl_year").val());
             form_data.append("staff", $("#dl_staff").val());
+            form_data.append("portfolios", JSON.stringify(selectedPortfolios));
+            form_data.append("case_types", JSON.stringify(selectedCaseTypes));
 
             $.ajax({
                 type: 'POST',

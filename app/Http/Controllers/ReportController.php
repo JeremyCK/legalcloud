@@ -2566,6 +2566,9 @@ class ReportController extends Controller
             }
 
             $fiscal_year = SettingsController::getFiscalYear();
+            
+            // Get all active portfolios (banks)
+            $Portfolio = Portfolio::where('status', 1)->orderBy('name', 'asc')->get();
 
             return view('dashboard.reports.staff-details.index', [
                 'OfficeBankAccount' => $OfficeBankAccount,
@@ -2574,6 +2577,7 @@ class ReportController extends Controller
                 'fiscal_year' => $fiscal_year,
                 'branchs' => $branchInfo['branch'],
                 'staffCaseCount' => $staffCaseCount,
+                'Portfolio' => $Portfolio,
             ]);
     }
 
@@ -2592,14 +2596,28 @@ class ReportController extends Controller
         $accessInfo = AccessController::manageAccess();
         $year = $request->input("year");
         
+        // Decode JSON string from frontend for portfolios (banks)
+        $portfolios_input = $request->input('portfolios', '[]');
+        $portfolio_ids = is_string($portfolios_input) ? json_decode($portfolios_input, true) : $portfolios_input;
+        if (!is_array($portfolio_ids)) {
+            $portfolio_ids = [];
+        }
+        
         // Get ALL active cases (currently managing) - NOT filtered by year
         $CaseCountTotalActive = LoanCase::where(function ($query) use($staff) {
             $query->where('lawyer_id', $staff->id)
                   ->orWhere('clerk_id', $staff->id);
         })->where('status', '<>', 99)
           ->whereIn('status', [1,2,3,4,7]) // All active statuses
-          ->whereIn('branch_id', $accessInfo['brancAccessList'])
-          ->get();
+          ->whereIn('branch_id', $accessInfo['brancAccessList']);
+        
+        // Filter by portfolios (banks) if selected
+        if (!empty($portfolio_ids) && is_array($portfolio_ids) && count($portfolio_ids) > 0) {
+            $portfolio_ids = array_map('intval', $portfolio_ids);
+            $CaseCountTotalActive = $CaseCountTotalActive->whereIn('bank_id', $portfolio_ids);
+        }
+        
+        $CaseCountTotalActive = $CaseCountTotalActive->get();
 
         // Get accepted cases (created/assigned in selected year) with bill and payment data
         $acceptedCasesQuery = DB::table('loan_case as lc')
@@ -2609,8 +2627,14 @@ class ReportController extends Controller
             })
             ->where('lc.status', '<>', 99)
             ->whereYear('lc.created_at', $year)
-            ->whereIn('lc.branch_id', $accessInfo['brancAccessList'])
-            ->select('lc.id', 'lc.case_ref_no', 'lc.created_at');
+            ->whereIn('lc.branch_id', $accessInfo['brancAccessList']);
+        
+        // Filter by portfolios (banks) if selected
+        if (!empty($portfolio_ids) && is_array($portfolio_ids) && count($portfolio_ids) > 0) {
+            $acceptedCasesQuery = $acceptedCasesQuery->whereIn('lc.bank_id', $portfolio_ids);
+        }
+        
+        $acceptedCasesQuery = $acceptedCasesQuery->select('lc.id', 'lc.case_ref_no', 'lc.created_at');
 
         $CaseCountAccepted = $acceptedCasesQuery->get()->map(function($case) {
             // Get bill data for this case
@@ -2653,8 +2677,14 @@ class ReportController extends Controller
         })->where('status', 0) // Closed
           ->whereNotNull('close_date') // Must have close_date set
           ->whereYear('close_date', $year) // Closed in selected year
-          ->whereIn('branch_id', $accessInfo['brancAccessList'])
-          ->get();
+          ->whereIn('branch_id', $accessInfo['brancAccessList']);
+        
+        // Filter by portfolios (banks) if selected
+        if (!empty($portfolio_ids) && is_array($portfolio_ids) && count($portfolio_ids) > 0) {
+            $CaseCountClosedInYear = $CaseCountClosedInYear->whereIn('bank_id', $portfolio_ids);
+        }
+        
+        $CaseCountClosedInYear = $CaseCountClosedInYear->get();
         
         // Existing status-based breakdown (cases created in selected year)
         $CaseCountActive = LoanCase::where(function ($query) use($staff) {
@@ -2663,8 +2693,14 @@ class ReportController extends Controller
         })->where('status', '<>', 99)
           ->whereIn('status', [1,2,3])
           ->whereYear('created_at', $year)
-          ->whereIn('branch_id', $accessInfo['brancAccessList'])
-          ->get();
+          ->whereIn('branch_id', $accessInfo['brancAccessList']);
+        
+        // Filter by portfolios (banks) if selected
+        if (!empty($portfolio_ids) && is_array($portfolio_ids) && count($portfolio_ids) > 0) {
+            $CaseCountActive = $CaseCountActive->whereIn('bank_id', $portfolio_ids);
+        }
+        
+        $CaseCountActive = $CaseCountActive->get();
 
         
         $CaseCountPendingClose = LoanCase::where(function ($query) use($staff) {
@@ -2673,8 +2709,14 @@ class ReportController extends Controller
         })->where('status', '<>', 99)
           ->whereIn('status', [4])
           ->whereYear('created_at', $year)
-          ->whereIn('branch_id', $accessInfo['brancAccessList'])
-          ->get();
+          ->whereIn('branch_id', $accessInfo['brancAccessList']);
+        
+        // Filter by portfolios (banks) if selected
+        if (!empty($portfolio_ids) && is_array($portfolio_ids) && count($portfolio_ids) > 0) {
+            $CaseCountPendingClose = $CaseCountPendingClose->whereIn('bank_id', $portfolio_ids);
+        }
+        
+        $CaseCountPendingClose = $CaseCountPendingClose->get();
 
         
         $CaseCountReviewing = LoanCase::where(function ($query) use($staff) {
@@ -2683,8 +2725,14 @@ class ReportController extends Controller
         })->where('status', '<>', 99)
           ->whereIn('status', [7])
           ->whereYear('created_at', $year)
-          ->whereIn('branch_id', $accessInfo['brancAccessList'])
-          ->get();
+          ->whereIn('branch_id', $accessInfo['brancAccessList']);
+        
+        // Filter by portfolios (banks) if selected
+        if (!empty($portfolio_ids) && is_array($portfolio_ids) && count($portfolio_ids) > 0) {
+            $CaseCountReviewing = $CaseCountReviewing->whereIn('bank_id', $portfolio_ids);
+        }
+        
+        $CaseCountReviewing = $CaseCountReviewing->get();
 
         // Get closed cases (created in selected year) for the table breakdown
         $CaseCountClose = LoanCase::where(function ($query) use($staff) {
@@ -2692,8 +2740,14 @@ class ReportController extends Controller
                   ->orWhere('clerk_id', $staff->id);
         })->where('status', 0) // Closed
           ->whereYear('created_at', $year) // Created in selected year
-          ->whereIn('branch_id', $accessInfo['brancAccessList'])
-          ->get();
+          ->whereIn('branch_id', $accessInfo['brancAccessList']);
+        
+        // Filter by portfolios (banks) if selected
+        if (!empty($portfolio_ids) && is_array($portfolio_ids) && count($portfolio_ids) > 0) {
+            $CaseCountClose = $CaseCountClose->whereIn('bank_id', $portfolio_ids);
+        }
+        
+        $CaseCountClose = $CaseCountClose->get();
 
         // $CaseCountPendingClose = LoanCase::where('lawyer_id', $staff->id)->orWhere('clerk_id', $staff->id)->where('status', 4)->whereYear('created_at', $request->input("year"))->count();
         // $CaseCountReviewing = LoanCase::where('lawyer_id', $staff->id)->orWhere('clerk_id', $staff->id)->where('status', 7)->whereYear('created_at', $request->input("year"))->count();
@@ -2711,25 +2765,37 @@ class ReportController extends Controller
         // Monthly breakdown for chart (accepted vs closed)
         for ($j = 1; $j <= 12; $j++) {
             // Accepted cases (created) per month
-            $acceptedCount = LoanCase::where(function ($query) use($staff) {
+            $acceptedQuery = LoanCase::where(function ($query) use($staff) {
                 $query->where('lawyer_id', $staff->id)
                       ->orWhere('clerk_id', $staff->id);
             })->where('status', '<>', 99)
               ->whereYear('created_at', $year)
               ->whereMonth('created_at', $j)
-              ->whereIn('branch_id', $accessInfo['brancAccessList'])
-              ->count();
+              ->whereIn('branch_id', $accessInfo['brancAccessList']);
+            
+            // Filter by portfolios (banks) if selected
+            if (!empty($portfolio_ids) && is_array($portfolio_ids) && count($portfolio_ids) > 0) {
+                $acceptedQuery = $acceptedQuery->whereIn('bank_id', $portfolio_ids);
+            }
+            
+            $acceptedCount = $acceptedQuery->count();
 
             // Closed cases (closed) per month
-            $closedCount = LoanCase::where(function ($query) use($staff) {
+            $closedQuery = LoanCase::where(function ($query) use($staff) {
                 $query->where('lawyer_id', $staff->id)
                       ->orWhere('clerk_id', $staff->id);
             })->where('status', 0) // Closed
               ->whereNotNull('close_date') // Must have close_date set
               ->whereYear('close_date', $year) // Closed in selected year
               ->whereMonth('close_date', $j)
-              ->whereIn('branch_id', $accessInfo['brancAccessList'])
-              ->count();
+              ->whereIn('branch_id', $accessInfo['brancAccessList']);
+            
+            // Filter by portfolios (banks) if selected
+            if (!empty($portfolio_ids) && is_array($portfolio_ids) && count($portfolio_ids) > 0) {
+                $closedQuery = $closedQuery->whereIn('bank_id', $portfolio_ids);
+            }
+            
+            $closedCount = $closedQuery->count();
 
             $accepted_by_month[] = $acceptedCount;
             $closed_by_month[] = $closedCount;
@@ -2754,6 +2820,11 @@ class ReportController extends Controller
 
         if ($year <> 0) {
             $Chart_data = $Chart_data->whereYear('l.created_at', $year);
+        }
+        
+        // Filter by portfolios (banks) if selected
+        if (!empty($portfolio_ids) && is_array($portfolio_ids) && count($portfolio_ids) > 0) {
+            $Chart_data = $Chart_data->whereIn('l.bank_id', $portfolio_ids);
         }
 
 
@@ -2806,6 +2877,13 @@ class ReportController extends Controller
             $accessInfo = AccessController::manageAccess();
             $year = $request->input("year");
             
+            // Decode JSON string from frontend for portfolios (banks)
+            $portfolios_input = $request->input('portfolios', '[]');
+            $portfolio_ids = is_string($portfolios_input) ? json_decode($portfolios_input, true) : $portfolios_input;
+            if (!is_array($portfolio_ids)) {
+                $portfolio_ids = [];
+            }
+            
             // Get accepted cases with bill and payment data (same query as getStaffDetailsReport)
             $acceptedCasesQuery = DB::table('loan_case as lc')
                 ->where(function ($query) use($staff) {
@@ -2814,8 +2892,14 @@ class ReportController extends Controller
                 })
                 ->where('lc.status', '<>', 99)
                 ->whereYear('lc.created_at', $year)
-                ->whereIn('lc.branch_id', $accessInfo['brancAccessList'])
-                ->select('lc.id', 'lc.case_ref_no', 'lc.created_at');
+                ->whereIn('lc.branch_id', $accessInfo['brancAccessList']);
+            
+            // Filter by portfolios (banks) if selected
+            if (!empty($portfolio_ids) && is_array($portfolio_ids) && count($portfolio_ids) > 0) {
+                $acceptedCasesQuery = $acceptedCasesQuery->whereIn('lc.bank_id', $portfolio_ids);
+            }
+            
+            $acceptedCasesQuery = $acceptedCasesQuery->select('lc.id', 'lc.case_ref_no', 'lc.created_at');
 
             $CaseCountAccepted = $acceptedCasesQuery->get()->map(function($case) {
                 // Get bill data for this case
