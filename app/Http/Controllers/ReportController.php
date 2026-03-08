@@ -2595,6 +2595,7 @@ class ReportController extends Controller
 
         $accessInfo = AccessController::manageAccess();
         $year = $request->input("year");
+        $branch_id = $request->input("branch", 0);
         
         // Decode JSON string from frontend for portfolios (banks)
         $portfolios_input = $request->input('portfolios', '[]');
@@ -2603,13 +2604,22 @@ class ReportController extends Controller
             $portfolio_ids = [];
         }
         
+        // Determine which branches to filter by
+        $branchFilter = $accessInfo['brancAccessList'];
+        if ($branch_id != 0) {
+            // If specific branch selected, filter by that branch (if user has access)
+            if (in_array($branch_id, $accessInfo['brancAccessList'])) {
+                $branchFilter = [$branch_id];
+            }
+        }
+        
         // Get ALL active cases (currently managing) - NOT filtered by year
         $CaseCountTotalActive = LoanCase::where(function ($query) use($staff) {
             $query->where('lawyer_id', $staff->id)
                   ->orWhere('clerk_id', $staff->id);
         })->where('status', '<>', 99)
           ->whereIn('status', [1,2,3,4,7]) // All active statuses
-          ->whereIn('branch_id', $accessInfo['brancAccessList']);
+          ->whereIn('branch_id', $branchFilter);
         
         // Filter by portfolios (banks) if selected
         if (!empty($portfolio_ids) && is_array($portfolio_ids) && count($portfolio_ids) > 0) {
@@ -2627,7 +2637,7 @@ class ReportController extends Controller
             })
             ->where('lc.status', '<>', 99)
             ->whereYear('lc.created_at', $year)
-            ->whereIn('lc.branch_id', $accessInfo['brancAccessList']);
+            ->whereIn('lc.branch_id', $branchFilter);
         
         // Filter by portfolios (banks) if selected
         if (!empty($portfolio_ids) && is_array($portfolio_ids) && count($portfolio_ids) > 0) {
@@ -2677,7 +2687,7 @@ class ReportController extends Controller
         })->where('status', 0) // Closed
           ->whereNotNull('close_date') // Must have close_date set
           ->whereYear('close_date', $year) // Closed in selected year
-          ->whereIn('branch_id', $accessInfo['brancAccessList']);
+          ->whereIn('branch_id', $branchFilter);
         
         // Filter by portfolios (banks) if selected
         if (!empty($portfolio_ids) && is_array($portfolio_ids) && count($portfolio_ids) > 0) {
@@ -2693,7 +2703,7 @@ class ReportController extends Controller
         })->where('status', '<>', 99)
           ->whereIn('status', [1,2,3])
           ->whereYear('created_at', $year)
-          ->whereIn('branch_id', $accessInfo['brancAccessList']);
+          ->whereIn('branch_id', $branchFilter);
         
         // Filter by portfolios (banks) if selected
         if (!empty($portfolio_ids) && is_array($portfolio_ids) && count($portfolio_ids) > 0) {
@@ -2709,7 +2719,7 @@ class ReportController extends Controller
         })->where('status', '<>', 99)
           ->whereIn('status', [4])
           ->whereYear('created_at', $year)
-          ->whereIn('branch_id', $accessInfo['brancAccessList']);
+          ->whereIn('branch_id', $branchFilter);
         
         // Filter by portfolios (banks) if selected
         if (!empty($portfolio_ids) && is_array($portfolio_ids) && count($portfolio_ids) > 0) {
@@ -2725,7 +2735,7 @@ class ReportController extends Controller
         })->where('status', '<>', 99)
           ->whereIn('status', [7])
           ->whereYear('created_at', $year)
-          ->whereIn('branch_id', $accessInfo['brancAccessList']);
+          ->whereIn('branch_id', $branchFilter);
         
         // Filter by portfolios (banks) if selected
         if (!empty($portfolio_ids) && is_array($portfolio_ids) && count($portfolio_ids) > 0) {
@@ -2740,7 +2750,7 @@ class ReportController extends Controller
                   ->orWhere('clerk_id', $staff->id);
         })->where('status', 0) // Closed
           ->whereYear('created_at', $year) // Created in selected year
-          ->whereIn('branch_id', $accessInfo['brancAccessList']);
+          ->whereIn('branch_id', $branchFilter);
         
         // Filter by portfolios (banks) if selected
         if (!empty($portfolio_ids) && is_array($portfolio_ids) && count($portfolio_ids) > 0) {
@@ -2771,7 +2781,7 @@ class ReportController extends Controller
             })->where('status', '<>', 99)
               ->whereYear('created_at', $year)
               ->whereMonth('created_at', $j)
-              ->whereIn('branch_id', $accessInfo['brancAccessList']);
+              ->whereIn('branch_id', $branchFilter);
             
             // Filter by portfolios (banks) if selected
             if (!empty($portfolio_ids) && is_array($portfolio_ids) && count($portfolio_ids) > 0) {
@@ -2788,7 +2798,7 @@ class ReportController extends Controller
               ->whereNotNull('close_date') // Must have close_date set
               ->whereYear('close_date', $year) // Closed in selected year
               ->whereMonth('close_date', $j)
-              ->whereIn('branch_id', $accessInfo['brancAccessList']);
+              ->whereIn('branch_id', $branchFilter);
             
             // Filter by portfolios (banks) if selected
             if (!empty($portfolio_ids) && is_array($portfolio_ids) && count($portfolio_ids) > 0) {
@@ -2816,7 +2826,7 @@ class ReportController extends Controller
             ->where('l.bank_id', '<>', 0)
             ->orderBy('p.name', 'asc');
 
-        $Chart_data = $Chart_data->whereIn('branch_id', $accessInfo['brancAccessList']);
+        $Chart_data = $Chart_data->whereIn('branch_id', $branchFilter);
 
         if ($year <> 0) {
             $Chart_data = $Chart_data->whereYear('l.created_at', $year);
@@ -2876,6 +2886,16 @@ class ReportController extends Controller
 
             $accessInfo = AccessController::manageAccess();
             $year = $request->input("year");
+            $branch_id = $request->input("branch", 0);
+            
+            // Determine which branches to filter by
+            $branchFilter = $accessInfo['brancAccessList'];
+            if ($branch_id != 0) {
+                // If specific branch selected, filter by that branch (if user has access)
+                if (in_array($branch_id, $accessInfo['brancAccessList'])) {
+                    $branchFilter = [$branch_id];
+                }
+            }
             
             // Decode JSON string from frontend for portfolios (banks)
             $portfolios_input = $request->input('portfolios', '[]');
@@ -2892,7 +2912,7 @@ class ReportController extends Controller
                 })
                 ->where('lc.status', '<>', 99)
                 ->whereYear('lc.created_at', $year)
-                ->whereIn('lc.branch_id', $accessInfo['brancAccessList']);
+                ->whereIn('lc.branch_id', $branchFilter);
             
             // Filter by portfolios (banks) if selected
             if (!empty($portfolio_ids) && is_array($portfolio_ids) && count($portfolio_ids) > 0) {

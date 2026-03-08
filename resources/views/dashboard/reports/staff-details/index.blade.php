@@ -49,6 +49,20 @@
                                     </div>
                                 </div>
 
+                                <div class="col-6">
+                                    <div class="form-group row">
+                                        <div class="col">
+                                            <label>Filter by Branch</label>
+                                            <select class="form-control" id="ddl_branch" name="ddl_branch">
+                                                <option value="0">-- All --</option>
+                                                @foreach ($branchs as $branch)
+                                                    <option value="{{ $branch->id }}">{{ $branch->name }}</option>
+                                                @endforeach
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <div class="col-sm-12">
                                     <div class="form-group row">
                                         <div class="col-12">
@@ -540,6 +554,7 @@
             form_data.append("month", $("#ddl_month").val());
             form_data.append("year", $("#ddl_year").val());
             form_data.append("staff", $("#dl_staff").val());
+            form_data.append("branch", $("#ddl_branch").val());
             form_data.append("portfolios", JSON.stringify(selectedPortfolios));
 
             $.ajax({
@@ -820,6 +835,7 @@
             form_data.append("month", $("#ddl_month").val());
             form_data.append("year", $("#ddl_year").val());
             form_data.append("staff", $("#dl_staff").val());
+            form_data.append("branch", $("#ddl_branch").val());
             form_data.append("portfolios", JSON.stringify(selectedPortfolios));
             form_data.append("case_types", JSON.stringify(selectedCaseTypes));
 
