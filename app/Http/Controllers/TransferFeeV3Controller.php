@@ -330,6 +330,7 @@ class TransferFeeV3Controller extends Controller
                     DB::raw('NULL as invoice_date'), // Will be formatted in view
                     'im.status',
                     'im.loan_case_main_bill_id',
+                    'im.amount as invoice_total_amount', // Complete invoice total amount (includes all categories)
                     'im.transferred_pfee_amt',
                     'im.transferred_sst_amt',
                     'im.pfee1_inv', // Use invoice data directly
@@ -455,10 +456,10 @@ class TransferFeeV3Controller extends Controller
                         $query = $query->orderBy('im.Invoice_date', $sortOrder);
                         break;
                     case 'total_amount':
-                        $query = $query->orderByRaw("(im.pfee1_inv + im.pfee2_inv + im.sst_inv) {$sortOrder}");
+                        $query = $query->orderBy('im.amount', $sortOrder);
                         break;
                     case 'collected_amount':
-                        $query = $query->orderByRaw("(im.pfee1_inv + im.pfee2_inv + im.sst_inv) {$sortOrder}");
+                        $query = $query->orderBy('b.collected_amt', $sortOrder);
                         break;
                     case 'pfee':
                         $query = $query->orderByRaw("(im.pfee1_inv + im.pfee2_inv) {$sortOrder}");
@@ -522,6 +523,37 @@ class TransferFeeV3Controller extends Controller
             $rows = $query->offset(($page - 1) * $perPage)
                          ->limit($perPage)
                          ->get();
+
+            // Calculate collected amount per invoice (bill_collected_amt divided by invoice count per bill)
+            // Group invoices by bill_id to count invoices per bill
+            $billInvoiceCounts = [];
+            foreach ($rows as $row) {
+                $billId = $row->loan_case_main_bill_id;
+                if (!isset($billInvoiceCounts[$billId])) {
+                    // Count invoices for this bill
+                    $billInvoiceCounts[$billId] = DB::table('loan_case_invoice_main')
+                        ->where('loan_case_main_bill_id', $billId)
+                        ->where('status', '<>', 99)
+                        ->count();
+                    $billInvoiceCounts[$billId] = max(1, $billInvoiceCounts[$billId]); // Avoid division by zero
+                }
+            }
+
+            // Calculate collected amount per invoice for each row
+            foreach ($rows as $row) {
+                $billId = $row->loan_case_main_bill_id;
+                $billCollectedAmt = $row->bill_collected_amt ?? 0;
+                $invoiceCount = $billInvoiceCounts[$billId] ?? 1;
+                
+                // Calculate collected amount per invoice
+                // If only one invoice, use bill collected amount directly
+                // Otherwise divide equally among invoices
+                if ($invoiceCount == 1) {
+                    $row->invoice_collected_amt = round($billCollectedAmt, 2);
+                } else {
+                    $row->invoice_collected_amt = round($billCollectedAmt / $invoiceCount, 2);
+                }
+            }
 
             $invoiceList = view('dashboard.transfer-fee-v3.table.tbl-transfer-invoice-list', [
                 'rows' => $rows,
@@ -1060,15 +1092,16 @@ class TransferFeeV3Controller extends Controller
             // Note: bill_total_amt_divided is already set at line 984 if no custom value
             
             // Calculate Collected amt from bill collected amount (divided equally)
-            // If invoice_count = 1, use invoice amount if available (more accurate)
+            // Always use bill_collected_amt (actual collected amount from vouchers/receipts)
+            // If invoice_count = 1, use bill collected amount directly
             // Otherwise divide bill collected amount equally among invoices
-            if ($invoiceCount == 1 && ($detail->invoice_amount ?? 0) > 0) {
-                // Single invoice: Use invoice amount for collected amt (matches total amt)
-                $detail->bill_collected_amt_divided = round($detail->invoice_amount, 2);
+            $billCollectedAmt = $detail->bill_collected_amt ?? 0;
+            if ($invoiceCount == 1) {
+                // Single invoice: Use bill collected amount directly
+                $detail->bill_collected_amt_divided = round($billCollectedAmt, 2);
             } else {
                 // Multiple invoices: Divide bill collected amount equally
-                $totalAmount = $detail->bill_collected_amt ?? 0;
-                $calculatedCollectedAmount = round($totalAmount / $invoiceCount, 2);
+                $calculatedCollectedAmount = round($billCollectedAmt / $invoiceCount, 2);
                 $detail->bill_collected_amt_divided = $calculatedCollectedAmount;
             }
             
@@ -3178,15 +3211,16 @@ class TransferFeeV3Controller extends Controller
                 // Note: bill_total_amt_divided is already set correctly at line 2447 using invoice_amount
                 
                 // Calculate Collected amt from bill collected amount (divided equally)
-                // If invoice_count = 1, use invoice amount if available (more accurate)
+                // Always use bill_collected_amt (actual collected amount from vouchers/receipts)
+                // If invoice_count = 1, use bill collected amount directly
                 // Otherwise divide bill collected amount equally among invoices
-                if ($invoiceCount == 1 && ($detail->invoice_amount ?? 0) > 0) {
-                    // Single invoice: Use invoice amount for collected amt (matches total amt)
-                    $detail->bill_collected_amt_divided = round($detail->invoice_amount, 2);
+                $billCollectedAmt = $detail->bill_collected_amt ?? 0;
+                if ($invoiceCount == 1) {
+                    // Single invoice: Use bill collected amount directly
+                    $detail->bill_collected_amt_divided = round($billCollectedAmt, 2);
                 } else {
                     // Multiple invoices: Divide bill collected amount equally
-                    $totalAmount = $detail->bill_collected_amt ?? 0;
-                    $calculatedCollectedAmount = round($totalAmount / $invoiceCount, 2);
+                    $calculatedCollectedAmount = round($billCollectedAmt / $invoiceCount, 2);
                     $detail->bill_collected_amt_divided = $calculatedCollectedAmount;
                 }
                 

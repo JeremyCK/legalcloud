@@ -167,10 +167,10 @@
                                     @endif
                                 </td>
                                 <td class="text-right" style="font-size: 11px;">
-                                    {{ number_format(($row->pfee1_inv ?? 0) + ($row->pfee2_inv ?? 0) + ($row->sst_inv ?? 0) + ($row->invoice_reimbursement_amount ?? 0) + ($row->invoice_reimbursement_sst ?? 0), 2, '.', ',') }}
+                                    {{ number_format($row->invoice_total_amount ?? 0, 2, '.', ',') }}
                                 </td>
                                 <td class="text-right" style="font-size: 11px;">
-                                    {{ number_format(($row->pfee1_inv ?? 0) + ($row->pfee2_inv ?? 0) + ($row->sst_inv ?? 0) + ($row->invoice_reimbursement_amount ?? 0) + ($row->invoice_reimbursement_sst ?? 0), 2, '.', ',') }}
+                                    {{ number_format($row->invoice_collected_amt ?? 0, 2, '.', ',') }}
                                 </td>
                                 <td class="text-right" style="font-size: 11px;">
                                     {{ number_format(($row->pfee1_inv ?? 0) + ($row->pfee2_inv ?? 0), 2, '.', ',') }}

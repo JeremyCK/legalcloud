@@ -769,6 +769,14 @@ function updateSelectedInvoices() {
             const paymentDate = row.find('td:eq(18)').text() || 'N/A'; // Payment Date column
             const caseId = row.find('td:eq(2) a').attr('href') ? row.find('td:eq(2) a').attr('href').split('/').pop() : null; // Extract case ID from href
             
+            // Extract total amount from table (column index 5: Total amt) - complete invoice total
+            const totalAmtText = row.find('td:eq(5)').text().trim().replace(/,/g, '') || '0';
+            const totalAmt = parseFloat(totalAmtText) || 0;
+            
+            // Extract collected amount from table (column index 6: Collected amt)
+            const collectedAmtText = row.find('td:eq(6)').text().trim().replace(/,/g, '') || '0';
+            const collectedAmt = parseFloat(collectedAmtText) || 0;
+            
             // Add new invoice to selectedInvoices
             selectedInvoices.push({
                 id: invoiceId,
@@ -777,6 +785,8 @@ function updateSelectedInvoices() {
                 sst: sst,
                 reimbursement: reimbursement,
                 reimbursement_sst: reimbursementSst,
+                total_amt: totalAmt, // Store complete invoice total amount
+                collected_amt: collectedAmt, // Store actual collected amount from bill
                 invoice_no: invoiceNo,
                 invoice_date: invoiceDate,
                 case_ref: caseRef,
@@ -787,9 +797,9 @@ function updateSelectedInvoices() {
         }
     });
     
-         // Calculate total amount from all selected invoices
+         // Calculate total amount from all selected invoices (use complete invoice total)
      selectedInvoices.forEach(invoice => {
-         totalAmount += invoice.value + (invoice.sst || 0) + (invoice.reimbursement || 0) + (invoice.reimbursement_sst || 0);
+         totalAmount += invoice.total_amt || 0; // Use complete invoice total amount
      });
      
      // Remove invoices that are no longer checked in the modal
@@ -797,8 +807,8 @@ function updateSelectedInvoices() {
          return $(`.invoice-checkbox[value="${invoice.id}"]`).is(':checked');
      });
      
-     // Recalculate total after filtering
-     totalAmount = selectedInvoices.reduce((sum, invoice) => sum + invoice.value + (invoice.sst || 0) + (invoice.reimbursement || 0) + (invoice.reimbursement_sst || 0), 0);
+     // Recalculate total after filtering (use complete invoice total)
+     totalAmount = selectedInvoices.reduce((sum, invoice) => sum + (invoice.total_amt || 0), 0);
      
      $('#add_invoice').val(JSON.stringify(selectedInvoices));
                $('#modalSelectedCount').text(selectedInvoices.length);
@@ -867,7 +877,8 @@ function updateSelectedInvoicesTable() {
     };
     
          selectedInvoices.forEach((invoice, index) => {
-         const totalAmount = invoice.value + invoice.sst + (invoice.reimbursement || 0) + (invoice.reimbursement_sst || 0);
+         const totalAmount = invoice.total_amt || 0; // Use complete invoice total amount
+         const collectedAmount = invoice.collected_amt || 0; // Use actual collected amount from bill
          const pfeeAmount = invoice.value;
          const sstAmount = invoice.sst;
          const reimbAmount = invoice.reimbursement || 0;
@@ -875,7 +886,7 @@ function updateSelectedInvoicesTable() {
          
          // Add to totals
          totals.totalAmt += totalAmount;
-         totals.collectedAmt += totalAmount;
+         totals.collectedAmt += collectedAmount; // Use actual collected amount, not totalAmount
          totals.pfee += pfeeAmount;
          totals.sst += sstAmount;
          totals.reimb += reimbAmount;
@@ -901,7 +912,7 @@ function updateSelectedInvoicesTable() {
                  <td style="font-size: 11px;">${invoice.invoice_no}</td>
                  <td style="font-size: 11px;">${invoice.invoice_date}</td>
                  <td class="text-right" style="font-size: 11px;">${formatAmount(totalAmount)}</td>
-                 <td class="text-right" style="font-size: 11px;">${formatAmount(totalAmount)}</td>
+                 <td class="text-right" style="font-size: 11px;">${formatAmount(collectedAmount)}</td>
                  <td class="text-right" style="font-size: 11px;">${formatAmount(pfeeAmount)}</td>
                  <td class="text-right" style="font-size: 11px;">${formatAmount(sstAmount)}</td>
                  <td class="text-right" style="font-size: 11px;">${formatAmount(reimbAmount)}</td>
@@ -1063,14 +1074,15 @@ function updateFooterTotals() {
     };
     
     selectedInvoices.forEach((invoice) => {
-        const totalAmount = invoice.value + invoice.sst + (invoice.reimbursement || 0) + (invoice.reimbursement_sst || 0);
+        const totalAmount = invoice.total_amt || 0; // Use complete invoice total amount
+        const collectedAmount = invoice.collected_amt || 0; // Use actual collected amount from bill
         const pfeeAmount = invoice.value;
         const sstAmount = invoice.sst;
         const reimbAmount = invoice.reimbursement || 0;
         const reimbSstAmount = invoice.reimbursement_sst || 0;
         
         totals.totalAmt += totalAmount;
-        totals.collectedAmt += totalAmount;
+        totals.collectedAmt += collectedAmount; // Use actual collected amount, not totalAmount
         totals.pfee += pfeeAmount;
         totals.sst += sstAmount;
         totals.reimb += reimbAmount;
@@ -1087,9 +1099,8 @@ function updateFooterTotals() {
     };
     
     if ($('#footerTotalAmt').length) $('#footerTotalAmt').text(formatAmount(totals.totalAmt));
-    // Round down to exactly 4022.00 while keeping individual amounts at 1340.67
-    const roundedCollectedAmt = Math.floor(totals.collectedAmt);
-    totals.collectedAmt = roundedCollectedAmt; // Update the actual value
+    // Use proper rounding (round to 2 decimal places) instead of Math.floor
+    const roundedCollectedAmt = Math.round(totals.collectedAmt * 100) / 100;
     if ($('#footerCollectedAmt').length) $('#footerCollectedAmt').text(formatAmount(roundedCollectedAmt));
     if ($('#footerPfee').length) $('#footerPfee').text(formatAmount(totals.pfee));
     if ($('#footerSst').length) $('#footerSst').text(formatAmount(totals.sst));
@@ -1114,7 +1125,7 @@ function removeSelectedInvoice(index) {
         $('#add_invoice').val(JSON.stringify(selectedInvoices));
         
         // Update summary
-        const totalAmount = selectedInvoices.reduce((sum, invoice) => sum + (parseFloat(invoice.value) || 0) + (parseFloat(invoice.sst) || 0) + (parseFloat(invoice.reimbursement) || 0) + (parseFloat(invoice.reimbursement_sst) || 0), 0);
+        const totalAmount = selectedInvoices.reduce((sum, invoice) => sum + (parseFloat(invoice.total_amt) || 0), 0);
         $('#selectedCount').text(selectedInvoices.length);
         $('#selectedTotalAmount').text(formatAmount(totalAmount));
         
