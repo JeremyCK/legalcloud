@@ -2583,19 +2583,24 @@ class ReportController extends Controller
 
     public function getStaffDetailsReport(Request $request)
     {
-
-        $staff = User::where('id', $request->input("staff"))->first();
-
-        if (!$staff) {
-            return response()->json([
-                'status' => 0,
-                'message' => 'Staff not found'
-            ], 404);
-        }
-
+        $staff_id = $request->input("staff", 0);
         $accessInfo = AccessController::manageAccess();
         $year = $request->input("year");
         $branch_id = $request->input("branch", 0);
+        
+        // Determine if "All" staff is selected
+        $isAllStaff = ($staff_id == 0 || $staff_id == '0' || $staff_id == 'all');
+        
+        // If specific staff selected, validate staff exists
+        if (!$isAllStaff) {
+            $staff = User::where('id', $staff_id)->first();
+            if (!$staff) {
+                return response()->json([
+                    'status' => 0,
+                    'message' => 'Staff not found'
+                ], 404);
+            }
+        }
         
         // Decode JSON string from frontend for portfolios (banks)
         $portfolios_input = $request->input('portfolios', '[]');
@@ -2613,10 +2618,29 @@ class ReportController extends Controller
             }
         }
         
+        // Get staff IDs to filter by
+        $staffIds = [];
+        if ($isAllStaff) {
+            // Get all staff from selected branch(es)
+            $staffQuery = Users::where('status', '<>', 99)
+                ->whereIn('menuroles', ['lawyer', 'clerk', 'chambering']);
+            
+            if ($branch_id != 0 && in_array($branch_id, $accessInfo['brancAccessList'])) {
+                $staffQuery = $staffQuery->where('branch_id', $branch_id);
+            } else {
+                $staffQuery = $staffQuery->whereIn('branch_id', $branchFilter);
+            }
+            
+            $staffIds = $staffQuery->pluck('id')->toArray();
+        } else {
+            // Single staff selected
+            $staffIds = [$staff_id];
+        }
+        
         // Get ALL active cases (currently managing) - NOT filtered by year
-        $CaseCountTotalActive = LoanCase::where(function ($query) use($staff) {
-            $query->where('lawyer_id', $staff->id)
-                  ->orWhere('clerk_id', $staff->id);
+        $CaseCountTotalActive = LoanCase::where(function ($query) use($staffIds) {
+            $query->whereIn('lawyer_id', $staffIds)
+                  ->orWhereIn('clerk_id', $staffIds);
         })->where('status', '<>', 99)
           ->whereIn('status', [1,2,3,4,7]) // All active statuses
           ->whereIn('branch_id', $branchFilter);
@@ -2631,9 +2655,9 @@ class ReportController extends Controller
 
         // Get accepted cases (created/assigned in selected year) with bill and payment data
         $acceptedCasesQuery = DB::table('loan_case as lc')
-            ->where(function ($query) use($staff) {
-                $query->where('lc.lawyer_id', $staff->id)
-                      ->orWhere('lc.clerk_id', $staff->id);
+            ->where(function ($query) use($staffIds) {
+                $query->whereIn('lc.lawyer_id', $staffIds)
+                      ->orWhereIn('lc.clerk_id', $staffIds);
             })
             ->where('lc.status', '<>', 99)
             ->whereYear('lc.created_at', $year)
@@ -2681,9 +2705,9 @@ class ReportController extends Controller
         });
 
         // Get closed cases in selected year (closed in that year, using close_date field)
-        $CaseCountClosedInYear = LoanCase::where(function ($query) use($staff) {
-            $query->where('lawyer_id', $staff->id)
-                  ->orWhere('clerk_id', $staff->id);
+        $CaseCountClosedInYear = LoanCase::where(function ($query) use($staffIds) {
+            $query->whereIn('lawyer_id', $staffIds)
+                  ->orWhereIn('clerk_id', $staffIds);
         })->where('status', 0) // Closed
           ->whereNotNull('close_date') // Must have close_date set
           ->whereYear('close_date', $year) // Closed in selected year
@@ -2697,9 +2721,9 @@ class ReportController extends Controller
         $CaseCountClosedInYear = $CaseCountClosedInYear->get();
         
         // Existing status-based breakdown (cases created in selected year)
-        $CaseCountActive = LoanCase::where(function ($query) use($staff) {
-            $query->where('lawyer_id', $staff->id)
-                  ->orWhere('clerk_id', $staff->id);
+        $CaseCountActive = LoanCase::where(function ($query) use($staffIds) {
+            $query->whereIn('lawyer_id', $staffIds)
+                  ->orWhereIn('clerk_id', $staffIds);
         })->where('status', '<>', 99)
           ->whereIn('status', [1,2,3])
           ->whereYear('created_at', $year)
@@ -2713,9 +2737,9 @@ class ReportController extends Controller
         $CaseCountActive = $CaseCountActive->get();
 
         
-        $CaseCountPendingClose = LoanCase::where(function ($query) use($staff) {
-            $query->where('lawyer_id', $staff->id)
-                  ->orWhere('clerk_id', $staff->id);
+        $CaseCountPendingClose = LoanCase::where(function ($query) use($staffIds) {
+            $query->whereIn('lawyer_id', $staffIds)
+                  ->orWhereIn('clerk_id', $staffIds);
         })->where('status', '<>', 99)
           ->whereIn('status', [4])
           ->whereYear('created_at', $year)
@@ -2729,9 +2753,9 @@ class ReportController extends Controller
         $CaseCountPendingClose = $CaseCountPendingClose->get();
 
         
-        $CaseCountReviewing = LoanCase::where(function ($query) use($staff) {
-            $query->where('lawyer_id', $staff->id)
-                  ->orWhere('clerk_id', $staff->id);
+        $CaseCountReviewing = LoanCase::where(function ($query) use($staffIds) {
+            $query->whereIn('lawyer_id', $staffIds)
+                  ->orWhereIn('clerk_id', $staffIds);
         })->where('status', '<>', 99)
           ->whereIn('status', [7])
           ->whereYear('created_at', $year)
@@ -2745,9 +2769,9 @@ class ReportController extends Controller
         $CaseCountReviewing = $CaseCountReviewing->get();
 
         // Get closed cases (created in selected year) for the table breakdown
-        $CaseCountClose = LoanCase::where(function ($query) use($staff) {
-            $query->where('lawyer_id', $staff->id)
-                  ->orWhere('clerk_id', $staff->id);
+        $CaseCountClose = LoanCase::where(function ($query) use($staffIds) {
+            $query->whereIn('lawyer_id', $staffIds)
+                  ->orWhereIn('clerk_id', $staffIds);
         })->where('status', 0) // Closed
           ->whereYear('created_at', $year) // Created in selected year
           ->whereIn('branch_id', $branchFilter);
@@ -2775,9 +2799,9 @@ class ReportController extends Controller
         // Monthly breakdown for chart (accepted vs closed)
         for ($j = 1; $j <= 12; $j++) {
             // Accepted cases (created) per month
-            $acceptedQuery = LoanCase::where(function ($query) use($staff) {
-                $query->where('lawyer_id', $staff->id)
-                      ->orWhere('clerk_id', $staff->id);
+            $acceptedQuery = LoanCase::where(function ($query) use($staffIds) {
+                $query->whereIn('lawyer_id', $staffIds)
+                      ->orWhereIn('clerk_id', $staffIds);
             })->where('status', '<>', 99)
               ->whereYear('created_at', $year)
               ->whereMonth('created_at', $j)
@@ -2791,9 +2815,9 @@ class ReportController extends Controller
             $acceptedCount = $acceptedQuery->count();
 
             // Closed cases (closed) per month
-            $closedQuery = LoanCase::where(function ($query) use($staff) {
-                $query->where('lawyer_id', $staff->id)
-                      ->orWhere('clerk_id', $staff->id);
+            $closedQuery = LoanCase::where(function ($query) use($staffIds) {
+                $query->whereIn('lawyer_id', $staffIds)
+                      ->orWhereIn('clerk_id', $staffIds);
             })->where('status', 0) // Closed
               ->whereNotNull('close_date') // Must have close_date set
               ->whereYear('close_date', $year) // Closed in selected year
@@ -2818,9 +2842,9 @@ class ReportController extends Controller
             ->leftJoin('portfolio as p', 'p.id', '=', 'l.bank_id')
             ->select('bank_id', 'p.name', DB::raw('count(*) as total'))
             ->groupBy('bank_id', 'p.name')
-            ->where(function ($query) use($staff) {
-                $query->where('l.lawyer_id', $staff->id)
-                      ->orWhere('l.clerk_id', $staff->id);
+            ->where(function ($query) use($staffIds) {
+                $query->whereIn('l.lawyer_id', $staffIds)
+                      ->orWhereIn('l.clerk_id', $staffIds);
             })
             ->where('l.status', '<>', 99)
             ->where('l.bank_id', '<>', 0)
@@ -2887,6 +2911,31 @@ class ReportController extends Controller
             $accessInfo = AccessController::manageAccess();
             $year = $request->input("year");
             $branch_id = $request->input("branch", 0);
+            $staff_id = $request->input("staff", 0);
+            
+            // Determine if "All" staff is selected
+            $isAllStaff = ($staff_id == 0 || $staff_id == '0' || $staff_id == 'all');
+            
+            // Get staff IDs to filter by
+            $staffIds = [];
+            if ($isAllStaff) {
+                // Get all staff from selected branch(es)
+                $staffQuery = Users::where('status', '<>', 99)
+                    ->whereIn('menuroles', ['lawyer', 'clerk', 'chambering']);
+                
+                // Determine which branches to filter by
+                $branchFilter = $accessInfo['brancAccessList'];
+                if ($branch_id != 0) {
+                    if (in_array($branch_id, $accessInfo['brancAccessList'])) {
+                        $branchFilter = [$branch_id];
+                    }
+                }
+                
+                $staffQuery = $staffQuery->whereIn('branch_id', $branchFilter);
+                $staffIds = $staffQuery->pluck('id')->toArray();
+            } else {
+                $staffIds = [$staff_id];
+            }
             
             // Determine which branches to filter by
             $branchFilter = $accessInfo['brancAccessList'];
@@ -2906,9 +2955,9 @@ class ReportController extends Controller
             
             // Get accepted cases with bill and payment data (same query as getStaffDetailsReport)
             $acceptedCasesQuery = DB::table('loan_case as lc')
-                ->where(function ($query) use($staff) {
-                    $query->where('lc.lawyer_id', $staff->id)
-                          ->orWhere('lc.clerk_id', $staff->id);
+                ->where(function ($query) use($staffIds) {
+                    $query->whereIn('lc.lawyer_id', $staffIds)
+                          ->orWhereIn('lc.clerk_id', $staffIds);
                 })
                 ->where('lc.status', '<>', 99)
                 ->whereYear('lc.created_at', $year)

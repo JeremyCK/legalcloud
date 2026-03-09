@@ -41,8 +41,9 @@
                                         <div class="col">
                                             <label>Staff</label>
                                             <select class="form-control" id="dl_staff" name="dl_staff">
-                                                @foreach ($staffs as $branch)
-                                                    <option value="{{ $branch->id }}">{{ $branch->name }}</option>
+                                                <option value="0">-- All --</option>
+                                                @foreach ($staffs as $staff)
+                                                    <option value="{{ $staff->id }}" data-branch-id="{{ $staff->branch_id }}">{{ $staff->name }}</option>
                                                 @endforeach
                                             </select>
                                         </div>
@@ -635,6 +636,49 @@
             return;
 
         }
+
+        function filterStaffByBranch() {
+            var selectedBranch = $("#ddl_branch").val();
+            var $staffSelect = $("#dl_staff");
+            var currentValue = $staffSelect.val();
+            
+            // Show/hide staff options based on selected branch
+            $staffSelect.find('option').each(function() {
+                if ($(this).val() == '0') {
+                    // Always show "All" option
+                    $(this).show();
+                } else {
+                    var staffBranchId = $(this).data('branch-id');
+                    if (selectedBranch == '0' || selectedBranch == '') {
+                        // Show all staff if "All" branches selected
+                        $(this).show();
+                    } else {
+                        // Show only staff from selected branch
+                        if (staffBranchId == selectedBranch) {
+                            $(this).show();
+                        } else {
+                            $(this).hide();
+                        }
+                    }
+                }
+            });
+            
+            // If current selected staff is hidden, reset to "All"
+            var $selectedOption = $staffSelect.find('option:selected');
+            if ($selectedOption.val() != '0' && !$selectedOption.is(':visible')) {
+                $staffSelect.val('0');
+            }
+        }
+
+        // Filter staff when branch changes
+        $(document).on('change', '#ddl_branch', function() {
+            filterStaffByBranch();
+        });
+
+        // Initialize staff filter on page load
+        $(document).ready(function() {
+            filterStaffByBranch();
+        });
 
         $(function() {
 
