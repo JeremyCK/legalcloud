@@ -2668,7 +2668,7 @@ class ReportController extends Controller
             $acceptedCasesQuery = $acceptedCasesQuery->whereIn('lc.bank_id', $portfolio_ids);
         }
         
-        $acceptedCasesQuery = $acceptedCasesQuery->select('lc.id', 'lc.case_ref_no', 'lc.created_at');
+        $acceptedCasesQuery = $acceptedCasesQuery->select('lc.id', 'lc.case_ref_no', 'lc.created_at', 'lc.purchase_price');
 
         $CaseCountAccepted = $acceptedCasesQuery->get()->map(function($case) {
             // Get bill data for this case
@@ -2899,15 +2899,6 @@ class ReportController extends Controller
     public function exportStaffAcceptedCasesExcel(Request $request)
     {
         try {
-            $staff = User::where('id', $request->input("staff"))->first();
-
-            if (!$staff) {
-                return response()->json([
-                    'status' => 0,
-                    'message' => 'Staff not found'
-                ], 404);
-            }
-
             $accessInfo = AccessController::manageAccess();
             $year = $request->input("year");
             $branch_id = $request->input("branch", 0);
@@ -2915,6 +2906,17 @@ class ReportController extends Controller
             
             // Determine if "All" staff is selected
             $isAllStaff = ($staff_id == 0 || $staff_id == '0' || $staff_id == 'all');
+            
+            // If specific staff selected, validate staff exists
+            if (!$isAllStaff) {
+                $staff = User::where('id', $staff_id)->first();
+                if (!$staff) {
+                    return response()->json([
+                        'status' => 0,
+                        'message' => 'Staff not found'
+                    ], 404);
+                }
+            }
             
             // Get staff IDs to filter by
             $staffIds = [];
@@ -2968,7 +2970,7 @@ class ReportController extends Controller
                 $acceptedCasesQuery = $acceptedCasesQuery->whereIn('lc.bank_id', $portfolio_ids);
             }
             
-            $acceptedCasesQuery = $acceptedCasesQuery->select('lc.id', 'lc.case_ref_no', 'lc.created_at');
+            $acceptedCasesQuery = $acceptedCasesQuery->select('lc.id', 'lc.case_ref_no', 'lc.created_at', 'lc.purchase_price');
 
             $CaseCountAccepted = $acceptedCasesQuery->get()->map(function($case) {
                 // Get bill data for this case
@@ -3010,24 +3012,31 @@ class ReportController extends Controller
             $total_disb = $CaseCountAccepted->sum('disb');
             $total_sst = $CaseCountAccepted->sum('sst');
             $total_collected = $CaseCountAccepted->sum('collected_amount');
+            $total_purchase_price = $CaseCountAccepted->sum('purchase_price');
 
             // Create new Spreadsheet
             $spreadsheet = new Spreadsheet();
             $sheet = $spreadsheet->getActiveSheet();
             
             // Set title
-            $sheet->setCellValue('A1', 'Accepted Cases Report - ' . $staff->name);
-            $sheet->mergeCells('A1:J1');
+            $reportTitle = 'Accepted Cases Report';
+            if (!$isAllStaff && isset($staff)) {
+                $reportTitle .= ' - ' . $staff->name;
+            } else {
+                $reportTitle .= ' - All Staff';
+            }
+            $sheet->setCellValue('A1', $reportTitle);
+            $sheet->mergeCells('A1:K1');
             $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
             $sheet->getStyle('A1')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
             
             // Set year info
             $sheet->setCellValue('A2', 'Year: ' . $year);
-            $sheet->mergeCells('A2:J2');
+            $sheet->mergeCells('A2:K2');
             $sheet->getStyle('A2')->getFont()->setBold(true);
             
             // Set headers
-            $headers = ['No.', 'Ref No', 'pfee1', 'pfee2', 'Disb', 'sst', 'Collected Amount', 'Paid', 'Payment Date'];
+            $headers = ['No.', 'Ref No', 'pfee1', 'pfee2', 'Disb', 'sst', 'Collected Amount', 'Purchase Price', 'Paid', 'Payment Date'];
             $col = 'A';
             $row = 3;
             
@@ -3069,15 +3078,19 @@ class ReportController extends Controller
                 $sheet->getStyle('G' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
                 $sheet->getStyle('G' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
                 
-                $sheet->setCellValue('H' . $row, $record->paid_status);
-                $sheet->getStyle('H' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+                $sheet->setCellValue('H' . $row, (float)($record->purchase_price ?? 0));
+                $sheet->getStyle('H' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+                $sheet->getStyle('H' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+                
+                $sheet->setCellValue('I' . $row, $record->paid_status);
+                $sheet->getStyle('I' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
                 
                 if ($record->payment_date) {
-                    $sheet->setCellValue('I' . $row, date('Y-m-d', strtotime($record->payment_date)));
+                    $sheet->setCellValue('J' . $row, date('Y-m-d', strtotime($record->payment_date)));
                 } else {
-                    $sheet->setCellValue('I' . $row, '-');
+                    $sheet->setCellValue('J' . $row, '-');
                 }
-                $sheet->getStyle('I' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+                $sheet->getStyle('J' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
                 
                 $row++;
                 $index++;
@@ -3114,8 +3127,13 @@ class ReportController extends Controller
             $sheet->getStyle('G' . $row)->getFont()->setBold(true);
             $sheet->getStyle('G' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
             
+            $sheet->setCellValue('H' . $row, (float)$total_purchase_price);
+            $sheet->getStyle('H' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle('H' . $row)->getFont()->setBold(true);
+            $sheet->getStyle('H' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+            
             // Auto-size columns
-            foreach (range('A', 'J') as $col) {
+            foreach (range('A', 'K') as $col) {
                 $sheet->getColumnDimension($col)->setAutoSize(true);
             }
             
