@@ -2680,7 +2680,11 @@ class ReportController extends Controller
                     DB::raw('COALESCE(SUM(pfee2), 0) as pfee2'),
                     DB::raw('COALESCE(SUM(disb), 0) as disb'),
                     DB::raw('COALESCE(SUM(sst), 0) as sst'),
-                    DB::raw('COALESCE(SUM(collected_amt), 0) as collected_amount')
+                    DB::raw('COALESCE(SUM(collected_amt), 0) as collected_amount'),
+                    DB::raw('COALESCE(SUM(referral_a1), 0) as r1'),
+                    DB::raw('COALESCE(SUM(referral_a2), 0) as r2'),
+                    DB::raw('COALESCE(SUM(referral_a3), 0) as r3'),
+                    DB::raw('COALESCE(SUM(referral_a4), 0) as r4')
                 )
                 ->first();
 
@@ -2698,6 +2702,10 @@ class ReportController extends Controller
             $case->disb = $billData->disb ?? 0;
             $case->sst = $billData->sst ?? 0;
             $case->collected_amount = $billData->collected_amount ?? 0;
+            $case->r1 = $billData->r1 ?? 0;
+            $case->r2 = $billData->r2 ?? 0;
+            $case->r3 = $billData->r3 ?? 0;
+            $case->r4 = $billData->r4 ?? 0;
             $case->payment_date = $paymentData->payment_date ?? null;
             $case->paid_status = $paymentData->payment_date ? 'Paid' : '-';
 
@@ -2982,7 +2990,11 @@ class ReportController extends Controller
                         DB::raw('COALESCE(SUM(pfee2), 0) as pfee2'),
                         DB::raw('COALESCE(SUM(disb), 0) as disb'),
                         DB::raw('COALESCE(SUM(sst), 0) as sst'),
-                        DB::raw('COALESCE(SUM(collected_amt), 0) as collected_amount')
+                        DB::raw('COALESCE(SUM(collected_amt), 0) as collected_amount'),
+                        DB::raw('COALESCE(SUM(referral_a1), 0) as r1'),
+                        DB::raw('COALESCE(SUM(referral_a2), 0) as r2'),
+                        DB::raw('COALESCE(SUM(referral_a3), 0) as r3'),
+                        DB::raw('COALESCE(SUM(referral_a4), 0) as r4')
                     )
                     ->first();
 
@@ -3000,6 +3012,10 @@ class ReportController extends Controller
                 $case->disb = $billData->disb ?? 0;
                 $case->sst = $billData->sst ?? 0;
                 $case->collected_amount = $billData->collected_amount ?? 0;
+                $case->r1 = $billData->r1 ?? 0;
+                $case->r2 = $billData->r2 ?? 0;
+                $case->r3 = $billData->r3 ?? 0;
+                $case->r4 = $billData->r4 ?? 0;
                 $case->payment_date = $paymentData->payment_date ?? null;
                 $case->paid_status = $paymentData->payment_date ? 'Paid' : '-';
 
@@ -3013,6 +3029,10 @@ class ReportController extends Controller
             $total_sst = $CaseCountAccepted->sum('sst');
             $total_collected = $CaseCountAccepted->sum('collected_amount');
             $total_purchase_price = $CaseCountAccepted->sum('purchase_price');
+            $total_r1 = $CaseCountAccepted->sum('r1');
+            $total_r2 = $CaseCountAccepted->sum('r2');
+            $total_r3 = $CaseCountAccepted->sum('r3');
+            $total_r4 = $CaseCountAccepted->sum('r4');
 
             // Create new Spreadsheet
             $spreadsheet = new Spreadsheet();
@@ -3026,17 +3046,17 @@ class ReportController extends Controller
                 $reportTitle .= ' - All Staff';
             }
             $sheet->setCellValue('A1', $reportTitle);
-            $sheet->mergeCells('A1:K1');
+            $sheet->mergeCells('A1:O1');
             $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
             $sheet->getStyle('A1')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
             
             // Set year info
             $sheet->setCellValue('A2', 'Year: ' . $year);
-            $sheet->mergeCells('A2:K2');
+            $sheet->mergeCells('A2:O2');
             $sheet->getStyle('A2')->getFont()->setBold(true);
             
             // Set headers
-            $headers = ['No.', 'Ref No', 'pfee1', 'pfee2', 'Disb', 'sst', 'Collected Amount', 'Purchase Price', 'Paid', 'Payment Date'];
+            $headers = ['No.', 'Ref No', 'pfee1', 'pfee2', 'Disb', 'sst', 'Collected Amount', 'Purchase Price', 'R1', 'R2', 'R3', 'R4', 'Paid', 'Payment Date'];
             $col = 'A';
             $row = 3;
             
@@ -3082,15 +3102,31 @@ class ReportController extends Controller
                 $sheet->getStyle('H' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
                 $sheet->getStyle('H' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
                 
-                $sheet->setCellValue('I' . $row, $record->paid_status);
-                $sheet->getStyle('I' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+                $sheet->setCellValue('I' . $row, (float)($record->r1 ?? 0));
+                $sheet->getStyle('I' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+                $sheet->getStyle('I' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+                
+                $sheet->setCellValue('J' . $row, (float)($record->r2 ?? 0));
+                $sheet->getStyle('J' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+                $sheet->getStyle('J' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+                
+                $sheet->setCellValue('K' . $row, (float)($record->r3 ?? 0));
+                $sheet->getStyle('K' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+                $sheet->getStyle('K' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+                
+                $sheet->setCellValue('L' . $row, (float)($record->r4 ?? 0));
+                $sheet->getStyle('L' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+                $sheet->getStyle('L' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+                
+                $sheet->setCellValue('M' . $row, $record->paid_status);
+                $sheet->getStyle('M' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
                 
                 if ($record->payment_date) {
-                    $sheet->setCellValue('J' . $row, date('Y-m-d', strtotime($record->payment_date)));
+                    $sheet->setCellValue('N' . $row, date('Y-m-d', strtotime($record->payment_date)));
                 } else {
-                    $sheet->setCellValue('J' . $row, '-');
+                    $sheet->setCellValue('N' . $row, '-');
                 }
-                $sheet->getStyle('J' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+                $sheet->getStyle('N' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
                 
                 $row++;
                 $index++;
@@ -3132,8 +3168,28 @@ class ReportController extends Controller
             $sheet->getStyle('H' . $row)->getFont()->setBold(true);
             $sheet->getStyle('H' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
             
+            $sheet->setCellValue('I' . $row, (float)$total_r1);
+            $sheet->getStyle('I' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle('I' . $row)->getFont()->setBold(true);
+            $sheet->getStyle('I' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+            
+            $sheet->setCellValue('J' . $row, (float)$total_r2);
+            $sheet->getStyle('J' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle('J' . $row)->getFont()->setBold(true);
+            $sheet->getStyle('J' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+            
+            $sheet->setCellValue('K' . $row, (float)$total_r3);
+            $sheet->getStyle('K' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle('K' . $row)->getFont()->setBold(true);
+            $sheet->getStyle('K' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+            
+            $sheet->setCellValue('L' . $row, (float)$total_r4);
+            $sheet->getStyle('L' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle('L' . $row)->getFont()->setBold(true);
+            $sheet->getStyle('L' . $row)->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+            
             // Auto-size columns
-            foreach (range('A', 'K') as $col) {
+            foreach (range('A', 'O') as $col) {
                 $sheet->getColumnDimension($col)->setAutoSize(true);
             }
             

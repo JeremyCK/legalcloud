@@ -15,6 +15,10 @@
             <th><b>sst</b></th>
             <th><b>Collected Amount</b></th>
             <th><b>Purchase Price</b></th>
+            <th><b>R1</b></th>
+            <th><b>R2</b></th>
+            <th><b>R3</b></th>
+            <th><b>R4</b></th>
             <th><b>Paid</b></th>
             <th><b>Payment Date</b></th>
         </tr>
@@ -27,6 +31,10 @@
             $total_sst = 0;
             $total_collected = 0;
             $total_purchase_price = 0;
+            $total_r1 = 0;
+            $total_r2 = 0;
+            $total_r3 = 0;
+            $total_r4 = 0;
         @endphp
         @if (count($caseCount))
             @foreach ($caseCount as $index => $record)
@@ -37,11 +45,15 @@
                     $total_sst += $record->sst ?? 0;
                     $total_collected += $record->collected_amount ?? 0;
                     $total_purchase_price += $record->purchase_price ?? 0;
+                    $total_r1 += $record->r1 ?? 0;
+                    $total_r2 += $record->r2 ?? 0;
+                    $total_r3 += $record->r3 ?? 0;
+                    $total_r4 += $record->r4 ?? 0;
                 @endphp
                 <tr>
                     <td class="text-center">{{ $index + 1 }}</td>
                     <td class="text-center">
-                        <a href="{{ url('/case/' . $record->id . '/edit') }}" target="_blank" class="btn btn-sm btn-info">
+                        <a href="{{ url('/case/' . $record->id) }}" target="_blank" class="btn btn-sm btn-info">
                             <i class="cil-pencil"></i>
                         </a>
                     </td>
@@ -52,6 +64,10 @@
                     <td class="text-right">{{ number_format($record->sst ?? 0, 2) }}</td>
                     <td class="text-right">{{ number_format($record->collected_amount ?? 0, 2) }}</td>
                     <td class="text-right">{{ number_format($record->purchase_price ?? 0, 2) }}</td>
+                    <td class="text-right">{{ number_format($record->r1 ?? 0, 2) }}</td>
+                    <td class="text-right">{{ number_format($record->r2 ?? 0, 2) }}</td>
+                    <td class="text-right">{{ number_format($record->r3 ?? 0, 2) }}</td>
+                    <td class="text-right">{{ number_format($record->r4 ?? 0, 2) }}</td>
                     <td class="text-center">
                         @if(isset($record->paid_status) && $record->paid_status == 'Paid')
                             <span class="badge badge-success">Paid</span>
@@ -70,7 +86,7 @@
             @endforeach
         @else
             <tr>
-                <td class="text-center" colspan="11">No data</td>
+                <td class="text-center" colspan="15">No data</td>
             </tr>
         @endif
     </tbody>
@@ -83,6 +99,10 @@
             <td class="text-right"><b>{{ number_format($total_sst, 2) }}</b></td>
             <td class="text-right"><b>{{ number_format($total_collected, 2) }}</b></td>
             <td class="text-right"><b>{{ number_format($total_purchase_price, 2) }}</b></td>
+            <td class="text-right"><b>{{ number_format($total_r1, 2) }}</b></td>
+            <td class="text-right"><b>{{ number_format($total_r2, 2) }}</b></td>
+            <td class="text-right"><b>{{ number_format($total_r3, 2) }}</b></td>
+            <td class="text-right"><b>{{ number_format($total_r4, 2) }}</b></td>
             <td colspan="2"></td>
         </tr>
     </tfoot>

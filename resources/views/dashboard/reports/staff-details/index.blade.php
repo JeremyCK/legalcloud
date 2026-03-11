@@ -210,13 +210,17 @@
                                                     <th>sst</th>
                                                     <th>Collected Amount</th>
                                                     <th>Purchase Price</th>
+                                                    <th>R1</th>
+                                                    <th>R2</th>
+                                                    <th>R3</th>
+                                                    <th>R4</th>
                                                     <th>Paid</th>
                                                     <th>Payment Date</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 <tr>
-                                                    <td class="text-center" colspan="11">No data</td>
+                                                    <td class="text-center" colspan="15">No data</td>
                                                 </tr>
                                             </tbody>
                                         </table>
