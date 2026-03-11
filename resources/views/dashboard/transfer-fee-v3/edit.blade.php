@@ -4,6 +4,10 @@
 
 <meta name="csrf-token" content="{{ csrf_token() }}">
 
+@php
+    $isAdmin = auth()->user()->menuroles === 'admin';
+    $canEdit = !($TransferFeeMain->is_recon == '1') || $isAdmin;
+@endphp
 
 @section('content')
     <div class="container-fluid">
@@ -18,12 +22,16 @@
                                 <div class="col-md-8">
                                     <h4><i class="fa fa-edit"></i> Edit Transfer Fee
                                         @if ($TransferFeeMain->is_recon == '1')
-                                            <span class="badge badge-warning ml-2">RECONCILED - READ ONLY</span>
+                                            <span class="badge badge-warning ml-2">RECONCILED{{ $isAdmin ? ' - ADMIN EDIT MODE' : ' - READ ONLY' }}</span>
                                         @endif
                                     </h4>
                                     <small class="text-muted">
                                         @if ($TransferFeeMain->is_recon == '1')
-                                            View transfer fee information (modifications disabled)
+                                            @if($isAdmin)
+                                                Admin override: modifications enabled
+                                            @else
+                                                View transfer fee information (modifications disabled)
+                                            @endif
                                         @else
                                             Invoice-based transfer fee editing
                                         @endif
@@ -72,7 +80,7 @@
                                             <label>Transfer Date <span class="text-danger">*</span></label>
                                             <input type="date" class="form-control" name="transfer_date"
                                                 value="{{ $TransferFeeMain->transfer_date }}" required
-                                                {{ $TransferFeeMain->is_recon == '1' ? 'disabled' : '' }}>
+                                                {{ !$canEdit ? 'disabled' : '' }}>
                                         </div>
                                     </div>
 
@@ -81,7 +89,7 @@
                                             <label>Transaction ID <span class="text-danger">*</span></label>
                                             <input type="text" class="form-control" name="trx_id"
                                                 value="{{ $TransferFeeMain->transaction_id }}" required
-                                                {{ $TransferFeeMain->is_recon == '1' ? 'disabled' : '' }}>
+                                                {{ !$canEdit ? 'disabled' : '' }}>
                                         </div>
                                     </div>
                                 </div>
@@ -91,7 +99,7 @@
                                         <div class="form-group">
                                             <label>Transfer From <span class="text-danger">*</span></label>
                                             <select class="form-control" name="transfer_from" required
-                                                {{ $TransferFeeMain->is_recon == '1' ? 'disabled' : '' }}>
+                                                {{ !$canEdit ? 'disabled' : '' }}>
                                                 <option value="">Select Bank Account</option>
                                                 @foreach ($OfficeBankAccount as $bank)
                                                     <option value="{{ $bank->id }}"
@@ -203,7 +211,7 @@
                                         <div class="form-group">
                                             <label>Transfer To <span class="text-danger">*</span></label>
                                             <select class="form-control" name="transfer_to" required
-                                                {{ $TransferFeeMain->is_recon == '1' ? 'disabled' : '' }}>
+                                                {{ !$canEdit ? 'disabled' : '' }}>
                                                 <option value="">Select Bank Account</option>
                                                 @foreach ($OfficeBankAccount as $bank)
                                                     <option value="{{ $bank->id }}"
@@ -219,7 +227,7 @@
                                         <div class="form-group">
                                             <label>Purpose <span class="text-danger">*</span></label>
                                             <textarea class="form-control" name="purpose" rows="3" required
-                                                {{ $TransferFeeMain->is_recon == '1' ? 'disabled' : '' }}>{{ $TransferFeeMain->purpose }}</textarea>
+                                                {{ !$canEdit ? 'disabled' : '' }}>{{ $TransferFeeMain->purpose }}</textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -409,7 +417,7 @@
                                                                                 {{ $index + 1 }}
                                                                             </td>
                                                                             <td>
-                                                                                @if ($TransferFeeMain->is_recon != '1')
+                                                                                @if ($canEdit)
                                                                                     <button type="button" class="btn btn-sm btn-danger"
                                                                                         onclick="deleteTransferRecord({{ $detail->id }}, '{{ $detail->invoice_no ?? $detail->bill_invoice_no }}')"
                                                                                         title="Delete Transfer Record"
@@ -438,7 +446,7 @@
                                                                                           data-original-value="{{ $detail->bill_total_amt_divided ?? 0 }}">
                                                                                         {{ number_format($detail->bill_total_amt_divided ?? 0, 2) }}
                                                                                     </span>
-                                                                                    @if(in_array(auth()->user()->menuroles, ['admin', 'maker', 'account']) && $TransferFeeMain->is_recon != '1')
+                                                                                    @if(in_array(auth()->user()->menuroles, ['admin', 'maker', 'account']) && $canEdit)
                                                                                         <i class="fa fa-pencil edit-total-amt ml-1" 
                                                                                            style="cursor: pointer; color: #007bff; font-size: 11px;" 
                                                                                            data-detail-id="{{ $detail->id }}"
@@ -462,7 +470,7 @@
                                                                                           data-original-value="{{ ($detail->pfee1_inv ?? 0) + ($detail->pfee2_inv ?? 0) }}">
                                                                                         {{ number_format(($detail->pfee1_inv ?? 0) + ($detail->pfee2_inv ?? 0), 2) }}
                                                                                     </span>
-                                                                                    @if(in_array(auth()->user()->menuroles, ['admin', 'maker', 'account']) && $TransferFeeMain->is_recon != '1')
+                                                                                    @if(in_array(auth()->user()->menuroles, ['admin', 'maker', 'account']) && $canEdit)
                                                                                         <i class="fa fa-pencil edit-pfee ml-1" 
                                                                                            style="cursor: pointer; color: #007bff; font-size: 11px;" 
                                                                                            data-detail-id="{{ $detail->id }}"
@@ -483,7 +491,7 @@
                                                                                           data-original-value="{{ $detail->sst_inv ?? 0 }}">
                                                                                         {{ number_format($detail->sst_inv ?? 0, 2) }}
                                                                                     </span>
-                                                                                    @if(in_array(auth()->user()->menuroles, ['admin', 'maker', 'account']) && $TransferFeeMain->is_recon != '1')
+                                                                                    @if(in_array(auth()->user()->menuroles, ['admin', 'maker', 'account']) && $canEdit)
                                                                                         <i class="fa fa-pencil edit-sst ml-1" 
                                                                                            style="cursor: pointer; color: #007bff; font-size: 11px;" 
                                                                                            data-detail-id="{{ $detail->id }}"
@@ -502,7 +510,7 @@
                                                                                           data-original-value="{{ $detail->invoice_reimbursement_amount ?? 0 }}">
                                                                                         {{ number_format($detail->invoice_reimbursement_amount ?? 0, 2) }}
                                                                                     </span>
-                                                                                    @if(in_array(auth()->user()->menuroles, ['admin', 'maker', 'account']) && $TransferFeeMain->is_recon != '1')
+                                                                                    @if(in_array(auth()->user()->menuroles, ['admin', 'maker', 'account']) && $canEdit)
                                                                                         <i class="fa fa-pencil edit-reimb ml-1" 
                                                                                            style="cursor: pointer; color: #007bff; font-size: 11px;" 
                                                                                            data-detail-id="{{ $detail->id }}"
@@ -521,7 +529,7 @@
                                                                                           data-original-value="{{ $detail->invoice_reimbursement_sst ?? 0 }}">
                                                                                         {{ number_format($detail->invoice_reimbursement_sst ?? 0, 2) }}
                                                                                     </span>
-                                                                                    @if(in_array(auth()->user()->menuroles, ['admin', 'maker', 'account']) && $TransferFeeMain->is_recon != '1')
+                                                                                    @if(in_array(auth()->user()->menuroles, ['admin', 'maker', 'account']) && $canEdit)
                                                                                         <i class="fa fa-pencil edit-reimb-sst ml-1" 
                                                                                            style="cursor: pointer; color: #007bff; font-size: 11px;" 
                                                                                            data-detail-id="{{ $detail->id }}"
@@ -652,19 +660,19 @@
                                                                         </th>
                                                                         <th class="text-right" id="footerTransferredBal">
                                                                             {{ number_format($TransferFeeDetails->sum(function ($detail) {
-                                                                                // Sum of pfee + reimb from original invoice amounts (not transferred amounts)
-                                                                                // This should match the sum of footerPfee + footerReimb
-                                                                                $pfee = ($detail->pfee1_inv ?? 0) + ($detail->pfee2_inv ?? 0);
-                                                                                $reimb = $detail->invoice_reimbursement_amount ?? 0;
+                                                                                // Sum of ACTUAL transferred amounts from transfer_fee_details
+                                                                                // This is pfee + reimb that was actually transferred in THIS transfer fee record
+                                                                                $pfee = $detail->transfer_amount ?? 0;
+                                                                                $reimb = $detail->reimbursement_amount ?? 0;
                                                                                 return $pfee + $reimb;
                                                                             }), 2) }}
                                                                         </th>
                                                                         <th class="text-right" id="footerTransferredSst">
                                                                             {{ number_format($TransferFeeDetails->sum(function ($detail) {
-                                                                                // Sum of sst + reimb_sst from original invoice amounts (not transferred amounts)
-                                                                                // This should match the sum of footerSst + footerReimbSst
-                                                                                $sst = $detail->sst_inv ?? 0;
-                                                                                $reimbSst = $detail->invoice_reimbursement_sst ?? 0;
+                                                                                // Sum of ACTUAL transferred amounts from transfer_fee_details
+                                                                                // This is sst + reimb_sst that was actually transferred in THIS transfer fee record
+                                                                                $sst = $detail->sst_amount ?? 0;
+                                                                                $reimbSst = $detail->reimbursement_sst_amount ?? 0;
                                                                                 return $sst + $reimbSst;
                                                                             }), 2) }}
                                                                         </th>
@@ -692,7 +700,7 @@
                                     </div>
                                     <div class="card-body">
                                         <div class="row mb-3">
-                                            @if ($TransferFeeMain->is_recon != '1')
+                                            @if ($canEdit)
                                                 <div class="col-md-12">
                                                     <button type="button" class="btn btn-primary"
                                                         onclick="openInvoiceModal()">
@@ -818,14 +826,16 @@
 
                                 <div class="row">
                                     <div class="col-md-12">
-                                        @if ($TransferFeeMain->is_recon != '1')
+                                        @if ($canEdit)
                                             <button type="submit" class="btn btn-primary" id="submitBtn">
                                                 <i class="fa fa-save"></i> Update Transfer Fee
                                             </button>
-                                            <button type="button" class="btn btn-warning" onclick="reconTransferFee()"
-                                                id="reconcileBtn">
-                                                <i class="fa fa-check-circle"></i> Bank Recon
-                                            </button>
+                                            @if ($TransferFeeMain->is_recon != '1')
+                                                <button type="button" class="btn btn-warning" onclick="reconTransferFee()"
+                                                    id="reconcileBtn">
+                                                    <i class="fa fa-check-circle"></i> Bank Recon
+                                                </button>
+                                            @endif
                                         @else
                                             <div class="alert alert-info">
                                                 <i class="fa fa-info-circle"></i> This transfer fee has been reconciled and
@@ -1070,10 +1080,12 @@
     <script>
         // Check if the transfer fee is reconciled
         const isReconciled = {{ $TransferFeeMain->is_recon == '1' ? 'true' : 'false' }};
+        const isAdmin = {{ $isAdmin ? 'true' : 'false' }};
+        const canEdit = {{ $canEdit ? 'true' : 'false' }};
 
-        // Prevent form submission if reconciled
+        // Prevent form submission if reconciled (unless admin)
         $(document).ready(function() {
-            if (isReconciled) {
+            if (isReconciled && !isAdmin) {
                 // Disable form submission
                 $('#transferFeeForm').submit(function(e) {
                     e.preventDefault();
@@ -1314,9 +1326,12 @@
             selectedInvoices = JSON.parse($('#add_invoice').val() || '[]');
 
             // Update the summary with existing selections - use actual transfer amounts
+            // Include ALL components: pfee + sst + reimbursement + reimbursement_sst
             const totalAmount = selectedInvoices.reduce((sum, invoice) => {
-                const transferAmount = parseFloat(invoice.current_transfer_pfee || 0) + parseFloat(invoice
-                    .current_transfer_sst || 0);
+                const transferAmount = parseFloat(invoice.current_transfer_pfee || 0) + 
+                                     parseFloat(invoice.current_transfer_sst || 0) +
+                                     parseFloat(invoice.current_transfer_reimbursement || 0) +
+                                     parseFloat(invoice.current_transfer_reimbursement_sst || 0);
                 return sum + transferAmount;
             }, 0);
             $('#selectedCount').text(selectedInvoices.length);
@@ -1324,10 +1339,10 @@
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2
             }));
-            $('#transferTotalAmount').val(totalAmount.toLocaleString('en-US', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2
-            }));
+            
+            // The transferTotalAmount field is already set from the database value in the Blade template
+            // But we'll update it after loadCurrentInvoices completes to ensure it's correct
+            // The initial value from database should be correct: {{ number_format($TransferFeeMain->transfer_amount ?? 0, 2) }}
             $('#modalTotalAmount').text(totalAmount.toLocaleString('en-US', {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2
@@ -3139,6 +3154,12 @@
                     if (response.status == 1) {
                         displayCurrentInvoices(response.current_invoices);
                         updateTotals();
+                        
+                        // Update transfer total amount from the API response
+                        // This ensures it matches what's actually in transfer_fee_details (includes reimbursement)
+                        if (response.total_amount) {
+                            $('#transferTotalAmount').val(parseFloat(response.total_amount).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ","));
+                        }
                     } else {
                         console.error('Error loading current invoices:', response.message);
                     }
@@ -3193,11 +3214,19 @@
         function updateCurrentTotals(invoices) {
             const totalAmount = invoices.reduce((sum, invoice) => sum + parseFloat(invoice.bill_total_amt_divided || 0), 0);
             const collectedAmount = invoices.reduce((sum, invoice) => sum + parseFloat(invoice.bill_collected_amt_divided || 0), 0);
+            // Use original invoice amounts for pfee and sst columns
             const pfee = invoices.reduce((sum, invoice) => sum + parseFloat(invoice.pfee1_inv || 0) + parseFloat(invoice
                 .pfee2_inv || 0), 0);
             const sst = invoices.reduce((sum, invoice) => sum + parseFloat(invoice.sst_inv || 0), 0);
+            // IMPORTANT: Use transfer_fee_details amounts (transfer_amount, sst_amount, reimbursement_amount, reimbursement_sst_amount)
+            // These are the actual amounts transferred in THIS transfer fee record
             const transferredBal = invoices.reduce((sum, invoice) => sum + parseFloat(invoice.transfer_amount || 0), 0);
             const transferredSst = invoices.reduce((sum, invoice) => sum + parseFloat(invoice.sst_amount || 0), 0);
+            const transferredReimb = invoices.reduce((sum, invoice) => sum + parseFloat(invoice.reimbursement_amount || 0), 0);
+            const transferredReimbSst = invoices.reduce((sum, invoice) => sum + parseFloat(invoice.reimbursement_sst_amount || 0), 0);
+            
+            // Calculate total transferred amount (should match transfer_fee_main.transfer_amount)
+            const totalTransferred = transferredBal + transferredSst + transferredReimb + transferredReimbSst;
 
             $('#currentTotalAmt').text(totalAmount.toFixed(2));
             // Round down to exactly 4022.00 while keeping individual amounts at 1340.67
@@ -3209,6 +3238,10 @@
             $('#currentSst').text(sst.toFixed(2));
             $('#currentTransferredBal').text(transferredBal.toFixed(2));
             $('#currentTransferredSst').text(transferredSst.toFixed(2));
+            
+            // Update the transfer total amount field with the correct total
+            // This should match transfer_fee_main.transfer_amount
+            $('#transferTotalAmount').val(totalTransferred.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ","));
 
             // Update combined totals
             updateCombinedTotals();
@@ -4397,19 +4430,55 @@
                                 });
                             }
                             
-                            // Check for mismatches (ledger has amount but doesn't match detail)
+                            // Check for mismatches
+                            // Determine fix direction: if detail matches invoice (source of truth), update ledger to match detail
+                            // Otherwise, update detail to match ledger
                             let mismatchTypes = [];
+                            
+                            // Check if detail matches invoice (source of truth)
+                            // We'll infer this by checking if detail amounts are reasonable (not zero when invoice has amount)
+                            // The actual fix logic will determine the correct direction, but for preview we show both possibilities
+                            const detailMatchesInvoice = (
+                                Math.abs(discrepancy.pfee_detail - (discrepancy.original_invoice_pfee || discrepancy.pfee_detail)) < 0.01 &&
+                                Math.abs(discrepancy.sst_detail - (discrepancy.original_invoice_sst || discrepancy.sst_detail)) < 0.01 &&
+                                Math.abs(discrepancy.reimb_detail - (discrepancy.original_invoice_reimb || discrepancy.reimb_detail)) < 0.01 &&
+                                Math.abs(discrepancy.reimb_sst_detail - (discrepancy.original_invoice_reimb_sst || discrepancy.reimb_sst_detail)) < 0.01
+                            );
+                            
+                            // For preview, if detail matches invoice (source of truth), show that ledger will be updated
+                            // Otherwise, show that detail will be updated
+                            // Check if original_invoice amounts are available (added in backend)
+                            const hasOriginalInvoiceData = discrepancy.original_invoice_pfee !== undefined && discrepancy.original_invoice_pfee !== null;
+                            
                             if (Math.abs(discrepancy.pfee_diff) > 0.01 && discrepancy.pfee_ledger > 0.01) {
-                                mismatchTypes.push(`Pfee: ${discrepancy.pfee_detail.toFixed(2)} → ${discrepancy.pfee_ledger.toFixed(2)}`);
+                                if (hasOriginalInvoiceData && Math.abs(discrepancy.pfee_detail - discrepancy.original_invoice_pfee) < 0.01) {
+                                    // Detail matches invoice (source of truth), so ledger will be updated
+                                    mismatchTypes.push(`Pfee: Update Ledger ${discrepancy.pfee_ledger.toFixed(2)} → ${discrepancy.pfee_detail.toFixed(2)}`);
+                                } else {
+                                    // Detail doesn't match invoice or original data not available, so detail will be updated to match ledger
+                                    mismatchTypes.push(`Pfee: Update Detail ${discrepancy.pfee_detail.toFixed(2)} → ${discrepancy.pfee_ledger.toFixed(2)}`);
+                                }
                             }
                             if (Math.abs(discrepancy.sst_diff) > 0.01 && discrepancy.sst_ledger > 0.01) {
-                                mismatchTypes.push(`SST: ${discrepancy.sst_detail.toFixed(2)} → ${discrepancy.sst_ledger.toFixed(2)}`);
+                                if (hasOriginalInvoiceData && Math.abs(discrepancy.sst_detail - discrepancy.original_invoice_sst) < 0.01) {
+                                    mismatchTypes.push(`SST: Update Ledger ${discrepancy.sst_ledger.toFixed(2)} → ${discrepancy.sst_detail.toFixed(2)}`);
+                                } else {
+                                    mismatchTypes.push(`SST: Update Detail ${discrepancy.sst_detail.toFixed(2)} → ${discrepancy.sst_ledger.toFixed(2)}`);
+                                }
                             }
                             if (Math.abs(discrepancy.reimb_diff) > 0.01 && discrepancy.reimb_ledger > 0.01) {
-                                mismatchTypes.push(`Reimb: ${discrepancy.reimb_detail.toFixed(2)} → ${discrepancy.reimb_ledger.toFixed(2)}`);
+                                if (hasOriginalInvoiceData && Math.abs(discrepancy.reimb_detail - discrepancy.original_invoice_reimb) < 0.01) {
+                                    mismatchTypes.push(`Reimb: Update Ledger ${discrepancy.reimb_ledger.toFixed(2)} → ${discrepancy.reimb_detail.toFixed(2)}`);
+                                } else {
+                                    mismatchTypes.push(`Reimb: Update Detail ${discrepancy.reimb_detail.toFixed(2)} → ${discrepancy.reimb_ledger.toFixed(2)}`);
+                                }
                             }
                             if (Math.abs(discrepancy.reimb_sst_diff) > 0.01 && discrepancy.reimb_sst_ledger > 0.01) {
-                                mismatchTypes.push(`Reimb SST: ${discrepancy.reimb_sst_detail.toFixed(2)} → ${discrepancy.reimb_sst_ledger.toFixed(2)}`);
+                                if (hasOriginalInvoiceData && Math.abs(discrepancy.reimb_sst_detail - discrepancy.original_invoice_reimb_sst) < 0.01) {
+                                    mismatchTypes.push(`Reimb SST: Update Ledger ${discrepancy.reimb_sst_ledger.toFixed(2)} → ${discrepancy.reimb_sst_detail.toFixed(2)}`);
+                                } else {
+                                    mismatchTypes.push(`Reimb SST: Update Detail ${discrepancy.reimb_sst_detail.toFixed(2)} → ${discrepancy.reimb_sst_ledger.toFixed(2)}`);
+                                }
                             }
                             if (mismatchTypes.length > 0) {
                                 mismatches.push({

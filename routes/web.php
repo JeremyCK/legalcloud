@@ -741,6 +741,7 @@ Route::group(['middleware' => ['get.menu']], function () {
             // Route::get('recon_list/list/', [AccountController::class, 'getBankReconListV3'])->name('recon_list.list');
             Route::post('getBankReconTotal', [AccountController::class, 'getBankReconTotal']);
             Route::post('diagnoseBankReconDiscrepancy', [AccountController::class, 'diagnoseBankReconDiscrepancy']);
+            Route::match(['get', 'post'], 'investigateTransferFeeDiscrepancy', [AccountController::class, 'investigateTransferFeeDiscrepancy']);
             // Route::post('updateRecon', [AccountController::class, 'updateRecon']); 
             Route::post('updateRecon', [AccountController::class, 'updateReconV2']);
             Route::post('getMonthRecon', [AccountController::class, 'getMonthRecon']);
@@ -1275,6 +1276,8 @@ Route::get('transfer-fee-create', [AccountController::class, 'transferFeeCreate'
 
         Route::get('/getTransferInvoiceListV3', [TransferFeeV3Controller::class, 'getTransferInvoiceListV3'])->name('transferfee.invoice-list');
         Route::get('/getCurrentInvoices/{id}', [TransferFeeV3Controller::class, 'getCurrentInvoices'])->name('transferfee.current-invoices');
+        Route::match(['get', 'post'], 'investigateInvoiceTransferAmounts', [AccountController::class, 'investigateInvoiceTransferAmounts']);
+        Route::match(['get', 'post'], 'fixTransferAmountWithReimbursement', [AccountController::class, 'fixTransferAmountWithReimbursement']);
 
 
         // Transfer Fee Routes

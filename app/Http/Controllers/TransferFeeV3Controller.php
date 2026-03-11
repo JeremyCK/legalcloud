@@ -1168,6 +1168,11 @@ class TransferFeeV3Controller extends Controller
                 return response()->json(['status' => 0, 'message' => 'Transfer fee record not found']);
             }
 
+            // Check if transfer fee is reconciled (allow admin to bypass)
+            if ($TransferFeeMain->is_recon == '1' && $current_user->menuroles != 'admin') {
+                return response()->json(['status' => 0, 'message' => 'Cannot modify reconciled transfer fee records']);
+            }
+
             // Store old amount for account log
             $oldAmount = $TransferFeeMain->transfer_amount;
 
@@ -1461,20 +1466,15 @@ class TransferFeeV3Controller extends Controller
             return response()->json(['status' => 0, 'message' => 'Transfer fee record not found']);
         }
 
-        // Check if transfer fee is reconciled - if so, prevent updates
-        if ($TransferFeeMain->is_recon == '1') {
-            return response()->json(['status' => 0, 'message' => 'Cannot modify reconciled transfer fee records']);
-        }
-
         // Check if user has permission to delete
         $allowedRoles = ['admin', 'account', 'maker'];
         if (!in_array($current_user->menuroles, $allowedRoles)) {
             return response()->json(['status' => 0, 'message' => 'You do not have permission to delete transfer fee records']);
         }
 
-        // Check if transfer fee is reconciled - if so, prevent deletion
-        if ($TransferFeeMain->is_recon == '1') {
-            return response()->json(['status' => 0, 'message' => 'Cannot delete reconciled transfer fee records']);
+        // Check if transfer fee is reconciled - if so, prevent updates/deletion (allow admin to bypass)
+        if ($TransferFeeMain->is_recon == '1' && $current_user->menuroles != 'admin') {
+            return response()->json(['status' => 0, 'message' => 'Cannot modify reconciled transfer fee records']);
         }
 
         // Get all transfer fee details before deletion
@@ -1634,9 +1634,9 @@ class TransferFeeV3Controller extends Controller
                 return response()->json(['status' => 0, 'message' => 'Transfer fee detail record not found']);
             }
 
-            // Check if the transfer fee is reconciled
+            // Check if the transfer fee is reconciled (allow admin to bypass)
             $TransferFeeMain = TransferFeeMain::where('id', '=', $TransferFeeDetail->transfer_fee_main_id)->first();
-            if ($TransferFeeMain && $TransferFeeMain->is_recon == '1') {
+            if ($TransferFeeMain && $TransferFeeMain->is_recon == '1' && $current_user->menuroles != 'admin') {
                 return response()->json(['status' => 0, 'message' => 'Cannot delete transfer record from a reconciled transfer fee']);
             }
 
@@ -2504,9 +2504,9 @@ class TransferFeeV3Controller extends Controller
                 ], 404);
             }
             
-            // Check if transfer fee is reconciled (read-only)
+            // Check if transfer fee is reconciled (allow admin to bypass)
             $transferFeeMain = TransferFeeMain::where('id', $transferFeeDetail->transfer_fee_main_id)->first();
-            if ($transferFeeMain && $transferFeeMain->is_recon == '1') {
+            if ($transferFeeMain && $transferFeeMain->is_recon == '1' && $current_user->menuroles != 'admin') {
                 return response()->json([
                     'status' => 0,
                     'message' => 'Cannot edit reconciled transfer fee'
@@ -2571,9 +2571,9 @@ class TransferFeeV3Controller extends Controller
                 ], 404);
             }
             
-            // Check if transfer fee is reconciled
+            // Check if transfer fee is reconciled (allow admin to bypass)
             $transferFeeMain = TransferFeeMain::where('id', $transferFeeDetail->transfer_fee_main_id)->first();
-            if ($transferFeeMain && $transferFeeMain->is_recon == '1') {
+            if ($transferFeeMain && $transferFeeMain->is_recon == '1' && $current_user->menuroles != 'admin') {
                 return response()->json([
                     'status' => 0,
                     'message' => 'Cannot edit reconciled transfer fee'
@@ -3954,7 +3954,12 @@ class TransferFeeV3Controller extends Controller
                 )
                 ->get();
 
-            $totalAmount = $currentInvoices->sum('transfer_amount') + $currentInvoices->sum('sst_amount');
+            // Calculate total from ALL components in transfer_fee_details
+            // This should match transfer_fee_main.transfer_amount
+            $totalAmount = $currentInvoices->sum('transfer_amount') + 
+                          $currentInvoices->sum('sst_amount') + 
+                          $currentInvoices->sum('reimbursement_amount') + 
+                          $currentInvoices->sum('reimbursement_sst_amount');
             
             return response()->json([
                 'status' => 1,

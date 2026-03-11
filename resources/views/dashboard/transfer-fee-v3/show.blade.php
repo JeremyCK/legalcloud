@@ -13,13 +13,19 @@
                             </h4>
                         </div>
                         <div class="col-md-6 text-right">
-                            @if($TransferFeeMain->is_recon != '1')
+                            @php
+                                $isAdmin = auth()->user()->menuroles === 'admin';
+                                $canEdit = !($TransferFeeMain->is_recon == '1') || $isAdmin;
+                            @endphp
+                            @if($canEdit)
                                 <a href="{{ route('transferfee.edit', $TransferFeeMain->id) }}" class="btn btn-primary">
                                     <i class="fa fa-edit"></i> Edit
                                 </a>
-                                <button type="button" class="btn btn-warning" onclick="reconTransferFee()">
-                                    <i class="fa fa-check-circle"></i> Bank Recon
-                                </button>
+                                @if($TransferFeeMain->is_recon != '1')
+                                    <button type="button" class="btn btn-warning" onclick="reconTransferFee()">
+                                        <i class="fa fa-check-circle"></i> Bank Recon
+                                    </button>
+                                @endif
                             @endif
                             <a href="{{ route('transferfee.index') }}" class="btn btn-secondary">
                                 <i class="fa fa-arrow-left"></i> Back to List

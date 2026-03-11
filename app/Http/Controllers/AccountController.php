@@ -1172,6 +1172,12 @@ class AccountController extends Controller
                 }
             }
             
+            // Get original invoice amounts for comparison
+            $originalInvoicePfee = ($invoice->pfee1_inv ?? 0) + ($invoice->pfee2_inv ?? 0);
+            $originalInvoiceSst = $invoice->sst_inv ?? 0;
+            $originalInvoiceReimb = $invoice->reimbursement_amount ?? 0;
+            $originalInvoiceReimbSst = $invoice->reimbursement_sst ?? 0;
+            
             $hasDiscrepancy = false;
             $discrepancy = [
                 'transfer_fee_detail_id' => $detail->id,
@@ -1197,6 +1203,10 @@ class AccountController extends Controller
                 'reimb_sst_detail' => round($detailReimbSst, 2),
                 'reimb_sst_ledger' => round($ledgerReimbSst, 2),
                 'reimb_sst_diff' => round($ledgerReimbSst - $detailReimbSst, 2),
+                'original_invoice_pfee' => round($originalInvoicePfee, 2),
+                'original_invoice_sst' => round($originalInvoiceSst, 2),
+                'original_invoice_reimb' => round($originalInvoiceReimb, 2),
+                'original_invoice_reimb_sst' => round($originalInvoiceReimbSst, 2),
                 'split_note' => $splitNote,
             ];
             
@@ -1866,34 +1876,107 @@ class AccountController extends Controller
                 $ledgerReimbSst = $detailReimbSst; // Update ledger total
             }
             
-            // Step 3: Fix amount mismatches (if ledger has amount but detail doesn't match)
+            // Step 3: Fix amount mismatches
+            // Strategy: If detail amount matches invoice amount (source of truth), update ledger to match detail
+            // Otherwise, if ledger has amount and detail doesn't match, update detail to match ledger
+            $originalInvoicePfee = ($invoice->pfee1_inv ?? 0) + ($invoice->pfee2_inv ?? 0);
+            $originalInvoiceSst = $invoice->sst_inv ?? 0;
+            $originalInvoiceReimb = $invoice->reimbursement_amount ?? 0;
+            $originalInvoiceReimbSst = $invoice->reimbursement_sst ?? 0;
+            
             $needsUpdate = false;
-            if (abs($ledgerPfee - $detailPfee) > 0.01 && $ledgerPfee > 0.01) {
-                $detail->transfer_amount = round($ledgerPfee, 2);
-                $needsUpdate = true;
-                $detailActions[] = "Fixed Pfee: {$detailPfee} → {$ledgerPfee}";
-            }
+            $needsLedgerUpdate = false;
             
-            if (abs($ledgerSst - $detailSst) > 0.01 && $ledgerSst > 0.01) {
-                $detail->sst_amount = round($ledgerSst, 2);
-                $needsUpdate = true;
-                $detailActions[] = "Fixed SST: {$detailSst} → {$ledgerSst}";
-            }
+            // Check if detail matches invoice (source of truth)
+            $detailMatchesInvoice = (
+                abs($detailPfee - $originalInvoicePfee) < 0.01 &&
+                abs($detailSst - $originalInvoiceSst) < 0.01 &&
+                abs($detailReimb - $originalInvoiceReimb) < 0.01 &&
+                abs($detailReimbSst - $originalInvoiceReimbSst) < 0.01
+            );
             
-            if (abs($ledgerReimb - $detailReimb) > 0.01 && $ledgerReimb > 0.01) {
-                $detail->reimbursement_amount = round($ledgerReimb, 2);
-                $needsUpdate = true;
-                $detailActions[] = "Fixed Reimb: {$detailReimb} → {$ledgerReimb}";
-            }
-            
-            if (abs($ledgerReimbSst - $detailReimbSst) > 0.01 && $ledgerReimbSst > 0.01) {
-                $detail->reimbursement_sst_amount = round($ledgerReimbSst, 2);
-                $needsUpdate = true;
-                $detailActions[] = "Fixed Reimb SST: {$detailReimbSst} → {$ledgerReimbSst}";
+            // If detail matches invoice but ledger doesn't match detail, update ledger
+            if ($detailMatchesInvoice) {
+                if (abs($ledgerPfee - $detailPfee) > 0.01 && $detailPfee > 0.01) {
+                    // Update ledger TRANSFER_IN/OUT entries
+                    DB::table('ledger_entries_v2')
+                        ->where('key_id_2', $detail->id)
+                        ->where('transaction_id', $TransferFeeMain->transaction_id)
+                        ->whereIn('type', ['TRANSFER_IN', 'TRANSFER_OUT'])
+                        ->where('status', '<>', 99)
+                        ->update(['amount' => round($detailPfee, 2), 'updated_at' => now()]);
+                    $needsLedgerUpdate = true;
+                    $detailActions[] = "Updated Ledger Pfee: {$ledgerPfee} → {$detailPfee}";
+                }
+                
+                if (abs($ledgerSst - $detailSst) > 0.01 && $detailSst > 0.01) {
+                    // Update ledger SST_IN/OUT entries
+                    DB::table('ledger_entries_v2')
+                        ->where('key_id_2', $detail->id)
+                        ->where('transaction_id', $TransferFeeMain->transaction_id)
+                        ->whereIn('type', ['SST_IN', 'SST_OUT'])
+                        ->where('status', '<>', 99)
+                        ->update(['amount' => round($detailSst, 2), 'updated_at' => now()]);
+                    $needsLedgerUpdate = true;
+                    $detailActions[] = "Updated Ledger SST: {$ledgerSst} → {$detailSst}";
+                }
+                
+                if (abs($ledgerReimb - $detailReimb) > 0.01 && $detailReimb > 0.01) {
+                    // Update ledger REIMB_IN/OUT entries
+                    DB::table('ledger_entries_v2')
+                        ->where('key_id_2', $detail->id)
+                        ->where('transaction_id', $TransferFeeMain->transaction_id)
+                        ->whereIn('type', ['REIMB_IN', 'REIMB_OUT'])
+                        ->where('status', '<>', 99)
+                        ->update(['amount' => round($detailReimb, 2), 'updated_at' => now()]);
+                    $needsLedgerUpdate = true;
+                    $detailActions[] = "Updated Ledger Reimb: {$ledgerReimb} → {$detailReimb}";
+                }
+                
+                if (abs($ledgerReimbSst - $detailReimbSst) > 0.01 && $detailReimbSst > 0.01) {
+                    // Update ledger REIMB_SST_IN/OUT entries
+                    DB::table('ledger_entries_v2')
+                        ->where('key_id_2', $detail->id)
+                        ->where('transaction_id', $TransferFeeMain->transaction_id)
+                        ->whereIn('type', ['REIMB_SST_IN', 'REIMB_SST_OUT'])
+                        ->where('status', '<>', 99)
+                        ->update(['amount' => round($detailReimbSst, 2), 'updated_at' => now()]);
+                    $needsLedgerUpdate = true;
+                    $detailActions[] = "Updated Ledger Reimb SST: {$ledgerReimbSst} → {$detailReimbSst}";
+                }
+            } else {
+                // Detail doesn't match invoice, so update detail to match ledger (if ledger has amount)
+                if (abs($ledgerPfee - $detailPfee) > 0.01 && $ledgerPfee > 0.01) {
+                    $detail->transfer_amount = round($ledgerPfee, 2);
+                    $needsUpdate = true;
+                    $detailActions[] = "Fixed Pfee: {$detailPfee} → {$ledgerPfee}";
+                }
+                
+                if (abs($ledgerSst - $detailSst) > 0.01 && $ledgerSst > 0.01) {
+                    $detail->sst_amount = round($ledgerSst, 2);
+                    $needsUpdate = true;
+                    $detailActions[] = "Fixed SST: {$detailSst} → {$ledgerSst}";
+                }
+                
+                if (abs($ledgerReimb - $detailReimb) > 0.01 && $ledgerReimb > 0.01) {
+                    $detail->reimbursement_amount = round($ledgerReimb, 2);
+                    $needsUpdate = true;
+                    $detailActions[] = "Fixed Reimb: {$detailReimb} → {$ledgerReimb}";
+                }
+                
+                if (abs($ledgerReimbSst - $detailReimbSst) > 0.01 && $ledgerReimbSst > 0.01) {
+                    $detail->reimbursement_sst_amount = round($ledgerReimbSst, 2);
+                    $needsUpdate = true;
+                    $detailActions[] = "Fixed Reimb SST: {$detailReimbSst} → {$ledgerReimbSst}";
+                }
             }
             
             if ($needsUpdate) {
                 $detail->save();
+                $actions['amounts_fixed']++;
+            }
+            
+            if ($needsLedgerUpdate) {
                 $actions['amounts_fixed']++;
             }
             
@@ -4044,7 +4127,8 @@ class AccountController extends Controller
             // }
 
             if ($request->input("trx_id")) {
-                $safe_keeping->where('m.transaction_id', 'like', '%' . $request->input("trx_id") . '%');
+                // Use exact match instead of LIKE to prevent matching similar transaction IDs
+                $safe_keeping->where('m.transaction_id', '=', $request->input("trx_id"));
             }
 
             if ($request->input("trx_amt")) {
@@ -4163,8 +4247,8 @@ class AccountController extends Controller
             $hasTransactionIdFilter = $request->input("trx_id") && trim($request->input("trx_id")) != '';
             
             if ($hasTransactionIdFilter) {
-                // Use LIKE for partial match to allow searching by partial transaction ID
-                $safe_keeping->where('m.transaction_id', 'like', '%' . $request->input("trx_id") . '%');
+                // Use exact match instead of LIKE to prevent matching similar transaction IDs (e.g., DP001-0825 matching DP001-0825-001)
+                $safe_keeping->where('m.transaction_id', '=', $request->input("trx_id"));
                 // Don't apply date range filter when filtering by transaction_id
                 // This ensures all entries for the same transaction batch are included
             } else if ($request->input("no_date_range_filter") == 0) {
@@ -4363,8 +4447,8 @@ class AccountController extends Controller
             $hasTransactionIdFilter = $request->input("trx_id") && trim($request->input("trx_id")) != '';
             
             if ($hasTransactionIdFilter) {
-                // Use LIKE for partial match to allow searching by partial transaction ID
-                $safe_keeping->where('m.transaction_id', 'like', '%' . $request->input("trx_id") . '%');
+                // Use exact match instead of LIKE to prevent matching similar transaction IDs (e.g., DP001-0825 matching DP001-0825-001)
+                $safe_keeping->where('m.transaction_id', '=', $request->input("trx_id"));
                 // Don't apply date range filter when filtering by transaction_id
                 // This ensures all entries for the same transaction batch are included
             } else if ($request->input("no_date_range_filter") == 0) {
@@ -4541,6 +4625,284 @@ class AccountController extends Controller
         return response()->json(['error' => 'Invalid request'], 400);
     }
 
+    /**
+     * Investigate specific invoice transfer amounts to find discrepancies
+     */
+    public function investigateInvoiceTransferAmounts(Request $request)
+    {
+        // Accept both AJAX and regular requests for diagnostic purposes
+        $invoiceNo = $request->input("invoice_no", "DP20000816");
+        $transferFeeId = $request->input("transfer_fee_id", 447);
+        
+        try {
+            // Get invoice
+                $invoice = DB::table('loan_case_invoice_main')
+                    ->where('invoice_no', $invoiceNo)
+                    ->first();
+                
+                if (!$invoice) {
+                    return response()->json(['error' => 'Invoice not found'], 404);
+                }
+                
+                // Get transfer_fee_details for this invoice in this transfer fee
+                $transferFeeDetail = DB::table('transfer_fee_details')
+                    ->where('transfer_fee_main_id', $transferFeeId)
+                    ->where('loan_case_invoice_main_id', $invoice->id)
+                    ->where('status', '<>', 99)
+                    ->first();
+                
+                // Get ALL transfer_fee_details for this invoice (across all transfer fees)
+                $allTransferFeeDetails = DB::table('transfer_fee_details')
+                    ->where('transfer_fee_details.loan_case_invoice_main_id', $invoice->id)
+                    ->where('transfer_fee_details.status', '<>', 99)
+                    ->leftJoin('transfer_fee_main as tfm', 'tfm.id', '=', 'transfer_fee_details.transfer_fee_main_id')
+                    ->select(
+                        'transfer_fee_details.*',
+                        'tfm.transaction_id',
+                        'tfm.transfer_date',
+                        'tfm.id as transfer_fee_main_id'
+                    )
+                    ->get();
+                
+                return response()->json([
+                    'invoice' => [
+                        'id' => $invoice->id,
+                        'invoice_no' => $invoice->invoice_no,
+                        'pfee1_inv' => round($invoice->pfee1_inv ?? 0, 2),
+                        'pfee2_inv' => round($invoice->pfee2_inv ?? 0, 2),
+                        'total_pfee' => round(($invoice->pfee1_inv ?? 0) + ($invoice->pfee2_inv ?? 0), 2),
+                        'sst_inv' => round($invoice->sst_inv ?? 0, 2),
+                        'reimbursement_amount' => round($invoice->reimbursement_amount ?? 0, 2),
+                        'reimbursement_sst' => round($invoice->reimbursement_sst ?? 0, 2),
+                        'transferred_pfee_amt' => round($invoice->transferred_pfee_amt ?? 0, 2),
+                        'transferred_sst_amt' => round($invoice->transferred_sst_amt ?? 0, 2),
+                        'transferred_reimbursement_amt' => round($invoice->transferred_reimbursement_amt ?? 0, 2),
+                        'transferred_reimbursement_sst_amt' => round($invoice->transferred_reimbursement_sst_amt ?? 0, 2),
+                    ],
+                    'transfer_fee_detail_for_this_transfer' => $transferFeeDetail ? [
+                        'id' => $transferFeeDetail->id,
+                        'transfer_amount' => round($transferFeeDetail->transfer_amount ?? 0, 2),
+                        'sst_amount' => round($transferFeeDetail->sst_amount ?? 0, 2),
+                        'reimbursement_amount' => round($transferFeeDetail->reimbursement_amount ?? 0, 2),
+                        'reimbursement_sst_amount' => round($transferFeeDetail->reimbursement_sst_amount ?? 0, 2),
+                        'total_transferred' => round(
+                            ($transferFeeDetail->transfer_amount ?? 0) + 
+                            ($transferFeeDetail->sst_amount ?? 0) + 
+                            ($transferFeeDetail->reimbursement_amount ?? 0) + 
+                            ($transferFeeDetail->reimbursement_sst_amount ?? 0), 
+                        2),
+                        'transferred_bal_calculation' => round(
+                            ($transferFeeDetail->transfer_amount ?? 0) + 
+                            ($transferFeeDetail->reimbursement_amount ?? 0), 
+                        2),
+                    ] : null,
+                    'all_transfer_fee_details' => $allTransferFeeDetails->map(function($tfd) {
+                        return [
+                            'transfer_fee_main_id' => $tfd->transfer_fee_main_id,
+                            'transaction_id' => $tfd->transaction_id,
+                            'transfer_date' => $tfd->transfer_date,
+                            'transfer_amount' => round($tfd->transfer_amount ?? 0, 2),
+                            'sst_amount' => round($tfd->sst_amount ?? 0, 2),
+                            'reimbursement_amount' => round($tfd->reimbursement_amount ?? 0, 2),
+                            'reimbursement_sst_amount' => round($tfd->reimbursement_sst_amount ?? 0, 2),
+                            'total' => round(
+                                ($tfd->transfer_amount ?? 0) + 
+                                ($tfd->sst_amount ?? 0) + 
+                                ($tfd->reimbursement_amount ?? 0) + 
+                                ($tfd->reimbursement_sst_amount ?? 0), 
+                            2),
+                        ];
+                    }),
+                    'analysis' => [
+                        'original_invoice_pfee' => round(($invoice->pfee1_inv ?? 0) + ($invoice->pfee2_inv ?? 0), 2),
+                        'transferred_pfee_in_this_transfer' => $transferFeeDetail ? round($transferFeeDetail->transfer_amount ?? 0, 2) : 0,
+                        'difference' => $transferFeeDetail ? round($transferFeeDetail->transfer_amount - (($invoice->pfee1_inv ?? 0) + ($invoice->pfee2_inv ?? 0)), 2) : 0,
+                        'issue' => $transferFeeDetail && ($transferFeeDetail->transfer_amount ?? 0) > (($invoice->pfee1_inv ?? 0) + ($invoice->pfee2_inv ?? 0))
+                            ? 'Transferred pfee amount (' . round($transferFeeDetail->transfer_amount, 2) . ') exceeds original invoice pfee (' . round(($invoice->pfee1_inv ?? 0) + ($invoice->pfee2_inv ?? 0), 2) . '). This suggests the invoice was transferred multiple times or amounts were incorrectly recorded.'
+                            : 'No issue detected',
+                        'transferred_bal_explanation' => $transferFeeDetail 
+                            ? 'Transferred Bal = transfer_amount (' . round($transferFeeDetail->transfer_amount, 2) . ') + reimbursement_amount (' . round($transferFeeDetail->reimbursement_amount, 2) . ') = ' . round(($transferFeeDetail->transfer_amount ?? 0) + ($transferFeeDetail->reimbursement_amount ?? 0), 2)
+                            : 'N/A',
+                    ],
+                ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Error investigating invoice',
+                'message' => $e->getMessage(),
+                'trace' => config('app.debug') ? $e->getTraceAsString() : null
+            ], 500);
+        }
+        
+        return response()->json(['error' => 'Invalid request'], 400);
+    }
+
+    /**
+     * Fix incorrect transfer_amount that includes reimbursement
+     * This fixes cases where transfer_amount incorrectly includes reimbursement_amount
+     */
+    public function fixTransferAmountWithReimbursement(Request $request)
+    {
+        $transferFeeDetailId = $request->input('transfer_fee_detail_id');
+        $invoiceNo = $request->input('invoice_no');
+        
+        if (!$transferFeeDetailId && !$invoiceNo) {
+            return response()->json(['error' => 'Either transfer_fee_detail_id or invoice_no is required'], 400);
+        }
+        
+        try {
+            // Find the transfer fee detail
+            if ($transferFeeDetailId) {
+                $transferFeeDetail = TransferFeeDetails::find($transferFeeDetailId);
+            } else {
+                $invoice = DB::table('loan_case_invoice_main')
+                    ->where('invoice_no', $invoiceNo)
+                    ->first();
+                
+                if (!$invoice) {
+                    return response()->json(['error' => 'Invoice not found'], 404);
+                }
+                
+                $transferFeeDetail = TransferFeeDetails::where('loan_case_invoice_main_id', $invoice->id)
+                    ->where('status', '<>', 99)
+                    ->first();
+            }
+            
+            if (!$transferFeeDetail) {
+                return response()->json(['error' => 'Transfer fee detail not found'], 404);
+            }
+            
+            // Get invoice to check original amounts
+            $invoice = DB::table('loan_case_invoice_main')
+                ->where('id', $transferFeeDetail->loan_case_invoice_main_id)
+                ->first();
+            
+            if (!$invoice) {
+                return response()->json(['error' => 'Invoice not found'], 404);
+            }
+            
+            $originalPfee = ($invoice->pfee1_inv ?? 0) + ($invoice->pfee2_inv ?? 0);
+            $originalReimb = $invoice->reimbursement_amount ?? 0;
+            $currentTransferAmount = $transferFeeDetail->transfer_amount ?? 0;
+            $currentReimbursement = $transferFeeDetail->reimbursement_amount ?? 0;
+            
+            // Check if transfer_amount incorrectly includes reimbursement
+            // If transfer_amount > originalPfee, it likely includes reimbursement incorrectly
+            // Also check if the difference equals the reimbursement amount (double-counting)
+            $difference = $currentTransferAmount - $originalPfee;
+            $shouldFix = false;
+            
+            if ($currentTransferAmount > $originalPfee) {
+                // Check if difference equals reimbursement (double-counting)
+                if (abs($difference - $currentReimbursement) < 0.01) {
+                    $shouldFix = true;
+                } else if ($currentTransferAmount > ($originalPfee + $originalReimb)) {
+                    // transfer_amount exceeds pfee + reimb, definitely wrong
+                    $shouldFix = true;
+                }
+            }
+            
+            if ($shouldFix) {
+                // transfer_amount incorrectly includes reimbursement
+                $oldTransferAmount = $currentTransferAmount;
+                $oldSstAmount = $transferFeeDetail->sst_amount ?? 0;
+                $oldReimbSstAmount = $transferFeeDetail->reimbursement_sst_amount ?? 0;
+                
+                // Fix transfer_amount to match original invoice pfee
+                $transferFeeDetail->transfer_amount = round($originalPfee, 2);
+                
+                // Fix SST amount to match original invoice SST
+                $originalInvoiceSst = $invoice->sst_inv ?? 0;
+                $transferFeeDetail->sst_amount = round($originalInvoiceSst, 2);
+                
+                // Ensure reimbursement_amount is correct
+                $transferFeeDetail->reimbursement_amount = round($originalReimb, 2);
+                
+                // Ensure reimbursement_sst_amount is correct
+                $originalInvoiceReimbSst = $invoice->reimbursement_sst ?? 0;
+                $transferFeeDetail->reimbursement_sst_amount = round($originalInvoiceReimbSst, 2);
+                
+                $transferFeeDetail->save();
+                
+                // Update ledger entries to match the corrected transfer_fee_details
+                $transferFeeMain = TransferFeeMain::find($transferFeeDetail->transfer_fee_main_id);
+                if ($transferFeeMain) {
+                    // Update TRANSFER_IN/OUT ledger entries
+                    DB::table('ledger_entries_v2')
+                        ->where('key_id_2', $transferFeeDetail->id)
+                        ->where('transaction_id', $transferFeeMain->transaction_id)
+                        ->whereIn('type', ['TRANSFER_IN', 'TRANSFER_OUT'])
+                        ->where('status', '<>', 99)
+                        ->update(['amount' => round($originalPfee, 2), 'updated_at' => now()]);
+                    
+                    // Update SST_IN/OUT ledger entries to match corrected SST amount (always update since we fixed it)
+                    DB::table('ledger_entries_v2')
+                        ->where('key_id_2', $transferFeeDetail->id)
+                        ->where('transaction_id', $transferFeeMain->transaction_id)
+                        ->whereIn('type', ['SST_IN', 'SST_OUT'])
+                        ->where('status', '<>', 99)
+                        ->update(['amount' => round($originalInvoiceSst, 2), 'updated_at' => now()]);
+                    
+                    // Update REIMB_IN/OUT ledger entries to match corrected reimbursement amount (always update since we fixed it)
+                    DB::table('ledger_entries_v2')
+                        ->where('key_id_2', $transferFeeDetail->id)
+                        ->where('transaction_id', $transferFeeMain->transaction_id)
+                        ->whereIn('type', ['REIMB_IN', 'REIMB_OUT'])
+                        ->where('status', '<>', 99)
+                        ->update(['amount' => round($originalReimb, 2), 'updated_at' => now()]);
+                    
+                    // Update REIMB_SST_IN/OUT ledger entries to match corrected reimbursement SST amount (always update since we fixed it)
+                    DB::table('ledger_entries_v2')
+                        ->where('key_id_2', $transferFeeDetail->id)
+                        ->where('transaction_id', $transferFeeMain->transaction_id)
+                        ->whereIn('type', ['REIMB_SST_IN', 'REIMB_SST_OUT'])
+                        ->where('status', '<>', 99)
+                        ->update(['amount' => round($originalInvoiceReimbSst, 2), 'updated_at' => now()]);
+                }
+                
+                // Recalculate transfer_fee_main amount
+                $this->updateTransferFeeMainAmt($transferFeeDetail->transfer_fee_main_id);
+                
+                return response()->json([
+                    'success' => true,
+                    'transfer_fee_detail_id' => $transferFeeDetail->id,
+                    'invoice_no' => $invoice->invoice_no,
+                    'fixes' => [
+                        'transfer_amount' => [
+                            'old' => round($oldTransferAmount, 2),
+                            'new' => round($originalPfee, 2),
+                            'difference' => round($originalPfee - $oldTransferAmount, 2)
+                        ],
+                        'reimbursement_amount' => [
+                            'old' => round($currentReimbursement, 2),
+                            'new' => round($originalReimb, 2),
+                            'difference' => round($originalReimb - $currentReimbursement, 2)
+                        ]
+                    ],
+                    'message' => 'Fixed: transfer_amount was incorrectly including reimbursement_amount. Also updated ledger entries to match.',
+                    'transferred_bal_before' => round($oldTransferAmount + $currentReimbursement, 2),
+                    'transferred_bal_after' => round($originalPfee + $originalReimb, 2)
+                ]);
+            } else {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No fix needed. transfer_amount does not appear to incorrectly include reimbursement.',
+                    'current_values' => [
+                        'transfer_amount' => round($currentTransferAmount, 2),
+                        'reimbursement_amount' => round($currentReimbursement, 2),
+                        'original_pfee' => round($originalPfee, 2),
+                        'original_reimb' => round($originalReimb, 2)
+                    ]
+                ]);
+            }
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Error fixing transfer amount',
+                'message' => $e->getMessage(),
+                'trace' => config('app.debug') ? $e->getTraceAsString() : null
+            ], 500);
+        }
+    }
+
     public function getBankReconTotalBak2(Request $request)
     {
         if ($request->ajax()) {
@@ -4587,7 +4949,8 @@ class AccountController extends Controller
     
     
                 if ($request->input("trx_id")) {
-                    $safe_keeping->where('m.transaction_id', 'like', '%' . $request->input("trx_id") . '%');
+                    // Use exact match instead of LIKE to prevent matching similar transaction IDs
+                    $safe_keeping->where('m.transaction_id', '=', $request->input("trx_id"));
                 }
     
                 if ($request->input("trx_amt")) {
@@ -4688,7 +5051,8 @@ class AccountController extends Controller
 
 
             if ($request->input("trx_id")) {
-                $safe_keeping->where('m.transaction_id', 'like', '%' . $request->input("trx_id") . '%');
+                // Use exact match instead of LIKE to prevent matching similar transaction IDs
+                $safe_keeping->where('m.transaction_id', '=', $request->input("trx_id"));
             }
 
             if ($request->input("trx_amt")) {
