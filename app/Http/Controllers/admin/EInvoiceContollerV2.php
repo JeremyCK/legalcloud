@@ -415,8 +415,15 @@ class EInvoiceContollerV2 extends Controller
                 if ($detail->account_cat_id == 1) {
                     $account_code="500-010";
                     $sv="SV";
-                    $taxAmt = ($detail->sst_rate/100) * $detail->amount;
-                    $Amt = $detail->amount * (1+($detail->sst_rate/100));
+                    // Apply special rounding rule: round DOWN if 3rd decimal is 5
+                    $sst_calculation = ($detail->sst_rate/100) * $detail->amount;
+                    $sst_string = number_format($sst_calculation, 3, '.', '');
+                    if (substr($sst_string, -1) == '5') {
+                        $taxAmt = floor($sst_calculation * 100) / 100; // Round down
+                    } else {
+                        $taxAmt = round($sst_calculation, 2); // Normal rounding
+                    }
+                    $Amt = $detail->amount + $taxAmt;
                 }
                 else if ($detail->account_cat_id == 2) {
                     $account_code="SD-CA";
