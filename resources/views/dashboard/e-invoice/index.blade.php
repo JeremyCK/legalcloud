@@ -125,6 +125,7 @@
       processing: true,
       serverSide: true,
       destroy: true,
+      pageLength: 100,
       ajax: {
         url: "{{ route('EInvoiceMain.list') }}",
         data: function(d) {
