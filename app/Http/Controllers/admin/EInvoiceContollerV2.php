@@ -162,7 +162,46 @@ class EInvoiceContollerV2 extends Controller
             // Get pfee_only value for this E-Invoice Main
             $pfeeOnly = EInvoiceMain::where('id', $id)->value('pfee_only');
 
+            // Check if sst column exists in loan_case_invoice_details table
+            $hasSstColumn = DB::select("SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = DATABASE() 
+                AND TABLE_NAME = 'loan_case_invoice_details' 
+                AND COLUMN_NAME = 'sst'");
+            $sstColumnExists = isset($hasSstColumn[0]) && $hasSstColumn[0]->count > 0;
+
             // Get EInvoice item details by joining necessary tables
+            $selectFields = [
+                'em.ref_no as einvoice_ref_no',
+                'em.einvoice_date as einvoice_main_date',
+                'em.transaction_id as einvoice_transaction_id',
+                'ed.einvoice_status',
+                'im.invoice_no',
+                'b.invoice_date as bill_invoice_date',
+                'l.case_ref_no',
+                'c.name as client_name',
+                'a.name as account_name',
+                'qd.amount',
+                'b.total_amt',
+                'l.loan_sum',
+                'qd.remark as item_remark',
+                'a.account_cat_id',
+                'ac.category as category_name',
+                'ac.classification_code',
+                'm.value as property_title',
+                'm2.value as purchaser_finacier',
+                'm3.value as borrower',
+                'ibp.customer_code',
+                'b1.short_code as branch_code',
+                'b.sst_rate'
+            ];
+
+            // Add sst column if it exists (same as invoice details page)
+            if ($sstColumnExists) {
+                $selectFields[] = 'qd.sst';
+            } else {
+                $selectFields[] = DB::raw('NULL as sst');
+            }
+
             $einvoiceDetails = DB::table('loan_case_invoice_details AS qd')
                 ->leftJoin('account_item AS a', 'a.id', '=', 'qd.account_item_id')
                 ->leftJoin('loan_case_bill_main as b', 'b.id', '=', 'qd.loan_case_main_bill_id') // Join to get invoice_no and invoice_date
@@ -190,30 +229,7 @@ class EInvoiceContollerV2 extends Controller
                     $join->on('m3.case_id', '=', 'l.id')
                         ->where('m3.masterlist_field_id', 318);
                 })
-                ->select(
-                    'em.ref_no as einvoice_ref_no',
-                    'em.einvoice_date as einvoice_main_date',
-                    'em.transaction_id as einvoice_transaction_id',
-                    'ed.einvoice_status',
-                    'im.invoice_no',
-                    'b.invoice_date as bill_invoice_date',
-                    'l.case_ref_no',
-                    'c.name as client_name',
-                    'a.name as account_name',
-                    'qd.amount',
-                    'b.total_amt',
-                    'l.loan_sum',
-                    'qd.remark as item_remark',
-                    'a.account_cat_id',
-                    'ac.category as category_name',
-                    'ac.classification_code',
-                    'm.value as property_title',
-                    'm2.value as purchaser_finacier',
-                    'm3.value as borrower',
-                    'ibp.customer_code',
-                    'b1.short_code as branch_code',
-                    'b.sst_rate'
-                )
+                ->select($selectFields)
                 ->where('ed.einvoice_main_id', $id) 
                 ->where('qd.status', '=', 1) // Assuming status 1 is active for invoice details 
                 ->distinct() // Add distinct to eliminate duplicates
@@ -225,6 +241,19 @@ class EInvoiceContollerV2 extends Controller
                     ELSE a.account_cat_id 
                 END ASC')
                 ->get();
+            
+            // Debug: Check if SST is being retrieved for the specific record
+            foreach ($einvoiceDetails as $debugDetail) {
+                if (abs($debugDetail->amount - 204.81) < 0.01) {
+                    \Log::info("Excel Export - Query Result Debug for 204.81", [
+                        'amount' => $debugDetail->amount,
+                        'sst_value' => $debugDetail->sst ?? 'NOT SET',
+                        'sst_type' => gettype($debugDetail->sst ?? null),
+                        'account_name' => $debugDetail->account_name ?? 'N/A',
+                        'all_properties' => array_keys((array)$debugDetail)
+                    ]);
+                }
+            }
 
             // return $einvoiceDetails;
 
@@ -357,7 +386,32 @@ class EInvoiceContollerV2 extends Controller
                     if ($detail->account_cat_id == 1) {
                         $account_code="500-010";
                         $sv="SV";
-                        $taxAmt = ($detail->sst_rate/100) * $detail->amount;
+                        // Use SST from database if available (same as invoice details page), otherwise calculate
+                        // Check if SST value exists and is valid (matching invoice print template logic)
+                        $hasCustomSst = false;
+                        if ($sstColumnExists && isset($detail->sst) && $detail->sst !== null && trim((string)$detail->sst) !== '') {
+                            // Use the stored SST value from database (exact match to invoice print template)
+                            $taxAmt = (float) $detail->sst;
+                            $hasCustomSst = true;
+                        }
+                        
+                        if (!$hasCustomSst) {
+                            // Fallback: Calculate SST
+                            $taxAmt = ($detail->sst_rate/100) * $detail->amount;
+                        }
+                    }
+                    else if ($detail->account_cat_id == 4) {
+                        // Reimbursement category - also has SST
+                        $account_code="500-010";
+                        $sv="SV";
+                        // Use SST from database if available (same as invoice details page), otherwise calculate
+                        if ($sstColumnExists && isset($detail->sst) && $detail->sst !== null && $detail->sst !== '') {
+                            // Use the stored SST value from database
+                            $taxAmt = floatval($detail->sst);
+                        } else {
+                            // Fallback: Calculate SST
+                            $taxAmt = ($detail->sst_rate/100) * $detail->amount;
+                        }
                     }
                     else if ($detail->account_cat_id == 2) {
                         $account_code="SD-CA";
@@ -415,13 +469,114 @@ class EInvoiceContollerV2 extends Controller
                 if ($detail->account_cat_id == 1) {
                     $account_code="500-010";
                     $sv="SV";
-                    // Apply special rounding rule: round DOWN if 3rd decimal is 5
-                    $sst_calculation = ($detail->sst_rate/100) * $detail->amount;
-                    $sst_string = number_format($sst_calculation, 3, '.', '');
-                    if (substr($sst_string, -1) == '5') {
-                        $taxAmt = floor($sst_calculation * 100) / 100; // Round down
-                    } else {
-                        $taxAmt = round($sst_calculation, 2); // Normal rounding
+                    // Use SST from database if available (same as invoice details page), otherwise calculate
+                    // Check if SST value exists and is valid (matching invoice print template logic)
+                    $hasCustomSst = false;
+                    
+                    // IMPORTANT: Access SST using property_exists check first (for stdClass objects from DB query)
+                    $sstValue = null;
+                    
+                    // Try multiple ways to access SST value (stdClass property access)
+                    if ($sstColumnExists) {
+                        if (property_exists($detail, 'sst')) {
+                            $sstValue = $detail->sst;
+                        } elseif (isset($detail->sst)) {
+                            $sstValue = $detail->sst;
+                        }
+                    }
+                    
+                    // Debug: Log SST retrieval attempt
+                    if (abs($detail->amount - 204.81) < 0.01) {
+                        \Log::info("Excel Export - SST Debug for 204.81", [
+                            'sstColumnExists' => $sstColumnExists,
+                            'sst_value' => $sstValue,
+                            'sst_type' => gettype($sstValue),
+                            'property_exists' => property_exists($detail, 'sst'),
+                            'isset_sst' => isset($detail->sst),
+                            'sst_not_null' => $sstValue !== null,
+                            'sst_not_empty' => $sstValue !== null ? (trim((string)$sstValue) !== '') : false,
+                            'is_numeric' => $sstValue !== null ? is_numeric($sstValue) : false,
+                            'account_name' => $detail->account_name ?? 'N/A',
+                            'amount' => $detail->amount
+                        ]);
+                    }
+                    
+                    // Check if SST value is valid (not null, not empty string, and numeric)
+                    if ($sstValue !== null && trim((string)$sstValue) !== '' && is_numeric($sstValue)) {
+                        // Use the stored SST value from database (exact match to invoice print template)
+                        $taxAmt = (float) $sstValue;
+                        $hasCustomSst = true;
+                        
+                        // Debug log
+                        if (abs($detail->amount - 204.81) < 0.01) {
+                            \Log::info("Excel Export - Using database SST", [
+                                'amount' => $detail->amount,
+                                'sst_from_db' => $taxAmt,
+                                'sst_raw_value' => $sstValue,
+                                'account_name' => $detail->account_name ?? 'N/A'
+                            ]);
+                        }
+                    }
+                    
+                    if (!$hasCustomSst) {
+                        // Fallback: Calculate SST with special rounding rule: round DOWN if 3rd decimal is 5
+                        $sst_calculation = ($detail->sst_rate/100) * $detail->amount;
+                        $sst_string = number_format($sst_calculation, 3, '.', '');
+                        if (substr($sst_string, -1) == '5') {
+                            $taxAmt = floor($sst_calculation * 100) / 100; // Round down
+                        } else {
+                            $taxAmt = round($sst_calculation, 2); // Normal rounding
+                        }
+                        
+                        // Debug log
+                        if (abs($detail->amount - 204.81) < 0.01) {
+                            \Log::info("Excel Export - Calculating SST (database value not found)", [
+                                'amount' => $detail->amount,
+                                'sst_rate' => $detail->sst_rate ?? 'N/A',
+                                'calculated_sst' => $taxAmt,
+                                'sst_value_checked' => $sstValue,
+                                'sstColumnExists' => $sstColumnExists,
+                                'property_exists' => property_exists($detail, 'sst'),
+                                'account_name' => $detail->account_name ?? 'N/A'
+                            ]);
+                        }
+                    }
+                    $Amt = $detail->amount + $taxAmt;
+                }
+                else if ($detail->account_cat_id == 4) {
+                    // Reimbursement category - also has SST
+                    $account_code="500-010";
+                    $sv="SV";
+                    // Use SST from database if available (same as invoice details page), otherwise calculate
+                    // IMPORTANT: Access SST using property_exists check first (for stdClass objects from DB query)
+                    $hasCustomSst = false;
+                    $sstValue = null;
+                    
+                    // Try multiple ways to access SST value (stdClass property access)
+                    if ($sstColumnExists) {
+                        if (property_exists($detail, 'sst')) {
+                            $sstValue = $detail->sst;
+                        } elseif (isset($detail->sst)) {
+                            $sstValue = $detail->sst;
+                        }
+                    }
+                    
+                    // Check if SST value is valid (not null, not empty string, and numeric)
+                    if ($sstValue !== null && trim((string)$sstValue) !== '' && is_numeric($sstValue)) {
+                        // Use the stored SST value from database (exact match to invoice print template)
+                        $taxAmt = (float) $sstValue;
+                        $hasCustomSst = true;
+                    }
+                    
+                    if (!$hasCustomSst) {
+                        // Fallback: Calculate SST with special rounding rule: round DOWN if 3rd decimal is 5
+                        $sst_calculation = ($detail->sst_rate/100) * $detail->amount;
+                        $sst_string = number_format($sst_calculation, 3, '.', '');
+                        if (substr($sst_string, -1) == '5') {
+                            $taxAmt = floor($sst_calculation * 100) / 100; // Round down
+                        } else {
+                            $taxAmt = round($sst_calculation, 2); // Normal rounding
+                        }
                     }
                     $Amt = $detail->amount + $taxAmt;
                 }
